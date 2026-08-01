@@ -1,0 +1,68 @@
+# Docker Compose specification version (optional in modern Docker)
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------------
+  # Primary ERP Database Service (PostgreSQL 16)
+  # -------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_postgres
+    restart: always # Keeps container running across reboots/crashes
+    
+    # Environment variables pulled automatically from your .env file
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      
+    # Map host port to container port
+    ports:
+      - "${POSTGRES_PORT}:5432"
+      
+    # Mount persistent data volume and initialization SQL scripts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d # Runs SQL scripts on first boot
+      
+    # Healthcheck to verify database readiness before dependent services start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------------
+  # Web GUI Management Interface (pgAdmin 4)
+  # -------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: erp_pgadmin
+    restart: always
+    
+    # Credentials to log into http://localhost:5050
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      
+    # Map web interface port
+    ports:
+      - "${PGADMIN_PORT}:80"
+      
+    # Wait until PostgreSQL healthcheck passes before launching pgAdmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+        
+    # Store pgAdmin settings/sessions persistently
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+# -------------------------------------------------------------------
+# Persistent Storage Volumes
+# -------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
