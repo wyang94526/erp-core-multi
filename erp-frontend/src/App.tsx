@@ -1,115 +1,75 @@
-import { Link, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Outlet } from 'react-router-dom'
+import SidebarNav from './components/SidebarNav'
 import './App.css'
 
+const MOBILE_BREAKPOINT = 768
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false,
+  )
+
+  useEffect(() => {
+    const media = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
+    const onChange = () => setIsMobile(media.matches)
+    onChange()
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  return isMobile
+}
+
 function App() {
+  const isMobile = useIsMobile()
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= MOBILE_BREAKPOINT : true,
+  )
+
+  useEffect(() => {
+    setSidebarOpen(!isMobile)
+  }, [isMobile])
+
+  const toggleSidebar = () => setSidebarOpen((open) => !open)
+  const closeSidebar = () => {
+    if (isMobile) setSidebarOpen(false)
+  }
+
   return (
-    <div className="app-container">
-      <header style={{ padding: '20px', backgroundColor: '#f5f5f5', borderBottom: '1px solid #ddd', textAlign: 'center' }}>
-        <h1>ERP System</h1>
+    <div className={`app-shell${sidebarOpen ? '' : ' sidebar-collapsed'}${isMobile ? ' is-mobile' : ''}`}>
+      {isMobile && sidebarOpen && (
+        <button
+          type="button"
+          className="app-sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-        <nav style={{ marginTop: '15px', display: 'flex', gap: '20px' }}>
-          <Link
-            to="/"
-            style={{
-              textDecoration: 'none',
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            Sales Orders
-          </Link>
-          <Link
-            to="/purchase-orders"
-            style={{
-              textDecoration: 'none',
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            Purchase Orders
-          </Link>
-          <Link
-            to="/vendors"
-            style={{
-              textDecoration: 'none',
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            Vendors
-          </Link>
-          <Link
-            to="/products"
-            style={{
-              textDecoration: 'none',
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            Products
-          </Link>
-          <Link
-            to="/customers"
-            style={{
-              textDecoration: 'none',
+      <SidebarNav collapsed={!sidebarOpen} onNavigate={closeSidebar} />
 
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+      <div className="app-content">
+        <header className="app-topbar">
+          <button
+            type="button"
+            className="app-sidebar-toggle"
+            onClick={toggleSidebar}
+            aria-label={sidebarOpen ? 'Collapse navigation' : 'Expand navigation'}
+            aria-expanded={sidebarOpen}
           >
-            Customers
-          </Link>
-          <Link
-            to="/subcontract-orders"
-            style={{
-              textDecoration: 'none',
-              color: '#2196F3',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              padding: '8px 12px',
-              borderRadius: '4px',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e3f2fd')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            Subcontract Orders
-          </Link>
-        </nav>
-      </header>
-      <main>
-        <Outlet />
-      </main>
+            <span className="app-hamburger" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          </button>
+          <h1 className="app-topbar-title">GTT-USA ERP System</h1>
+        </header>
+        <main className="app-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }
