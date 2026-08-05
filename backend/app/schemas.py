@@ -149,29 +149,9 @@ class JournalEntryRead(ORMModel):
 # CATALOG MODELS - internal product
 # ==========================================
 
-class ProductBaseCreate(BaseModel):
-    sku: str = Field(min_length=1, max_length=50)
-    name: str = Field(min_length=1, max_length=255)
-    unit_price: Decimal = Field(gt=0, decimal_places=2)
-    stock_quantity: int = Field(default=0, ge=0)
 
-class ProductBaseUpdate(BaseModel):
-    sku: str | None = Field(default=None, min_length=1, max_length=50)
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    unit_price: Decimal | None = Field(default=None, gt=0, decimal_places=2)
-    stock_quantity: int | None = Field(default=None, ge=0)
 
-class ProductBaseRead(ORMModel):
-    id: UUID
-    sku: str
-    name: str
-    unit_price: Decimal
-    stock_quantity: int
-    created_at: datetime
 
-# ==========================================
-# CRM & SALES MODELS (String-Based Keys)
-# ==========================================
 class CustomerCreate(BaseModel):
     customer_id: str = Field(max_length=50)
     customer_number_ext: str | None = Field(default=None, max_length=50)
@@ -224,8 +204,8 @@ class CustomerLocationRead(ORMModel):
     contact_email: EmailStr | None
 
 
-class ProductCreate(BaseModel):
-    product_id: str = Field(max_length=50)
+class ItemCreate(BaseModel):
+    item_id: str = Field(max_length=50)
     customer_part_number: str = Field(max_length=50)
     description: str | None = None
     uom: str = Field(default="Each", max_length=20)
@@ -237,8 +217,8 @@ class ProductCreate(BaseModel):
     is_subcontract_assembly: bool = Field(default=False)
     is_raw_material: bool = Field(default=False)
 
-class ProductRead(ORMModel):
-    product_id: str
+class ItemRead(ORMModel):
+    item_id: str
     customer_part_number: str
     description: str | None
     uom: str
@@ -250,7 +230,7 @@ class ProductRead(ORMModel):
     is_subcontract_assembly: bool = False
     is_raw_material: bool = False
 
-class ProductUpdate(BaseModel):
+class ItemUpdate(BaseModel):
     customer_part_number: str | None = Field(default=None, max_length=50)
     description: str | None = None
     uom: str | None = Field(default=None, max_length=20)
@@ -269,7 +249,7 @@ class ProductUpdate(BaseModel):
 class SalesOrderItemCreate(BaseModel):
     # REMOVED: sales_order_id (The backend will assign this automatically)
     line_number: int
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     quantity_ordered: int = Field(gt=0)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
@@ -279,7 +259,7 @@ class SalesOrderItemRead(ORMModel):
     so_item_id: int
     sales_order_id: str
     line_number: int
-    product_id: str
+    item_id: str
     quantity_ordered: int
     unit_price: Decimal
     tax_amount: Decimal
@@ -427,8 +407,8 @@ LABOR_SERVICE_CODES: dict[str, str] = {
 from pydantic import model_validator
 
 
-class ProductBOMComponentCreate(BaseModel):
-    component_product_id: str | None = Field(default=None, max_length=50)
+class ItemBOMComponentCreate(BaseModel):
+    component_item_id: str | None = Field(default=None, max_length=50)
     component_code: str | None = Field(default=None, max_length=50)
     quantity_per: Decimal = Field(gt=0, decimal_places=4)
     item_type: Literal['Material', 'Labor', 'Outside Service'] = Field(default='Material')
@@ -436,10 +416,10 @@ class ProductBOMComponentCreate(BaseModel):
     yield_loss_percentage: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=4)
 
     @model_validator(mode='after')
-    def _validate_component_ref(self) -> 'ProductBOMComponentCreate':
+    def _validate_component_ref(self) -> 'ItemBOMComponentCreate':
         if self.item_type == 'Material':
-            if not self.component_product_id:
-                raise ValueError('component_product_id is required when item_type is Material')
+            if not self.component_item_id:
+                raise ValueError('component_item_id is required when item_type is Material')
             if self.component_code:
                 raise ValueError('component_code must not be set when item_type is Material')
         else:
@@ -447,12 +427,12 @@ class ProductBOMComponentCreate(BaseModel):
                 raise ValueError('component_code is required when item_type is Labor or Outside Service')
             if self.component_code not in LABOR_SERVICE_CODES:
                 raise ValueError(f'component_code must be one of {sorted(LABOR_SERVICE_CODES)}')
-            if self.component_product_id:
-                raise ValueError('component_product_id must not be set when item_type is Labor or Outside Service')
+            if self.component_item_id:
+                raise ValueError('component_item_id must not be set when item_type is Labor or Outside Service')
         return self
 
-class ProductBOMComponentUpdate(BaseModel):
-    component_product_id: str | None = Field(default=None, max_length=50)
+class ItemBOMComponentUpdate(BaseModel):
+    component_item_id: str | None = Field(default=None, max_length=50)
     component_code: str | None = Field(default=None, max_length=50)
     quantity_per: Decimal | None = Field(default=None, gt=0, decimal_places=4)
     item_type: Literal['Material', 'Labor', 'Outside Service'] | None = None
@@ -460,20 +440,20 @@ class ProductBOMComponentUpdate(BaseModel):
     yield_loss_percentage: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=4)
 
     @model_validator(mode='after')
-    def _validate_component_ref(self) -> 'ProductBOMComponentUpdate':
+    def _validate_component_ref(self) -> 'ItemBOMComponentUpdate':
         if self.item_type == 'Material' and self.component_code:
             raise ValueError('component_code must not be set when item_type is Material')
         if self.item_type in ('Labor', 'Outside Service'):
             if self.component_code and self.component_code not in LABOR_SERVICE_CODES:
                 raise ValueError(f'component_code must be one of {sorted(LABOR_SERVICE_CODES)}')
-            if self.component_product_id:
-                raise ValueError('component_product_id must not be set when item_type is Labor or Outside Service')
+            if self.component_item_id:
+                raise ValueError('component_item_id must not be set when item_type is Labor or Outside Service')
         return self
 
-class ProductBOMComponentRead(ORMModel):
+class ItemBOMComponentRead(ORMModel):
     bom_id: int
-    parent_product_id: str
-    component_product_id: str | None
+    parent_item_id: str
+    component_item_id: str | None
     component_code: str | None = None
     quantity_per: Decimal
     item_type: str
@@ -485,7 +465,7 @@ class ProductBOMComponentRead(ORMModel):
 class SubcontractOrderComponentRead(ORMModel):
     sco_component_id: int
     sco_number: str
-    component_product_id: str
+    component_item_id: str
     quantity_required: Decimal
     quantity_issued: Decimal
     quantity_remaining: Decimal | None = None
@@ -496,13 +476,13 @@ class SubcontractOrderComponentRead(ORMModel):
 
 
 class MaterialIssueLineCreate(BaseModel):
-    component_product_id: str = Field(max_length=50)
+    component_item_id: str = Field(max_length=50)
     quantity_issued: Decimal = Field(gt=0, decimal_places=4)
 
 class MaterialIssueLineRead(ORMModel):
     issue_line_id: int
     issue_id: str
-    component_product_id: str
+    component_item_id: str
     quantity_issued: Decimal
 
 
@@ -539,7 +519,7 @@ class FinishedGoodsReceiptRead(ORMModel):
 class SubcontractOrderCreate(BaseModel):
     sco_number: str = Field(max_length=50)
     supplier_id: str = Field(max_length=50)
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     quantity_ordered: int = Field(gt=0)
     order_date: date | None = None
     expected_return_date: date | None = None
@@ -555,7 +535,7 @@ class SubcontractOrderUpdate(BaseModel):
 class SubcontractOrderRead(ORMModel):
     sco_number: str
     supplier_id: str
-    product_id: str
+    item_id: str
     quantity_ordered: int
     status: str
     approval_status: str = 'DRAFT'
@@ -766,10 +746,36 @@ class RoleRead(ORMModel):
     permissions: list[str] = Field(default_factory=list)
 
 
+class RoleCreate(BaseModel):
+    role_id: str = Field(max_length=50)
+    role_name: str = Field(max_length=100)
+    description: str | None = None
+    permission_codes: list[str] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    role_name: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    permission_codes: list[str] | None = None
+
+
 class PermissionRead(ORMModel):
     id: str
     code: str
     module: str
+    description: str | None = None
+
+
+class PermissionCreate(BaseModel):
+    id: str = Field(max_length=50)
+    code: str = Field(max_length=100)
+    module: str = Field(max_length=50)
+    description: str | None = None
+
+
+class PermissionUpdate(BaseModel):
+    code: str | None = Field(default=None, max_length=100)
+    module: str | None = Field(default=None, max_length=50)
     description: str | None = None
 
 
@@ -779,7 +785,7 @@ class UserRolesAssign(BaseModel):
 
 class WorkflowStepCreate(BaseModel):
     id: str = Field(max_length=50)
-    step_number: int
+    step_number: int = Field(ge=1)
     step_name: str = Field(max_length=100)
     required_role_id: str | None = None
     required_permission: str | None = None
@@ -801,6 +807,15 @@ class WorkflowDefinitionCreate(BaseModel):
     is_active: bool = True
     name: str | None = None
     steps: list[WorkflowStepCreate] = Field(default_factory=list)
+
+
+class WorkflowDefinitionUpdate(BaseModel):
+    module: str | None = Field(default=None, max_length=50)
+    min_amount: Decimal | None = None
+    max_amount: Decimal | None = None
+    is_active: bool | None = None
+    name: str | None = None
+    steps: list[WorkflowStepCreate] | None = None
 
 
 class WorkflowDefinitionRead(ORMModel):
@@ -889,7 +904,7 @@ class BinLocationRead(ORMModel):
 
 class InventoryStockCreate(BaseModel):
     stock_id: str = Field(max_length=50)
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     warehouse_id: str = Field(max_length=50)
     bin_id: str = Field(max_length=50)
     on_hand_quantity: int = Field(default=0, ge=0)
@@ -900,7 +915,7 @@ class InventoryStockCreate(BaseModel):
 
 class InventoryStockItemRead(BaseModel):
     """Aggregated product-level stock view for the Inventory Overview UI."""
-    product_id: str
+    item_id: str
     description: str | None = None
     uom: str = "Each"
     on_hand_quantity: int
@@ -916,7 +931,7 @@ class InventoryStockItemRead(BaseModel):
 
 class StockMovementCreate(BaseModel):
     movement_id: str = Field(max_length=50)
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     movement_type: Literal['Receipt', 'Issue', 'Adjustment', 'Transfer']
     quantity: int
     warehouse_id: str = Field(max_length=50)
@@ -927,7 +942,7 @@ class StockMovementCreate(BaseModel):
 
 class StockMovementRead(ORMModel):
     movement_id: str
-    product_id: str
+    item_id: str
     movement_type: str
     quantity: int
     warehouse_id: str
@@ -941,14 +956,14 @@ class StockMovementRead(ORMModel):
 
 
 class StockAdjustRequest(BaseModel):
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     quantity_delta: int
     notes: str | None = None
     warehouse_id: str | None = Field(default=None, max_length=50)
     bin_id: str | None = Field(default=None, max_length=50)
 
 class StockTransferRequest(BaseModel):
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     quantity: int = Field(gt=0)
     to_warehouse_id: str = Field(max_length=50)
     to_bin_id: str = Field(max_length=50)
@@ -962,15 +977,18 @@ class StockTransferRequest(BaseModel):
 # ITEM CATALOG / VENDOR MAPPING / SUBCONTRACT BOM
 # ==========================================
 
-# Item* aliases map 1:1 onto Product (products table is the item master).
-ItemCreate = ProductCreate
-ItemRead = ProductRead
-ItemUpdate = ProductUpdate
+# Backward-compatible aliases
+ProductCreate = ItemCreate
+ProductRead = ItemRead
+ProductUpdate = ItemUpdate
+ProductBOMComponentCreate = ItemBOMComponentCreate
+ProductBOMComponentUpdate = ItemBOMComponentUpdate
+ProductBOMComponentRead = ItemBOMComponentRead
 
 
 class VendorItemMappingCreate(BaseModel):
     supplier_id: str = Field(max_length=50)
-    product_id: str = Field(max_length=50)
+    item_id: str = Field(max_length=50)
     vendor_sku: str | None = Field(default=None, max_length=100)
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     minimum_order_qty: Decimal = Field(default=Decimal("1"), gt=0, decimal_places=4)
@@ -989,7 +1007,7 @@ class VendorItemMappingUpdate(BaseModel):
 class VendorItemMappingRead(ORMModel):
     mapping_id: int
     supplier_id: str
-    product_id: str
+    item_id: str
     vendor_sku: str | None
     unit_cost: Decimal | None
     minimum_order_qty: Decimal
@@ -997,7 +1015,7 @@ class VendorItemMappingRead(ORMModel):
     is_primary_vendor: bool
     created_at: datetime | None = None
     supplier_name: str | None = None
-    product_description: str | None = None
+    item_description: str | None = None
 
 
 class SubcontractBOMLineCreate(BaseModel):
@@ -1033,7 +1051,7 @@ class SubcontractBOMRead(ORMModel):
 
 
 class CalculatedComponentLine(BaseModel):
-    component_product_id: str
+    component_item_id: str
     description: str | None = None
     quantity_per: Decimal
     scrap_factor: Decimal = Decimal("0")
@@ -1058,7 +1076,7 @@ class ComponentIssueLogRead(ORMModel):
     log_id: int
     sco_number: str
     issue_id: str
-    component_product_id: str
+    component_item_id: str
     quantity_issued: Decimal
     issued_at: datetime | None = None
     notes: str | None = None

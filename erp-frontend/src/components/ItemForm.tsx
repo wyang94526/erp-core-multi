@@ -14,7 +14,7 @@ const UOM_OPTIONS = ['Each', 'Box', 'Case', 'Pallet', 'Kg', 'Lb', 'Meter', 'Foot
 
 const BOM_ITEM_TYPE_OPTIONS = ['Material', 'Labor', 'Outside Service'] as const
 
-// Predefined Labor / Outside Service codes. These aren't real catalog Products,
+// Predefined Labor / Outside Service codes. These aren't real catalog items,
 // so they're validated against this fixed list on the backend rather than a
 // foreign key to the products table. Each code has a fixed UOM.
 const LABOR_SERVICE_CODES: Record<string, { label: string; uom: string }> = {
@@ -34,7 +34,7 @@ interface BomComponentRow {
   id: string // temporary/local UUID for React keys
   bomId?: number // backend bom_id once persisted
   itemType: (typeof BOM_ITEM_TYPE_OPTIONS)[number]
-  componentPartNumber: string // used when itemType === 'Material' (component_product_id)
+  componentPartNumber: string // used when itemType === 'Material' (component_item_id)
   componentCode: string // used when itemType is 'Labor' or 'Outside Service' (component_code)
   description: string
   quantity: string
@@ -93,8 +93,8 @@ export function ItemForm() {
   // Fetch product data if in edit mode
   const {
     data: item,
-    isLoading: isLoadingProduct,
-    isError: isErrorLoadingProduct,
+    isLoading: isLoadingItem,
+    isError: isErrorLoadingItem,
   } = useQuery({
     queryKey: ['items', id],
     queryFn: () => (id ? itemService.getItem(id) : Promise.resolve(null)),
@@ -155,12 +155,12 @@ export function ItemForm() {
       const rows: BomComponentRow[] = existingBomComponents.map((bom: ProductBOMComponent) => {
         const itemType = (bom.item_type as BomComponentRow['itemType']) || 'Material'
         if (itemType === 'Material') {
-          const componentItem = allItems.find((p) => p.item_id === bom.component_product_id)
+          const componentItem = allItems.find((p) => p.item_id === bom.component_item_id)
           return {
             id: makeLocalId(),
             bomId: bom.bom_id,
             itemType,
-            componentPartNumber: bom.component_product_id || '',
+            componentPartNumber: bom.component_item_id || '',
             componentCode: '',
             description: componentItem?.description || '',
             quantity: String(bom.quantity_per),
@@ -266,7 +266,7 @@ export function ItemForm() {
   // ==========================================
   // BOM HANDLERS
   // (Each row is persisted to the backend immediately via dedicated REST calls,
-  // rather than waiting for the main "Update Product" submit.)
+  // rather than waiting for the main "Update Item" submit.)
   // ==========================================
 
   const handleAddBomComponent = () => {
@@ -368,8 +368,8 @@ export function ItemForm() {
 
     try {
       const basePayload = isMaterial
-        ? { component_product_id: row.componentPartNumber, component_code: null }
-        : { component_code: row.componentCode, component_product_id: null }
+        ? { component_item_id: row.componentPartNumber, component_code: null }
+        : { component_code: row.componentCode, component_item_id: null }
 
       if (row.bomId) {
         const updated = await itemBomService.updateBomComponent(id, row.bomId, {
@@ -466,7 +466,7 @@ export function ItemForm() {
     }
   }
 
-  if (isEditMode && isLoadingProduct) {
+  if (isEditMode && isLoadingItem) {
     return (
       <div style={containerStyle}>
         <div style={emptyStateWrapperStyle}>
@@ -476,7 +476,7 @@ export function ItemForm() {
     )
   }
 
-  if (isEditMode && isErrorLoadingProduct) {
+  if (isEditMode && isErrorLoadingItem) {
     return (
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>

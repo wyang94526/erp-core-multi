@@ -11,7 +11,7 @@ import type { Customer, Item, Location } from '../types'
 
 interface LineItem {
   line_number: number
-  product_id: string
+  item_id: string
   quantity_ordered: number
   unit_price: number
   tax_amount: number
@@ -45,7 +45,7 @@ export function SalesOrderForm() {
   const [lineItems, setLineItems] = useState<LineItem[]>([
     {
       line_number: 1,
-      product_id: '',
+      item_id: '',
       quantity_ordered: 1,
       unit_price: 0,
       tax_amount: 0,
@@ -132,7 +132,7 @@ export function SalesOrderForm() {
         setLineItems(
           salesOrder.items.map((item) => ({
             line_number: item.line_number,
-            product_id: item.product_id,
+            item_id: item.item_id,
             quantity_ordered: item.quantity_ordered,
             unit_price: Number(item.unit_price),
             tax_amount: Number(item.tax_amount),
@@ -241,7 +241,7 @@ export function SalesOrderForm() {
 
     if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount') {
       (item[field] as number) = Number(value)
-    } else if (field === 'product_id') {
+    } else if (field === 'item_id') {
       (item[field] as string) = value as string
     } else if (field === 'line_number') {
       (item[field] as number) = Number(value)
@@ -266,7 +266,7 @@ export function SalesOrderForm() {
       ...lineItems,
       {
         line_number: newLineNumber,
-        product_id: '',
+        item_id: '',
         quantity_ordered: 1,
         unit_price: 0,
         tax_amount: 0,
@@ -315,7 +315,7 @@ export function SalesOrderForm() {
       newErrors.items = 'At least one line item is required'
     } else {
       lineItems.forEach((item, index) => {
-        if (!item.product_id.trim()) {
+        if (!item.item_id.trim()) {
           newErrors[`item_${index}_product`] = 'Item is required'
         }
         if (item.quantity_ordered <= 0) {
@@ -714,9 +714,9 @@ export function SalesOrderForm() {
                     <td style={tdStyle}>{item.line_number}</td>
                     <td style={tdStyle}>
                       <select
-                        value={item.product_id}
+                        value={item.item_id}
                         onChange={(e) =>
-                          handleLineItemChange(index, 'product_id', e.target.value)
+                          handleLineItemChange(index, 'item_id', e.target.value)
                         }
                         style={{
                           ...inputStyle,

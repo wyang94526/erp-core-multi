@@ -1,6 +1,6 @@
 """
 Inventory service: stock aggregation, adjustments, transfers, and
-sync of Products.on_hand_quantity as company-wide cache.
+sync of items.on_hand_quantity as company-wide cache.
 """
 
 from datetime import date
@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import BinLocation, InventoryStock, Product, StockMovement, Warehouse
+from app.models import BinLocation, InventoryStock, Item, StockMovement, Warehouse
 from app.schemas import InventoryStockItemRead
 
 
@@ -22,15 +22,15 @@ def derive_status(on_hand: int, reorder_point: int) -> str:
     return "In Stock"
 
 
-def sync_product_on_hand(db: Session, product_id: str) -> None:
+def sync_item_on_hand(db: Session, item_id: str) -> None:
     total = (
         db.query(func.coalesce(func.sum(InventoryStock.on_hand_quantity), 0))
-        .filter(InventoryStock.product_id == product_id)
+        .filter(InventoryStock.item_id == item_id)
         .scalar()
     )
-    product = db.get(Product, product_id)
-    if product:
-        product.on_hand_quantity = int(total or 0)
+    item = db.get(Item, item_id)
+    if item:
+        item.on_hand_quantity = int(total or 0)
 
 
 def _primary_stock_row(rows: list[InventoryStock]) -> InventoryStock:
@@ -44,29 +44,29 @@ def list_stock_overview(db: Session) -> list[InventoryStockItemRead]:
     rows = (
         db.query(InventoryStock)
         .options(
-            joinedload(InventoryStock.product),
+            joinedload(InventoryStock.item),
             joinedload(InventoryStock.warehouse),
             joinedload(InventoryStock.bin_location),
         )
         .all()
     )
-    by_product: dict[str, list[InventoryStock]] = {}
+    by_item: dict[str, list[InventoryStock]] = {}
     for row in rows:
-        by_product.setdefault(row.product_id, []).append(row)
+        by_item.setdefault(row.item_id, []).append(row)
 
     result: list[InventoryStockItemRead] = []
-    for product_id, stock_rows in by_product.items():
+    for item_id, stock_rows in by_item.items():
         on_hand = sum(r.on_hand_quantity for r in stock_rows)
         allocated = sum(r.allocated_quantity for r in stock_rows)
         on_order = sum(r.on_order_quantity for r in stock_rows)
         primary = _primary_stock_row(stock_rows)
         reorder = primary.reorder_point
-        product = primary.product
+        catalog_item = primary.item
         result.append(
             InventoryStockItemRead(
-                product_id=product_id,
-                description=product.description if product else None,
-                uom=product.uom if product else "Each",
+                item_id=item_id,
+                description=catalog_item.description if catalog_item else None,
+                uom=catalog_item.uom if catalog_item else "Each",
                 on_hand_quantity=on_hand,
                 allocated_quantity=allocated,
                 on_order_quantity=on_order,
@@ -79,17 +79,17 @@ def list_stock_overview(db: Session) -> list[InventoryStockItemRead]:
             )
         )
 
-    result.sort(key=lambda item: item.product_id)
+    result.sort(key=lambda item: item.item_id)
     return result
 
 
 def _resolve_stock_location(
     db: Session,
-    product_id: str,
+    item_id: str,
     warehouse_id: str | None,
     bin_id: str | None,
 ) -> InventoryStock:
-    query = db.query(InventoryStock).filter(InventoryStock.product_id == product_id)
+    query = db.query(InventoryStock).filter(InventoryStock.item_id == item_id)
     if warehouse_id:
         query = query.filter(InventoryStock.warehouse_id == warehouse_id)
     if bin_id:
@@ -98,11 +98,11 @@ def _resolve_stock_location(
     rows = query.options(
         joinedload(InventoryStock.warehouse),
         joinedload(InventoryStock.bin_location),
-        joinedload(InventoryStock.product),
+        joinedload(InventoryStock.item),
     ).all()
 
     if not rows:
-        raise HTTPException(status_code=404, detail=f"No inventory stock for product {product_id}")
+        raise HTTPException(status_code=404, detail=f"No inventory stock for item {item_id}")
     if warehouse_id or bin_id:
         return rows[0]
     return _primary_stock_row(rows)
@@ -110,7 +110,7 @@ def _resolve_stock_location(
 
 def adjust_stock(
     db: Session,
-    product_id: str,
+    item_id: str,
     quantity_delta: int,
     notes: str | None = None,
     warehouse_id: str | None = None,
@@ -119,7 +119,7 @@ def adjust_stock(
     if quantity_delta == 0:
         raise HTTPException(status_code=400, detail="quantity_delta must be non-zero")
 
-    stock = _resolve_stock_location(db, product_id, warehouse_id, bin_id)
+    stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
     new_qty = stock.on_hand_quantity + quantity_delta
     if new_qty < 0:
         raise HTTPException(status_code=400, detail="Insufficient on-hand quantity for adjustment")
@@ -127,7 +127,7 @@ def adjust_stock(
     stock.on_hand_quantity = new_qty
     movement = StockMovement(
         movement_id=f"MOV-{uuid4().hex[:10].upper()}",
-        product_id=product_id,
+        item_id=item_id,
         movement_type="Adjustment",
         quantity=quantity_delta,
         warehouse_id=stock.warehouse_id,
@@ -137,14 +137,14 @@ def adjust_stock(
         movement_date=date.today(),
     )
     db.add(movement)
-    sync_product_on_hand(db, product_id)
+    sync_item_on_hand(db, item_id)
     db.flush()
-    return next(item for item in list_stock_overview(db) if item.product_id == product_id)
+    return next(item for item in list_stock_overview(db) if item.item_id == item_id)
 
 
 def transfer_stock(
     db: Session,
-    product_id: str,
+    item_id: str,
     quantity: int,
     to_warehouse_id: str,
     to_bin_id: str,
@@ -155,7 +155,7 @@ def transfer_stock(
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
 
-    source = _resolve_stock_location(db, product_id, from_warehouse_id, from_bin_id)
+    source = _resolve_stock_location(db, item_id, from_warehouse_id, from_bin_id)
     if quantity > source.on_hand_quantity:
         raise HTTPException(status_code=400, detail="Insufficient on-hand quantity for transfer")
 
@@ -169,7 +169,7 @@ def transfer_stock(
     dest = (
         db.query(InventoryStock)
         .filter(
-            InventoryStock.product_id == product_id,
+            InventoryStock.item_id == item_id,
             InventoryStock.bin_id == to_bin_id,
         )
         .first()
@@ -177,7 +177,7 @@ def transfer_stock(
     if not dest:
         dest = InventoryStock(
             stock_id=f"STK-{uuid4().hex[:10].upper()}",
-            product_id=product_id,
+            item_id=item_id,
             warehouse_id=to_warehouse_id,
             bin_id=to_bin_id,
             on_hand_quantity=0,
@@ -202,7 +202,7 @@ def transfer_stock(
     db.add(
         StockMovement(
             movement_id=f"MOV-{uuid4().hex[:10].upper()}",
-            product_id=product_id,
+            item_id=item_id,
             movement_type="Transfer",
             quantity=-quantity,
             warehouse_id=source.warehouse_id,
@@ -215,7 +215,7 @@ def transfer_stock(
     db.add(
         StockMovement(
             movement_id=f"MOV-{uuid4().hex[:10].upper()}",
-            product_id=product_id,
+            item_id=item_id,
             movement_type="Transfer",
             quantity=quantity,
             warehouse_id=to_warehouse_id,
@@ -226,14 +226,14 @@ def transfer_stock(
         )
     )
 
-    sync_product_on_hand(db, product_id)
+    sync_item_on_hand(db, item_id)
     db.flush()
-    return next(item for item in list_stock_overview(db) if item.product_id == product_id)
+    return next(item for item in list_stock_overview(db) if item.item_id == item_id)
 
 
 def list_movements(
     db: Session,
-    product_id: str | None = None,
+    item_id: str | None = None,
     skip: int = 0,
     limit: int = 100,
 ) -> list[StockMovement]:
@@ -245,6 +245,6 @@ def list_movements(
         )
         .order_by(StockMovement.movement_date.desc(), StockMovement.created_at.desc())
     )
-    if product_id:
-        query = query.filter(StockMovement.product_id == product_id)
+    if item_id:
+        query = query.filter(StockMovement.item_id == item_id)
     return query.offset(skip).limit(limit).all()

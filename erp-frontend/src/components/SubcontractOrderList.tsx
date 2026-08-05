@@ -14,11 +14,11 @@ export function SubcontractOrderList() {
   const [skip, setSkip] = useState(0)
   const limit = 10
 
-  // Optional productId query param (e.g. /subcontract-orders?productId=PROD-1001G)
+  // Optional itemId query param (e.g. /subcontract-orders?itemId=PROD-1001G)
   // set when navigating here from the "View Related Subcontract Orders" link
   // on the Edit Product page for outside-processed products.
   const [searchParams, setSearchParams] = useSearchParams()
-  const productIdFilter = searchParams.get('productId') || ''
+  const itemIdFilter = searchParams.get('itemId') || ''
 
   const {
     data: allScos = [],
@@ -30,14 +30,14 @@ export function SubcontractOrderList() {
     queryFn: () => subcontractOrderService.listSubcontractOrders(skip, limit),
   })
 
-  // Client-side filter by productId when the query param is present
-  const scos = productIdFilter
-    ? allScos.filter((sco) => sco.product_id === productIdFilter)
+  // Client-side filter by itemId when the query param is present
+  const scos = itemIdFilter
+    ? allScos.filter((sco) => sco.item_id === itemIdFilter)
     : allScos
 
   const handleClearFilter = () => {
     const next = new URLSearchParams(searchParams)
-    next.delete('productId')
+    next.delete('itemId')
     setSearchParams(next)
   }
 
@@ -81,9 +81,9 @@ export function SubcontractOrderList() {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Subcontract Orders</h2>
           <p style={pageSubStyle}>Manage outside processing orders sent to subcontractors</p>
-          {productIdFilter && (
+          {itemIdFilter && (
             <div style={filterBadgeRowStyle}>
-              <span style={filterBadgeStyle}>Filtered by Product: {productIdFilter}</span>
+              <span style={filterBadgeStyle}>Filtered by Product: {itemIdFilter}</span>
               <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
                 Clear filter
               </button>
@@ -127,7 +127,7 @@ export function SubcontractOrderList() {
                       <tr key={sco.sco_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{sco.sco_number}</td>
                         <td style={directoryTdStyle}>{sco.supplier_id}</td>
-                        <td style={directoryTdStyle}>{sco.product_id}</td>
+                        <td style={directoryTdStyle}>{sco.item_id}</td>
                         <td style={{ ...directoryTdStyle, textAlign: 'right' }}>{sco.quantity_ordered}</td>
                         <td style={directoryTdStyle}>
                           {sco.order_date ? new Date(sco.order_date).toLocaleDateString() : '-'}

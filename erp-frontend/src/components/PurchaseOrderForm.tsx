@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useTransition } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item } from '../types';
@@ -42,24 +43,27 @@ function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
   };
 }
 
+function generateNewPONumber() {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+  const randomHex = Math.floor(1000 + Math.random() * 9000);
+  return `PO-${dateStr}-${randomHex}`;
+}
+
 export function PurchaseOrderForm() {
+  const navigate = useNavigate();
+  const { id: poNumberParam } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const isNew = !poNumberParam;
+
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Item[]>([]);
-  const [savedPOs, setSavedPOs] = useState<PurchaseOrder[]>([]);
-  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isReadOnly, setIsReadOnly] = useState(!isNew && searchParams.get('edit') !== '1');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(!isNew);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
-  const [searchFilter, setSearchFilter] = useState('');
-  const [isExisting, setIsExisting] = useState(false);
-  const [, startTransition] = useTransition();
-
-  const generateNewPONumber = () => {
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
-    const randomHex = Math.floor(1000 + Math.random() * 9000);
-    return `PO-${dateStr}-${randomHex}`;
-  };
+  const [isExisting, setIsExisting] = useState(!isNew);
 
   const {
     state,
@@ -72,39 +76,69 @@ export function PurchaseOrderForm() {
     updateSummary,
     setFullPO,
     resetForm,
-  } = usePurchaseOrderState(generateNewPONumber());
+  } = usePurchaseOrderState(isNew ? generateNewPONumber() : '');
 
-  const withSupplierNames = (pos: PurchaseOrder[], sups: Supplier[]) => {
+  const withSupplierName = (po: PurchaseOrder, sups: Supplier[]) => {
     const nameById = Object.fromEntries(sups.map((s) => [s.supplier_id, s.company_name]));
-    return pos.map((po) => ({
+    return {
       ...po,
-      supplier_name: nameById[po.supplier_id] || po.supplier_id,
-    }));
+      supplier_name: nameById[po.supplier_id] || po.supplier_name || po.supplier_id,
+    };
   };
 
-  const reloadData = async () => {
-    try {
-      const [sups, pos, purchaseItems, allProds] = await Promise.all([
-        vendorService.listVendors(),
-        purchaseOrderService.listPurchaseOrders(),
-        itemService.listPurchaseItems(0, 1000).catch(() => [] as Item[]),
-        itemService.listItems(0, 1000),
-      ]);
-      setSuppliers(sups);
-      setSavedPOs(withSupplierNames(pos, sups));
-      // Prefer purchase-flagged items; fall back to full catalog if none flagged yet
-      setProducts(purchaseItems.length > 0 ? purchaseItems : allProds);
-    } catch (err) {
-      console.error('Failed to load PO initial data', err);
-      setErrors({
-        form: err instanceof Error ? err.message : 'Failed to load purchase orders',
-      });
-    }
+  const loadReferenceData = async () => {
+    const [sups, purchaseItems, allProds] = await Promise.all([
+      vendorService.listVendors(),
+      itemService.listPurchaseItems(0, 1000).catch(() => [] as Item[]),
+      itemService.listItems(0, 1000),
+    ]);
+    setSuppliers(sups);
+    setProducts(purchaseItems.length > 0 ? purchaseItems : allProds);
+    return sups;
   };
 
   useEffect(() => {
-    reloadData();
-  }, []);
+    let cancelled = false;
+
+    const init = async () => {
+      try {
+        setIsLoading(true);
+        setErrors({});
+        const sups = await loadReferenceData();
+        if (cancelled) return;
+
+        if (isNew) {
+          resetForm(generateNewPONumber());
+          setIsExisting(false);
+          setIsReadOnly(false);
+          setSuccessMessage('');
+          return;
+        }
+
+        const po = await purchaseOrderService.getPurchaseOrder(poNumberParam!);
+        if (cancelled) return;
+        setFullPO(withSupplierName(po, sups));
+        setIsExisting(true);
+        setIsReadOnly(searchParams.get('edit') !== '1');
+        setSuccessMessage('');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load purchase order', err);
+        setErrors({
+          form: err instanceof Error ? err.message : 'Failed to load purchase order',
+        });
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void init();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally keyed to route identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poNumberParam, isNew]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -165,7 +199,6 @@ export function PurchaseOrderForm() {
     if (payload.items.length === 0 && status !== 'Draft') {
       throw new Error('At least one valid line item is required');
     }
-    // Draft create still needs ≥1 item for backend schema
     if (payload.items.length === 0) {
       throw new Error('Add at least one line item with SKU and quantity before saving');
     }
@@ -196,17 +229,14 @@ export function PurchaseOrderForm() {
 
     try {
       const saved = await persistPO('Draft');
-      setFullPO({
-        ...saved,
-        supplier_name:
-          suppliers.find((s) => s.supplier_id === saved.supplier_id)?.company_name ||
-          saved.supplier_id,
-      });
+      setFullPO(withSupplierName(saved, suppliers));
       setIsExisting(true);
       setErrors({});
-      setSuccessMessage(`Draft purchase order ${state.po_number} saved successfully!`);
+      setSuccessMessage(`Draft purchase order ${saved.po_number} saved successfully!`);
       setIsReadOnly(true);
-      await reloadData();
+      if (isNew) {
+        navigate(`/purchase-orders/${saved.po_number}`, { replace: true });
+      }
     } catch (err) {
       console.error(err);
       setErrors({
@@ -227,23 +257,19 @@ export function PurchaseOrderForm() {
     }
 
     try {
-      // Persist first (Draft), then submit for approval workflow
       const saved = await persistPO('Draft');
       setIsExisting(true);
       await approvalService.submit('purchase-orders', saved.po_number);
       const refreshed = await purchaseOrderService.getPurchaseOrder(saved.po_number);
-      setFullPO({
-        ...refreshed,
-        supplier_name:
-          suppliers.find((s) => s.supplier_id === refreshed.supplier_id)?.company_name ||
-          refreshed.supplier_id,
-      });
+      setFullPO(withSupplierName(refreshed, suppliers));
       setErrors({});
       setSuccessMessage(
-        `Purchase order ${state.po_number} submitted for approval successfully!`
+        `Purchase order ${saved.po_number} submitted for approval successfully!`
       );
       setIsReadOnly(true);
-      await reloadData();
+      if (isNew) {
+        navigate(`/purchase-orders/${saved.po_number}`, { replace: true });
+      }
     } catch (err) {
       console.error(err);
       setErrors({
@@ -255,41 +281,31 @@ export function PurchaseOrderForm() {
   };
 
   const handleResetForm = () => {
-    if (window.confirm('Are you sure you want to reset the form? All unsaved work will be lost.')) {
+    if (!window.confirm('Are you sure you want to reset the form? All unsaved work will be lost.')) {
+      return;
+    }
+    if (isNew) {
       resetForm(generateNewPONumber());
       setIsReadOnly(false);
       setIsExisting(false);
       setErrors({});
       setSuccessMessage('');
+      return;
     }
-  };
-
-  const handleLoadPO = (po: PurchaseOrder) => {
-    setFullPO(po);
-    setIsExisting(true);
-    setIsReadOnly(true);
-    setErrors({});
-    setSuccessMessage('');
-  };
-
-  const handleDeletePO = async (poNumber: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm(`Are you sure you want to delete purchase order ${poNumber}?`)) {
+    // Reload from server for existing POs
+    void (async () => {
       try {
-        await purchaseOrderService.deletePurchaseOrder(poNumber);
-        if (state.po_number === poNumber) {
-          resetForm(generateNewPONumber());
-          setIsReadOnly(false);
-          setIsExisting(false);
-        }
-        setSuccessMessage(`Purchase order ${poNumber} deleted successfully.`);
-        await reloadData();
+        const po = await purchaseOrderService.getPurchaseOrder(poNumberParam!);
+        setFullPO(withSupplierName(po, suppliers));
+        setIsReadOnly(false);
+        setErrors({});
+        setSuccessMessage('');
       } catch (err) {
         setErrors({
-          form: err instanceof Error ? err.message : 'Failed to delete purchase order',
+          form: err instanceof Error ? err.message : 'Failed to reload purchase order',
         });
       }
-    }
+    })();
   };
 
   const handleToggleMode = () => {
@@ -299,45 +315,42 @@ export function PurchaseOrderForm() {
   const handleApprovalChange = async () => {
     try {
       const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
-      setFullPO({
-        ...refreshed,
-        supplier_name:
-          suppliers.find((s) => s.supplier_id === refreshed.supplier_id)?.company_name ||
-          refreshed.supplier_id,
-      });
-      await reloadData();
+      setFullPO(withSupplierName(refreshed, suppliers));
     } catch (err) {
       console.error(err);
     }
   };
 
-  const filteredPOs = useMemo(() => {
-    return savedPOs.filter(
-      (po) =>
-        po.po_number.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        (po.supplier_name && po.supplier_name.toLowerCase().includes(searchFilter.toLowerCase())) ||
-        po.status.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        (po.approval_status || '').toLowerCase().includes(searchFilter.toLowerCase())
+  if (isLoading) {
+    return (
+      <div style={containerStyle}>
+        <div style={emptyStateWrapperStyle}>
+          <p>Loading purchase order...</p>
+        </div>
+      </div>
     );
-  }, [savedPOs, searchFilter]);
-
-  const handleSearchFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    startTransition(() => {
-      setSearchFilter(value);
-    });
-  };
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+  }
 
   return (
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Purchase Orders Management</h2>
-          <p style={pageSubStyle}>Create, edit, validate and manage purchase orders with vendors</p>
+          <h2 style={pageTitleStyle}>
+            {isNew ? 'Create Purchase Order' : 'Purchase Order Details'}
+          </h2>
+          <p style={pageSubStyle}>
+            {isNew
+              ? 'Enter vendor, line items, and notes, then save draft or submit for approval'
+              : `Viewing ${state.po_number}`}
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => navigate('/purchase-orders')}
+          style={secondaryButtonStyle}
+        >
+          ← Back to Purchase Orders
+        </button>
       </header>
 
       {successMessage && (
@@ -361,179 +374,91 @@ export function PurchaseOrderForm() {
       {errors.form && (
         <div style={errorAlertStyle}>
           <span>⚠️ {errors.form}</span>
-        </div>
-      )}
-
-      <POActionToolbar
-        isReadOnly={isReadOnly}
-        onToggleMode={handleToggleMode}
-        onSaveDraft={handleSaveDraft}
-        onSubmit={handleSubmitPO}
-        onReset={handleResetForm}
-        isSubmitting={isSubmitting}
-        hasValidationError={hasValidationError}
-      />
-
-      {isExisting && (
-        <ApprovalPanel
-          module="purchase-orders"
-          documentId={state.po_number}
-          approvalStatus={state.approval_status}
-          currentApprovalStep={state.current_approval_step}
-          onStatusChange={handleApprovalChange}
-        />
-      )}
-
-      <div style={documentAreaStyle}>
-        <div style={headerSummaryRowStyle}>
-          <div style={headerColumnStyle}>
-            <POHeader
-              state={state}
-              setHeader={setHeader}
-              isReadOnly={isReadOnly}
-              suppliers={suppliers}
-              errors={errors}
-            />
-          </div>
-          <div style={summaryColumnStyle}>
-            <POSummaryCard state={state} updateSummary={updateSummary} isReadOnly={isReadOnly} />
-          </div>
-        </div>
-
-        <POLineItemsTable
-          items={state.items}
-          products={products}
-          updateRow={updateRow}
-          updateRowFields={updateRowFields}
-          deleteRow={deleteRow}
-          addRow={addRow}
-          clearAllRows={clearAllRows}
-          isReadOnly={isReadOnly}
-          errors={errors}
-        />
-
-        <div style={notesCardStyle}>
-          <label style={notesLabelStyle} htmlFor="po_notes">
-            Order Notes & Internal Comments
-          </label>
-          {isReadOnly ? (
-            <div style={readOnlyNotesValueStyle}>{state.notes || 'No notes provided.'}</div>
-          ) : (
-            <textarea
-              id="po_notes"
-              value={state.notes || ''}
-              onChange={(e) => setHeader('notes', e.target.value)}
-              placeholder="Enter special instructions or notes to supplier here..."
-              style={textareaStyle}
-            />
+          {!isNew && (
+            <button
+              type="button"
+              onClick={() => navigate('/purchase-orders')}
+              style={{ ...secondaryButtonStyle, marginLeft: '12px' }}
+            >
+              Back to list
+            </button>
           )}
         </div>
-      </div>
+      )}
 
-      <div style={dashboardSectionStyle}>
-        <div style={dashboardHeaderStyle}>
-          <h3 style={dashboardTitleStyle}>Purchase Orders Directory</h3>
-          <div style={searchContainerStyle}>
-            <input
-              type="text"
-              placeholder="Search by PO#, Supplier, Status..."
-              defaultValue={searchFilter}
-              onChange={handleSearchFilterChange}
-              style={searchInputStyle}
+      {!errors.form && (
+        <>
+          <POActionToolbar
+            isReadOnly={isReadOnly}
+            onToggleMode={handleToggleMode}
+            onSaveDraft={handleSaveDraft}
+            onSubmit={handleSubmitPO}
+            onReset={handleResetForm}
+            isSubmitting={isSubmitting}
+            hasValidationError={hasValidationError}
+          />
+
+          {isExisting && (
+            <ApprovalPanel
+              module="purchase-orders"
+              documentId={state.po_number}
+              approvalStatus={state.approval_status}
+              currentApprovalStep={state.current_approval_step}
+              onStatusChange={handleApprovalChange}
             />
-          </div>
-        </div>
+          )}
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={directoryTableStyle}>
-            <thead>
-              <tr style={directoryTheadRowStyle}>
-                <th style={directoryThStyle}>PO Number</th>
-                <th style={directoryThStyle}>Supplier / Vendor</th>
-                <th style={directoryThStyle}>Order Date</th>
-                <th style={directoryThStyle}>Expected Delivery Date</th>
-                <th style={{ ...directoryThStyle, textAlign: 'right' }}>Total Amount</th>
-                <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
-                <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
-                <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPOs.length > 0 ? (
-                filteredPOs.map((po) => {
-                  const isCurrent = state.po_number === po.po_number;
-                  return (
-                    <tr
-                      key={po.po_number}
-                      onClick={() => handleLoadPO(po)}
-                      style={{
-                        ...directoryTbodyRowStyle,
-                        backgroundColor: isCurrent ? 'var(--accent-bg)' : 'transparent',
-                        fontWeight: isCurrent ? 'bold' : 'normal',
-                        borderLeft: isCurrent ? '4px solid var(--accent)' : 'none',
-                      }}
-                    >
-                      <td style={directoryTdStyle}>{po.po_number}</td>
-                      <td style={directoryTdStyle}>{po.supplier_name}</td>
-                      <td style={directoryTdStyle}>{po.order_date}</td>
-                      <td style={directoryTdStyle}>{po.expected_delivery_date}</td>
-                      <td style={{ ...directoryTdStyle, textAlign: 'right' }}>
-                        {formatCurrency(po.grand_total)}
-                      </td>
-                      <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
-                        <span
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '12px',
-                            fontSize: '11px',
-                            fontWeight: 'bold',
-                            backgroundColor:
-                              po.status === 'Approved'
-                                ? '#e8f5e9'
-                                : po.status === 'Submitted'
-                                ? '#e3f2fd'
-                                : po.status === 'Void'
-                                ? '#ffebee'
-                                : '#f5f5f5',
-                            color:
-                              po.status === 'Approved'
-                                ? '#2e7d32'
-                                : po.status === 'Submitted'
-                                ? '#1565c0'
-                                : po.status === 'Void'
-                                ? '#c62828'
-                                : '#616161',
-                          }}
-                        >
-                          {po.status}
-                        </span>
-                      </td>
-                      <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
-                        {(po.approval_status || 'DRAFT').replace(/_/g, ' ')}
-                      </td>
-                      <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeletePO(po.po_number, e)}
-                          style={directoryDeleteButtonStyle}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
+          <div style={documentAreaStyle}>
+            <div style={headerSummaryRowStyle}>
+              <div style={headerColumnStyle}>
+                <POHeader
+                  state={state}
+                  setHeader={setHeader}
+                  isReadOnly={isReadOnly}
+                  suppliers={suppliers}
+                  errors={errors}
+                />
+              </div>
+              <div style={summaryColumnStyle}>
+                <POSummaryCard
+                  state={state}
+                  updateSummary={updateSummary}
+                  isReadOnly={isReadOnly}
+                />
+              </div>
+            </div>
+
+            <POLineItemsTable
+              items={state.items}
+              products={products}
+              updateRow={updateRow}
+              updateRowFields={updateRowFields}
+              deleteRow={deleteRow}
+              addRow={addRow}
+              clearAllRows={clearAllRows}
+              isReadOnly={isReadOnly}
+              errors={errors}
+            />
+
+            <div style={notesCardStyle}>
+              <label style={notesLabelStyle} htmlFor="po_notes">
+                Order Notes & Internal Comments
+              </label>
+              {isReadOnly ? (
+                <div style={readOnlyNotesValueStyle}>{state.notes || 'No notes provided.'}</div>
               ) : (
-                <tr>
-                  <td colSpan={8} style={directoryEmptyTdStyle}>
-                    No saved purchase orders found.
-                  </td>
-                </tr>
+                <textarea
+                  id="po_notes"
+                  value={state.notes || ''}
+                  onChange={(e) => setHeader('notes', e.target.value)}
+                  placeholder="Enter special instructions or notes to supplier here..."
+                  style={textareaStyle}
+                />
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -549,6 +474,11 @@ const pageHeaderStyle: React.CSSProperties = {
   marginBottom: '24px',
   borderBottom: '1px solid var(--border)',
   paddingBottom: '16px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: '12px',
 };
 
 const pageTitleStyle: React.CSSProperties = {
@@ -562,6 +492,17 @@ const pageSubStyle: React.CSSProperties = {
   margin: '4px 0 0 0',
   fontSize: '14px',
   color: 'var(--text)',
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: '8px 14px',
+  backgroundColor: 'var(--bg)',
+  color: 'var(--text-h)',
+  border: '1px solid var(--border)',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontSize: '13px',
+  fontFamily: 'inherit',
 };
 
 const successAlertStyle: React.CSSProperties = {
@@ -583,6 +524,9 @@ const errorAlertStyle: React.CSSProperties = {
   borderRadius: '6px',
   marginBottom: '16px',
   border: '1px solid #ffcdd2',
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
 };
 
 const documentAreaStyle: React.CSSProperties = {
@@ -641,90 +585,9 @@ const textareaStyle: React.CSSProperties = {
   fontSize: '13px',
 };
 
-const dashboardSectionStyle: React.CSSProperties = {
-  backgroundColor: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: '8px',
-  padding: '24px',
-  marginTop: '28px',
-  boxShadow: 'var(--shadow)',
-};
-
-const dashboardHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginBottom: '16px',
-  gap: '12px',
-  flexWrap: 'wrap',
-};
-
-const dashboardTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '18px',
-  fontWeight: 700,
-  color: 'var(--text-h)',
-};
-
-const searchContainerStyle: React.CSSProperties = {
-  minWidth: '220px',
-};
-
-const searchInputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  fontSize: '13px',
-  fontFamily: 'inherit',
-  boxSizing: 'border-box',
-};
-
-const directoryTableStyle: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  fontSize: '13px',
-};
-
-const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
-  backgroundColor: '#f5f5f5',
-};
-
-const directoryThStyle: React.CSSProperties = {
-  padding: '12px 10px',
-  textAlign: 'left',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-};
-
-const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid #eee',
-  cursor: 'pointer',
-  transition: 'background-color 0.15s',
-};
-
-const directoryTdStyle: React.CSSProperties = {
-  padding: '12px 10px',
-  color: 'var(--text)',
-  verticalAlign: 'middle',
-};
-
-const directoryEmptyTdStyle: React.CSSProperties = {
-  padding: '24px',
+const emptyStateWrapperStyle: React.CSSProperties = {
+  padding: '30px',
   textAlign: 'center',
-  color: 'var(--text)',
-};
-
-const directoryDeleteButtonStyle: React.CSSProperties = {
-  padding: '4px 10px',
-  backgroundColor: '#ffebee',
-  color: '#c62828',
-  border: '1px solid #ffcdd2',
-  borderRadius: '4px',
-  cursor: 'pointer',
-  fontSize: '12px',
-  fontFamily: 'inherit',
 };
 
 export default PurchaseOrderForm;

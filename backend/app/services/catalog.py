@@ -7,7 +7,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Product, ProductBOMComponent, VendorItemMapping
+from app.models import Item, ItemBOMComponent, VendorItemMapping
 
 
 def required_quantity(
@@ -32,30 +32,30 @@ def required_quantity(
     return (base * factor).quantize(Decimal("0.0001"))
 
 
-def material_bom_lines(db: Session, assembly_id: str) -> list[ProductBOMComponent]:
+def material_bom_lines(db: Session, assembly_id: str) -> list[ItemBOMComponent]:
     return (
-        db.query(ProductBOMComponent)
+        db.query(ItemBOMComponent)
         .filter(
-            ProductBOMComponent.parent_product_id == assembly_id,
-            ProductBOMComponent.item_type == "Material",
-            ProductBOMComponent.component_product_id.isnot(None),
+            ItemBOMComponent.parent_item_id == assembly_id,
+            ItemBOMComponent.item_type == "Material",
+            ItemBOMComponent.component_item_id.isnot(None),
         )
-        .order_by(ProductBOMComponent.bom_id)
+        .order_by(ItemBOMComponent.bom_id)
         .all()
     )
 
 
-def primary_vendor_mapping(db: Session, product_id: str) -> VendorItemMapping | None:
+def primary_vendor_mapping(db: Session, item_id: str) -> VendorItemMapping | None:
     return (
         db.query(VendorItemMapping)
         .filter(
-            VendorItemMapping.product_id == product_id,
+            VendorItemMapping.item_id == item_id,
             VendorItemMapping.is_primary_vendor.is_(True),
         )
         .first()
     ) or (
         db.query(VendorItemMapping)
-        .filter(VendorItemMapping.product_id == product_id)
+        .filter(VendorItemMapping.item_id == item_id)
         .order_by(VendorItemMapping.mapping_id)
         .first()
     )
@@ -67,7 +67,7 @@ def explode_assembly_components(
     quantity_ordered: int,
 ) -> list[dict]:
     """Return calculated component requirements for an assembly qty."""
-    assembly = db.get(Product, assembly_id)
+    assembly = db.get(Item, assembly_id)
     if assembly is None:
         raise HTTPException(status_code=404, detail=f"Assembly item '{assembly_id}' not found")
 
@@ -80,17 +80,17 @@ def explode_assembly_components(
 
     result: list[dict] = []
     for line in lines:
-        component = db.get(Product, line.component_product_id) if line.component_product_id else None
+        component = db.get(Item, line.component_item_id) if line.component_item_id else None
         qty = required_quantity(
             line.quantity_per,
             quantity_ordered,
             getattr(line, "scrap_factor", None),
             getattr(line, "yield_loss_percentage", None),
         )
-        vendor = primary_vendor_mapping(db, line.component_product_id) if line.component_product_id else None
+        vendor = primary_vendor_mapping(db, line.component_item_id) if line.component_item_id else None
         result.append(
             {
-                "component_product_id": line.component_product_id,
+                "component_item_id": line.component_item_id,
                 "description": component.description if component else None,
                 "quantity_per": line.quantity_per,
                 "scrap_factor": getattr(line, "scrap_factor", Decimal("0")) or Decimal("0"),

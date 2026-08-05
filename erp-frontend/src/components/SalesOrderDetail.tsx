@@ -224,7 +224,7 @@ export function SalesOrderDetail() {
                 {order.items.map((item) => (
                   <tr key={item.so_item_id} style={tbodyRowStyle}>
                     <td style={tdStyle}>{item.line_number}</td>
-                    <td style={tdStyle}>{item.product_id}</td>
+                    <td style={tdStyle}>{item.item_id}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{item.quantity_ordered}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {order.currency} {Number(item.unit_price).toFixed(4)}

@@ -11,7 +11,7 @@ import type { InventoryStockItem, StockStatus } from '../types'
 export function InventoryOverview() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [actionProductId, setActionProductId] = useState<string | null>(null)
+  const [actionItemId, setActionItemId] = useState<string | null>(null)
 
   const {
     data: stock = [],
@@ -33,7 +33,7 @@ export function InventoryOverview() {
 
   const handleAdjust = async (item: InventoryStockItem) => {
     const raw = window.prompt(
-      `Adjust on-hand for ${item.product_id}\nEnter quantity delta (e.g. 10 or -5):`,
+      `Adjust on-hand for ${item.item_id}\nEnter quantity delta (e.g. 10 or -5):`,
       '0',
     )
     if (raw === null) return
@@ -42,21 +42,21 @@ export function InventoryOverview() {
       alert('Please enter a non-zero number.')
       return
     }
-    setActionProductId(item.product_id)
+    setActionItemId(item.item_id)
     try {
-      await inventoryService.adjustStock(item.product_id, delta)
+      await inventoryService.adjustStock(item.item_id, delta)
       await refresh()
       await queryClient.invalidateQueries({ queryKey: ['inventoryMovements'] })
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Adjustment failed')
     } finally {
-      setActionProductId(null)
+      setActionItemId(null)
     }
   }
 
   const handleTransfer = async (item: InventoryStockItem) => {
     const dest = window.prompt(
-      `Transfer ${item.product_id} from ${item.primary_warehouse_code}/${item.primary_bin_code}\nEnter destination as WAREHOUSE_CODE/BIN_CODE (e.g. ECH/E-01-01):`,
+      `Transfer ${item.item_id} from ${item.primary_warehouse_code}/${item.primary_bin_code}\nEnter destination as WAREHOUSE_CODE/BIN_CODE (e.g. ECH/E-01-01):`,
       'ECH/E-01-01',
     )
     if (dest === null) return
@@ -72,7 +72,7 @@ export function InventoryOverview() {
       alert('Enter a positive quantity.')
       return
     }
-    setActionProductId(item.product_id)
+    setActionItemId(item.item_id)
     try {
       const [warehouses, bins] = await Promise.all([
         inventoryService.listWarehouses(),
@@ -90,7 +90,7 @@ export function InventoryOverview() {
       if (!bin) throw new Error(`Bin ${binCode} not found in warehouse ${whCode}`)
 
       await inventoryService.transferStock(
-        item.product_id,
+        item.item_id,
         qty,
         warehouse.warehouse_id,
         bin.bin_id,
@@ -100,7 +100,7 @@ export function InventoryOverview() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Transfer failed')
     } finally {
-      setActionProductId(null)
+      setActionItemId(null)
     }
   }
 
@@ -131,7 +131,7 @@ export function InventoryOverview() {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Stock On-Hand &amp; ATP</h2>
           <p style={pageSubStyle}>
-            On-hand, allocations, on-order, and available-to-promise by product
+            On-hand, allocations, on-order, and available-to-promise by item
           </p>
         </div>
       </header>
@@ -173,15 +173,15 @@ export function InventoryOverview() {
               <tbody>
                 {stock.map((item) => {
                   const colors = getStatusColors(item.status)
-                  const busy = actionProductId === item.product_id
+                  const busy = actionItemId === item.item_id
                   return (
-                    <tr key={item.product_id} style={directoryTbodyRowStyle}>
+                    <tr key={item.item_id} style={directoryTbodyRowStyle}>
                       <td style={directoryTdStyle}>
                         <Link
-                          to={`/items/${item.product_id}`}
+                          to={`/items/${item.item_id}`}
                           style={productLinkStyle}
                         >
-                          {item.product_id}
+                          {item.item_id}
                         </Link>
                         <div style={productDescStyle}>
                           {item.description || '—'} · {item.uom}
@@ -259,7 +259,7 @@ export function InventoryOverview() {
                           <button
                             type="button"
                             onClick={() =>
-                              navigate(`/inventory/movements?product=${item.product_id}`)
+                              navigate(`/inventory/movements?item=${item.item_id}`)
                             }
                             style={{
                               ...directoryActionButtonStyle,

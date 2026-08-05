@@ -24,17 +24,7 @@ CREATE TABLE IF NOT EXISTS chart_of_accounts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-DROP TABLE IF EXISTS products CASCADE;
--- Inventory / Products
-CREATE TABLE IF NOT EXISTS products (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sku VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    unit_price NUMERIC(12, 2) NOT NULL,
-    stock_quantity INT DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
+-- (legacy stub products table removed; item master is `items` below)
 
 DROP TABLE IF EXISTS audit_logs CASCADE;
 -- Centralized System-Wide Audit Log
@@ -128,10 +118,10 @@ CREATE TABLE CustomerLocations (
 );
 
 
-DROP TABLE IF EXISTS Products CASCADE;
--- 4. Internal Products & Customer Part Cross-Reference
-CREATE TABLE Products (
-    product_id VARCHAR(50) PRIMARY KEY,        -- Internal SKU / Item ID
+DROP TABLE IF EXISTS items CASCADE;
+-- 4. Item Master (catalog)
+CREATE TABLE items (
+    item_id VARCHAR(50) PRIMARY KEY,           -- Internal SKU / Item ID
     customer_part_number VARCHAR(50) NOT NULL, -- DENSO Part No: 'LAY95172-0780'
     description TEXT,                          
     uom VARCHAR(20) DEFAULT 'Each',
@@ -183,7 +173,7 @@ CREATE TABLE SalesOrderItems (
     so_item_id BIGSERIAL PRIMARY KEY,
     sales_order_id VARCHAR(50) REFERENCES SalesOrders(sales_order_id) ON DELETE CASCADE,
     line_number INT NOT NULL,                  
-    product_id VARCHAR(50) REFERENCES Products(product_id),
+    item_id VARCHAR(50) REFERENCES items(item_id),
     
     quantity_ordered INT NOT NULL,             
     unit_price DECIMAL(10, 4) NOT NULL,        
@@ -197,24 +187,24 @@ CREATE TABLE SalesOrderItems (
 -- 4. SUBCONTRACTING / OUTSIDE PROCESSING TABLES
 -- ========================================================
 
-DROP TABLE IF EXISTS ProductBOMComponents CASCADE;
+DROP TABLE IF EXISTS itembomcomponents CASCADE;
 -- 7. Master Bill of Materials: which components make up a finished product
-CREATE TABLE ProductBOMComponents (
+CREATE TABLE itembomcomponents (
     bom_id BIGSERIAL PRIMARY KEY,
-    parent_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
-    component_product_id VARCHAR(50) REFERENCES Products(product_id),   -- Set for 'Material' rows only
-    component_code VARCHAR(50),                        -- Set for 'Labor' / 'Outside Service' rows only (predefined codes, not real Products)
+    parent_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
+    component_item_id VARCHAR(50) REFERENCES items(item_id),   -- Set for 'Material' rows only
+    component_code VARCHAR(50),                        -- Set for 'Labor' / 'Outside Service' rows only (predefined codes, not real Items)
     quantity_per NUMERIC(12, 4) NOT NULL DEFAULT 1,   -- Qty of component required per 1 unit of parent
     item_type VARCHAR(30) NOT NULL DEFAULT 'Material', -- 'Material', 'Labor', or 'Outside Service'
     scrap_factor NUMERIC(8, 4) NOT NULL DEFAULT 0,     -- Extra material allowance (0.05 = +5%)
     yield_loss_percentage NUMERIC(8, 4) NOT NULL DEFAULT 0, -- Expected yield loss %
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT unique_bom_line UNIQUE (parent_product_id, component_product_id, component_code),
-    CONSTRAINT chk_bom_not_self_referencing CHECK (parent_product_id <> component_product_id),
+    CONSTRAINT unique_bom_line UNIQUE (parent_item_id, component_item_id, component_code),
+    CONSTRAINT chk_bom_not_self_referencing CHECK (parent_item_id <> component_item_id),
     CONSTRAINT chk_bom_component_ref CHECK (
-        (item_type = 'Material' AND component_product_id IS NOT NULL AND component_code IS NULL) OR
-        (item_type IN ('Labor', 'Outside Service') AND component_code IS NOT NULL AND component_product_id IS NULL)
+        (item_type = 'Material' AND component_item_id IS NOT NULL AND component_code IS NULL) OR
+        (item_type IN ('Labor', 'Outside Service') AND component_code IS NOT NULL AND component_item_id IS NULL)
     )
 );
 
@@ -223,14 +213,14 @@ DROP TABLE IF EXISTS VendorItemMappings CASCADE;
 CREATE TABLE VendorItemMappings (
     mapping_id BIGSERIAL PRIMARY KEY,
     supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
-    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
     vendor_sku VARCHAR(100),
     unit_cost NUMERIC(12, 4),
     minimum_order_qty NUMERIC(12, 4) NOT NULL DEFAULT 1,
     lead_time_days INT NOT NULL DEFAULT 0,
     is_primary_vendor BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_vendor_item_mapping UNIQUE (supplier_id, product_id)
+    CONSTRAINT uq_vendor_item_mapping UNIQUE (supplier_id, item_id)
 );
 
 
@@ -240,7 +230,7 @@ DROP TABLE IF EXISTS SubcontractOrders CASCADE;
 CREATE TABLE SubcontractOrders (
     sco_number VARCHAR(50) PRIMARY KEY,
     supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
-    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),  -- The finished good being subcontracted
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),  -- The finished good being subcontracted
 
     quantity_ordered INT NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'PLANNED',  -- PLANNED, MATERIALS_ISSUED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
@@ -257,12 +247,12 @@ DROP TABLE IF EXISTS SubcontractOrderComponents CASCADE;
 CREATE TABLE SubcontractOrderComponents (
     sco_component_id BIGSERIAL PRIMARY KEY,
     sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number) ON DELETE CASCADE,
-    component_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
 
     quantity_required NUMERIC(12, 4) NOT NULL,   -- quantity_per (BOM) * SCO quantity_ordered
     quantity_issued NUMERIC(12, 4) NOT NULL DEFAULT 0,
 
-    CONSTRAINT unique_component_per_sco UNIQUE (sco_number, component_product_id)
+    CONSTRAINT unique_component_per_sco UNIQUE (sco_number, component_item_id)
 );
 
 DROP TABLE IF EXISTS MaterialIssues CASCADE;
@@ -280,7 +270,7 @@ DROP TABLE IF EXISTS MaterialIssueLines CASCADE;
 CREATE TABLE MaterialIssueLines (
     issue_line_id BIGSERIAL PRIMARY KEY,
     issue_id VARCHAR(50) NOT NULL REFERENCES MaterialIssues(issue_id) ON DELETE CASCADE,
-    component_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
     quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0)
 );
 
@@ -290,7 +280,7 @@ CREATE TABLE ComponentIssueLogs (
     log_id BIGSERIAL PRIMARY KEY,
     sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number),
     issue_id VARCHAR(50) NOT NULL REFERENCES MaterialIssues(issue_id) ON DELETE CASCADE,
-    component_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
     quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0),
     issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     notes TEXT
@@ -433,10 +423,10 @@ CREATE TABLE BinLocations (
 );
 
 -- 20. Inventory Stock — on-hand / allocated / on-order qty per product + bin
---     Products.on_hand_quantity remains the company-wide aggregate cache
+--     items.on_hand_quantity remains the company-wide aggregate cache
 CREATE TABLE InventoryStock (
     stock_id VARCHAR(50) PRIMARY KEY,
-    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
     warehouse_id VARCHAR(50) NOT NULL REFERENCES Warehouses(warehouse_id),
     bin_id VARCHAR(50) NOT NULL REFERENCES BinLocations(bin_id),
     on_hand_quantity INT NOT NULL DEFAULT 0,
@@ -446,7 +436,7 @@ CREATE TABLE InventoryStock (
     is_primary BOOLEAN NOT NULL DEFAULT FALSE,  -- primary pick location for the product
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT unique_product_bin UNIQUE (product_id, bin_id),
+    CONSTRAINT unique_item_bin UNIQUE (item_id, bin_id),
     CONSTRAINT chk_inventory_qty_nonneg CHECK (
         on_hand_quantity >= 0
         AND allocated_quantity >= 0
@@ -458,7 +448,7 @@ CREATE TABLE InventoryStock (
 -- 21. Stock Movements — receipts, issues, adjustments, transfers
 CREATE TABLE StockMovements (
     movement_id VARCHAR(50) PRIMARY KEY,
-    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
     movement_type VARCHAR(20) NOT NULL,
     quantity INT NOT NULL,                      -- signed: +receipt / -issue
     warehouse_id VARCHAR(50) NOT NULL REFERENCES Warehouses(warehouse_id),

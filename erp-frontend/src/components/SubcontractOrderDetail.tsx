@@ -67,7 +67,7 @@ export function SubcontractOrderDetail() {
       issue_id: string
       issue_date?: string
       notes?: string
-      lines: Array<{ component_product_id: string; quantity_issued: number }>
+      lines: Array<{ component_item_id: string; quantity_issued: number }>
     }) => subcontractOrderService.issueMaterials(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
@@ -171,8 +171,8 @@ export function SubcontractOrderDetail() {
 
     const lines = Object.entries(issueLines)
       .filter(([, qty]) => qty && Number(qty) > 0)
-      .map(([component_product_id, qty]) => ({
-        component_product_id,
+      .map(([component_item_id, qty]) => ({
+        component_item_id,
         quantity_issued: Number(qty),
       }))
 
@@ -247,7 +247,7 @@ export function SubcontractOrderDetail() {
           </div>
           <div>
             <label style={labelStyle}>Product</label>
-            <p style={valueStyle}>{sco.product_id}</p>
+            <p style={valueStyle}>{sco.item_id}</p>
           </div>
           <div>
             <label style={labelStyle}>Quantity Ordered</label>
@@ -303,7 +303,7 @@ export function SubcontractOrderDetail() {
             kitBreakdown?.components?.length
               ? kitBreakdown.components
               : (sco.components || []).map((c) => ({
-                  component_product_id: c.component_product_id,
+                  component_item_id: c.component_item_id,
                   description: null,
                   quantity_per: 0,
                   scrap_factor: 0,
@@ -343,9 +343,9 @@ export function SubcontractOrderDetail() {
                 </thead>
                 <tbody>
                   {lines.map((c) => (
-                    <tr key={c.component_product_id} style={tbodyRowStyle}>
+                    <tr key={c.component_item_id} style={tbodyRowStyle}>
                       <td style={tdStyle}>
-                        <div>{c.component_product_id}</div>
+                        <div>{c.component_item_id}</div>
                         {c.description && (
                           <div style={{ fontSize: '12px', color: 'var(--muted, #666)' }}>
                             {c.description}
@@ -458,15 +458,15 @@ export function SubcontractOrderDetail() {
                     const remaining = Number(c.quantity_required) - Number(c.quantity_issued)
                     return (
                       <tr key={c.sco_component_id} style={tbodyRowStyle}>
-                        <td style={tdStyle}>{c.component_product_id}</td>
+                        <td style={tdStyle}>{c.component_item_id}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{remaining.toFixed(4)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>
                           <input
                             type="number"
                             min="0"
                             step="0.0001"
-                            value={issueLines[c.component_product_id] || ''}
-                            onChange={(e) => handleIssueLineChange(c.component_product_id, e.target.value)}
+                            value={issueLines[c.component_item_id] || ''}
+                            onChange={(e) => handleIssueLineChange(c.component_item_id, e.target.value)}
                             style={{ ...inputStyle, width: '140px', textAlign: 'right' }}
                           />
                         </td>
@@ -517,7 +517,7 @@ export function SubcontractOrderDetail() {
                     <td style={tdStyle}>{new Date(mi.issue_date).toLocaleDateString()}</td>
                     <td style={tdStyle}>
                       {mi.lines
-                        .map((l) => `${l.component_product_id}: ${Number(l.quantity_issued)}`)
+                        .map((l) => `${l.component_item_id}: ${Number(l.quantity_issued)}`)
                         .join(', ')}
                     </td>
                     <td style={tdStyle}>{mi.notes || '-'}</td>

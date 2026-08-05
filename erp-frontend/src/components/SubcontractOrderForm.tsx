@@ -19,7 +19,7 @@ export function SubcontractOrderForm() {
   const [formData, setFormData] = useState({
     sco_number: '',
     supplier_id: '',
-    product_id: '',
+    item_id: '',
     quantity_ordered: 1,
     order_date: new Date().toISOString().split('T')[0],
     expected_return_date: '',
@@ -42,9 +42,9 @@ export function SubcontractOrderForm() {
 
   // Fetch BOM preview for the selected product so the user can see what will be required
   const { data: bomComponents = [] } = useQuery({
-    queryKey: ['productBom', formData.product_id],
-    queryFn: () => itemBomService.listBomComponents(formData.product_id),
-    enabled: !!formData.product_id,
+    queryKey: ['productBom', formData.item_id],
+    queryFn: () => itemBomService.listBomComponents(formData.item_id),
+    enabled: !!formData.item_id,
   })
 
   const createMutation = useMutation({
@@ -52,7 +52,7 @@ export function SubcontractOrderForm() {
       subcontractOrderService.createSubcontractOrder({
         sco_number: data.sco_number,
         supplier_id: data.supplier_id,
-        product_id: data.product_id,
+        item_id: data.item_id,
         quantity_ordered: Number(data.quantity_ordered),
         order_date: data.order_date || undefined,
         expected_return_date: data.expected_return_date || undefined,
@@ -95,8 +95,8 @@ export function SubcontractOrderForm() {
     if (!formData.supplier_id.trim()) {
       newErrors.supplier_id = 'Supplier is required'
     }
-    if (!formData.product_id.trim()) {
-      newErrors.product_id = 'Item is required'
+    if (!formData.item_id.trim()) {
+      newErrors.item_id = 'Item is required'
     }
     if (!formData.quantity_ordered || formData.quantity_ordered <= 0) {
       newErrors.quantity_ordered = 'Quantity must be greater than 0'
@@ -181,17 +181,17 @@ export function SubcontractOrderForm() {
             </div>
 
             <div style={fieldGroupStyle}>
-              <label htmlFor="product_id" style={labelStyle}>
+              <label htmlFor="item_id" style={labelStyle}>
                 Finished Item *
               </label>
               <select
-                id="product_id"
-                name="product_id"
-                value={formData.product_id}
+                id="item_id"
+                name="item_id"
+                value={formData.item_id}
                 onChange={handleChange}
                 style={{
                   ...inputStyle,
-                  border: errors.product_id ? '1px solid #f44336' : '1px solid var(--border)',
+                  border: errors.item_id ? '1px solid #f44336' : '1px solid var(--border)',
                 }}
               >
                 <option value="">Select a product</option>
@@ -201,8 +201,8 @@ export function SubcontractOrderForm() {
                   </option>
                 ))}
               </select>
-              {errors.product_id && <span style={errorTextStyle}>{errors.product_id}</span>}
-              {formData.product_id && bomComponents.length === 0 && (
+              {errors.item_id && <span style={errorTextStyle}>{errors.item_id}</span>}
+              {formData.item_id && bomComponents.length === 0 && (
                 <span style={warningTextStyle}>
                   ⚠️ This product has no Bill of Materials defined. You must add BOM components
                   before you can create a subcontract order for it.
@@ -278,7 +278,7 @@ export function SubcontractOrderForm() {
         </div>
 
         {/* BOM Preview */}
-        {formData.product_id && bomComponents.length > 0 && (
+        {formData.item_id && bomComponents.length > 0 && (
           <div style={cardStyle}>
             <h3 style={sectionHeadingStyle}>Bill of Materials Preview</h3>
             <p style={{ ...pageSubStyle, marginBottom: '12px' }}>
@@ -296,7 +296,7 @@ export function SubcontractOrderForm() {
                 <tbody>
                   {bomComponents.map((bc) => (
                     <tr key={bc.bom_id} style={tbodyRowStyle}>
-                      <td style={tdStyle}>{bc.component_product_id}</td>
+                      <td style={tdStyle}>{bc.component_item_id}</td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(bc.quantity_per)}</td>
                       <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>
                         {(Number(bc.quantity_per) * Number(formData.quantity_ordered || 0)).toFixed(4)}

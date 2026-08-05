@@ -94,8 +94,8 @@ export function StockMovements() {
                       <td style={directoryTdStyle}>{m.movement_id}</td>
                       <td style={directoryTdStyle}>{formatDate(m.movement_date)}</td>
                       <td style={directoryTdStyle}>
-                        <Link to={`/items/${m.product_id}`} style={productLinkStyle}>
-                          {m.product_id}
+                        <Link to={`/items/${m.item_id}`} style={productLinkStyle}>
+                          {m.item_id}
                         </Link>
                       </td>
                       <td style={{ ...directoryTdStyle, textAlign: 'center' }}>

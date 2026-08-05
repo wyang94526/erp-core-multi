@@ -35,9 +35,9 @@ import type {
   CalculateComponentsResponse,
 } from '../types';
 
-/** Map backend products.product_id wire format → frontend Item.item_id */
+/** Map backend Item.item_id wire format → frontend Item */
 function mapItem(raw: Record<string, unknown>): Item {
-  const id = String(raw.item_id ?? raw.product_id ?? '');
+  const id = String(raw.item_id ?? '');
   return {
     item_id: id,
     customer_part_number: String(raw.customer_part_number ?? ''),
@@ -57,7 +57,7 @@ function mapVendorMapping(raw: Record<string, unknown>): VendorItemMapping {
   return {
     mapping_id: Number(raw.mapping_id),
     supplier_id: String(raw.supplier_id),
-    item_id: String(raw.item_id ?? raw.product_id ?? ''),
+    item_id: String(raw.item_id ?? ''),
     vendor_sku: (raw.vendor_sku as string | null) ?? null,
     unit_cost: (raw.unit_cost as number | null) ?? null,
     minimum_order_qty: Number(raw.minimum_order_qty ?? 1),
@@ -65,10 +65,7 @@ function mapVendorMapping(raw: Record<string, unknown>): VendorItemMapping {
     is_primary_vendor: Boolean(raw.is_primary_vendor),
     created_at: (raw.created_at as string | null) ?? null,
     supplier_name: (raw.supplier_name as string | null) ?? null,
-    item_description:
-      (raw.item_description as string | null) ??
-      (raw.product_description as string | null) ??
-      null,
+    item_description: (raw.item_description as string | null) ?? null,
   };
 }
 
@@ -207,7 +204,7 @@ export const locationService = {
 
 // ==========================================
 // ITEM CATALOG SERVICES (SKU master)
-// Uses /api/v1/items; maps item_id ↔ backend product_id.
+// Uses /api/v1/items; maps item_id ↔ backend item_id.
 // ==========================================
 
 export const itemService = {
@@ -257,7 +254,7 @@ export const itemService = {
   }): Promise<Item> {
     const { item_id, ...rest } = data;
     const raw = await apiClient.post<Record<string, unknown>>('/api/v1/items', {
-      product_id: item_id,
+      item_id: item_id,
       ...rest,
     });
     return mapItem(raw);
@@ -286,7 +283,6 @@ export const itemService = {
     itemId: string,
     data: {
       supplier_id: string;
-      product_id?: string;
       item_id?: string;
       vendor_sku?: string | null;
       unit_cost?: number | null;
@@ -299,7 +295,7 @@ export const itemService = {
       `/api/v1/items/${itemId}/vendors`,
       {
         ...data,
-        product_id: data.product_id ?? data.item_id ?? itemId,
+        item_id: data.item_id ?? itemId,
       }
     );
     return mapVendorMapping(raw);
@@ -333,7 +329,7 @@ export const productService = {
   listProducts: (skip = 0, limit = 100) => itemService.listItems(skip, limit),
   getProduct: (id: string) => itemService.getItem(id),
   createProduct: (data: {
-    product_id: string;
+    item_id: string;
     customer_part_number: string;
     description?: string;
     uom?: string;
@@ -344,7 +340,7 @@ export const productService = {
     is_raw_material?: boolean;
   }) =>
     itemService.createItem({
-      item_id: data.product_id,
+      item_id: data.item_id,
       customer_part_number: data.customer_part_number,
       description: data.description,
       uom: data.uom,
@@ -355,8 +351,8 @@ export const productService = {
       is_raw_material: data.is_raw_material,
     }),
   updateProduct: (id: string, data: Partial<Product>) => {
-    const { product_id: _pid, item_id: _iid, ...rest } = data as Partial<Item> & {
-      product_id?: string;
+    const { item_id: _id, ...rest } = data as Partial<Item> & {
+      item_id?: string;
     };
     return itemService.updateItem(id, rest);
   },
@@ -408,7 +404,7 @@ export const salesOrderService = {
     total_amount?: number;
     items: Array<{
       line_number: number;
-      product_id: string;
+      item_id: string;
       quantity_ordered: number;
       unit_price: number;
       tax_amount?: number;
@@ -596,19 +592,19 @@ export const itemBomService = {
   /**
    * List all BOM components (raw materials) for a given finished product
    */
-  async listBomComponents(productId: string): Promise<ProductBOMComponent[]> {
-    return apiClient.get<ProductBOMComponent[]>(`/api/v1/products/${productId}/bom`);
+  async listBomComponents(itemId: string): Promise<ProductBOMComponent[]> {
+    return apiClient.get<ProductBOMComponent[]>(`/api/v1/items/${itemId}/bom`);
   },
 
   /**
    * Add a component/raw-material/labor/outside-service line to a finished product's BOM.
-   * For item_type='Material', pass component_product_id. For 'Labor'/'Outside Service',
+   * For item_type='Material', pass component_item_id. For 'Labor'/'Outside Service',
    * pass component_code (one of the predefined LABOR_SERVICE_CODES).
    */
   async addBomComponent(
-    productId: string,
+    itemId: string,
     data: {
-      component_product_id?: string | null;
+      component_item_id?: string | null;
       component_code?: string | null;
       quantity_per: number;
       item_type?: 'Material' | 'Labor' | 'Outside Service';
@@ -616,17 +612,17 @@ export const itemBomService = {
       yield_loss_percentage?: number;
     }
   ): Promise<ProductBOMComponent> {
-    return apiClient.post<ProductBOMComponent>(`/api/v1/products/${productId}/bom`, data);
+    return apiClient.post<ProductBOMComponent>(`/api/v1/items/${itemId}/bom`, data);
   },
 
   /**
    * Update an existing BOM component line (e.g. quantity or item type)
    */
   async updateBomComponent(
-    productId: string,
+    itemId: string,
     bomId: number,
     data: Partial<{
-      component_product_id: string | null;
+      component_item_id: string | null;
       component_code: string | null;
       quantity_per: number;
       item_type: 'Material' | 'Labor' | 'Outside Service';
@@ -635,7 +631,7 @@ export const itemBomService = {
     }>
   ): Promise<ProductBOMComponent> {
     return apiClient.patch<ProductBOMComponent>(
-      `/api/v1/products/${productId}/bom/${bomId}`,
+      `/api/v1/items/${itemId}/bom/${bomId}`,
       data
     );
   },
@@ -644,8 +640,8 @@ export const itemBomService = {
   /**
    * Remove a BOM component line
    */
-  async deleteBomComponent(productId: string, bomId: number): Promise<void> {
-    return apiClient.delete<void>(`/api/v1/products/${productId}/bom/${bomId}`);
+  async deleteBomComponent(itemId: string, bomId: number): Promise<void> {
+    return apiClient.delete<void>(`/api/v1/items/${itemId}/bom/${bomId}`);
   },
 
 };
@@ -684,7 +680,7 @@ export const subcontractOrderService = {
   async createSubcontractOrder(data: {
     sco_number: string;
     supplier_id: string;
-    product_id: string;
+    item_id: string;
     quantity_ordered: number;
     order_date?: string;
     expected_return_date?: string;
@@ -718,7 +714,7 @@ export const subcontractOrderService = {
       issue_id: string;
       issue_date?: string;
       notes?: string;
-      lines: Array<{ component_product_id: string; quantity_issued: number }>;
+      lines: Array<{ component_item_id: string; quantity_issued: number }>;
     }
   ): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>(
@@ -832,8 +828,56 @@ export const adminRbacService = {
   listRoles() {
     return apiClient.get<import('../types').RoleDetail[]>('/api/v1/admin/roles');
   },
+  createRole(data: {
+    role_id: string;
+    role_name: string;
+    description?: string | null;
+    permission_codes?: string[];
+  }) {
+    return apiClient.post<import('../types').RoleDetail>('/api/v1/admin/roles', data);
+  },
+  updateRole(
+    roleId: string,
+    data: {
+      role_name?: string;
+      description?: string | null;
+      permission_codes?: string[];
+    }
+  ) {
+    return apiClient.patch<import('../types').RoleDetail>(
+      `/api/v1/admin/roles/${roleId}`,
+      data
+    );
+  },
+  deleteRole(roleId: string) {
+    return apiClient.delete<void>(`/api/v1/admin/roles/${roleId}`);
+  },
   listPermissions() {
     return apiClient.get<import('../types').Permission[]>('/api/v1/admin/permissions');
+  },
+  createPermission(data: {
+    id: string;
+    code: string;
+    module: string;
+    description?: string | null;
+  }) {
+    return apiClient.post<import('../types').Permission>('/api/v1/admin/permissions', data);
+  },
+  updatePermission(
+    permissionId: string,
+    data: {
+      code?: string;
+      module?: string;
+      description?: string | null;
+    }
+  ) {
+    return apiClient.patch<import('../types').Permission>(
+      `/api/v1/admin/permissions/${permissionId}`,
+      data
+    );
+  },
+  deletePermission(permissionId: string) {
+    return apiClient.delete<void>(`/api/v1/admin/permissions/${permissionId}`);
   },
   listUsers() {
     return apiClient.get<import('../types').UserSummary[]>('/api/v1/admin/users');
@@ -849,6 +893,45 @@ export const adminRbacService = {
       '/api/v1/admin/workflows',
       module ? { params: { module } } : undefined,
     );
+  },
+  createWorkflow(data: {
+    id: string;
+    module: string;
+    min_amount: number;
+    max_amount?: number | null;
+    is_active?: boolean;
+    name?: string | null;
+    steps?: import('../types').WorkflowStep[];
+  }) {
+    return apiClient.post<import('../types').WorkflowDefinition>(
+      '/api/v1/admin/workflows',
+      data
+    );
+  },
+  updateWorkflow(
+    workflowId: string,
+    data: {
+      module?: string;
+      min_amount?: number;
+      max_amount?: number | null;
+      is_active?: boolean;
+      name?: string | null;
+      steps?: Array<{
+        id: string;
+        step_number: number;
+        step_name: string;
+        required_role_id?: string | null;
+        required_permission?: string | null;
+      }>;
+    }
+  ) {
+    return apiClient.patch<import('../types').WorkflowDefinition>(
+      `/api/v1/admin/workflows/${workflowId}`,
+      data
+    );
+  },
+  deleteWorkflow(workflowId: string) {
+    return apiClient.delete<void>(`/api/v1/admin/workflows/${workflowId}`);
   },
 };
 
@@ -1016,9 +1099,9 @@ export const inventoryService = {
     return apiClient.get<InventoryStockItem[]>('/api/v1/inventory/stock');
   },
 
-  async listMovements(productId?: string): Promise<StockMovement[]> {
+  async listMovements(itemId?: string): Promise<StockMovement[]> {
     return apiClient.get<StockMovement[]>('/api/v1/inventory/movements', {
-      params: productId ? { product_id: productId } : undefined,
+      params: itemId ? { item_id: itemId } : undefined,
     });
   },
 
@@ -1035,25 +1118,25 @@ export const inventoryService = {
   },
 
   async adjustStock(
-    productId: string,
+    itemId: string,
     quantityDelta: number,
     notes?: string,
   ): Promise<InventoryStockItem> {
     return apiClient.post<InventoryStockItem>('/api/v1/inventory/adjust', {
-      product_id: productId,
+      item_id: itemId,
       quantity_delta: quantityDelta,
       notes,
     });
   },
 
   async transferStock(
-    productId: string,
+    itemId: string,
     quantity: number,
     toWarehouseId: string,
     toBinId: string,
   ): Promise<InventoryStockItem> {
     return apiClient.post<InventoryStockItem>('/api/v1/inventory/transfer', {
-      product_id: productId,
+      item_id: itemId,
       quantity,
       to_warehouse_id: toWarehouseId,
       to_bin_id: toBinId,

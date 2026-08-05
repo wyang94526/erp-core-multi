@@ -38,7 +38,7 @@ export interface Location {
 
 // ==========================================
 // ITEM CATALOG TYPES (SKU master)
-// Backend table/API still uses products.product_id; frontend maps to item_id.
+// Catalog item master (DB table `items`, PK `item_id`).
 // ==========================================
 export interface Item {
   item_id: string;
@@ -58,12 +58,13 @@ export interface Item {
 }
 
 /** @deprecated Prefer Item — alias during migration */
-export type Product = Item & { product_id: string };
+/** @deprecated use Item */
+export type Product = Item;
 
 export interface VendorItemMapping {
   mapping_id: number;
   supplier_id: string;
-  /** Catalog item (API field: product_id) */
+  /** Catalog item (API field: item_id) */
   item_id: string;
   vendor_sku: string | null;
   unit_cost: number | null;
@@ -98,7 +99,7 @@ export interface SubcontractBOM {
 }
 
 export interface CalculatedComponentLine {
-  component_product_id: string;
+  component_item_id: string;
   description?: string | null;
   quantity_per: number;
   scrap_factor: number;
@@ -127,7 +128,7 @@ export interface SalesOrderItem {
   so_item_id: number;
   sales_order_id: string;
   line_number: number;
-  product_id: string;
+  item_id: string;
   quantity_ordered: number;
   unit_price: number; // Decimal from backend
   tax_amount: number; // Decimal from backend
@@ -315,8 +316,8 @@ export interface PurchaseOrder {
 
 export interface ProductBOMComponent {
   bom_id: number;
-  parent_product_id: string;
-  component_product_id: string | null;
+  parent_item_id: string;
+  component_item_id: string | null;
   component_code: string | null;
   quantity_per: number;
   item_type: 'Material' | 'Labor' | 'Outside Service' | string;
@@ -330,7 +331,7 @@ export interface ProductBOMComponent {
 export interface SubcontractOrderComponent {
   sco_component_id: number;
   sco_number: string;
-  component_product_id: string;
+  component_item_id: string;
   quantity_required: number;
   quantity_issued: number;
 }
@@ -338,7 +339,7 @@ export interface SubcontractOrderComponent {
 export interface MaterialIssueLine {
   issue_line_id: number;
   issue_id: string;
-  component_product_id: string;
+  component_item_id: string;
   quantity_issued: number;
 }
 
@@ -371,7 +372,7 @@ export type SubcontractOrderStatus =
 export interface SubcontractOrder {
   sco_number: string;
   supplier_id: string;
-  product_id: string;
+  item_id: string;
   quantity_ordered: number;
   status: SubcontractOrderStatus | string;
   approval_status?: ApprovalStatus;
@@ -487,7 +488,7 @@ export interface BinLocation {
 }
 
 export interface InventoryStockItem {
-  product_id: string;
+  item_id: string;
   description: string | null;
   uom: string;
   on_hand_quantity: number;
@@ -503,7 +504,7 @@ export interface InventoryStockItem {
 
 export interface StockMovement {
   movement_id: string;
-  product_id: string;
+  item_id: string;
   movement_type: StockMovementType;
   quantity: number;
   warehouse_id: string;

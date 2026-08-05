@@ -37,7 +37,7 @@ export function VendorItemMappingSection({ itemId }: VendorItemMappingSectionPro
     mutationFn: () =>
       itemService.addItemVendor(itemId, {
         supplier_id: form.supplier_id,
-        product_id: itemId,
+        item_id: itemId,
         vendor_sku: form.vendor_sku || null,
         unit_cost: form.unit_cost !== '' ? Number(form.unit_cost) : null,
         minimum_order_qty: Number(form.minimum_order_qty) || 1,

@@ -9,8 +9,7 @@ from app.models import (
     FinishedGoodsReceipt,
     MaterialIssue,
     MaterialIssueLine,
-    Product,
-    ProductBOMComponent,
+    ItemBOMComponent,
     SubcontractOrder,
     SubcontractOrderComponent,
     Supplier,
@@ -81,22 +80,22 @@ def create_subcontract_order(
     if db.get(Supplier, payload.supplier_id) is None:
         raise HTTPException(status_code=400, detail="Supplier not found")
 
-    product = db.get(Product, payload.product_id)
+    product = db.get(Item, payload.item_id)
     if product is None:
-        raise HTTPException(status_code=400, detail="Product not found")
+        raise HTTPException(status_code=400, detail="Item not found")
 
-    bom_lines = material_bom_lines(db, payload.product_id)
+    bom_lines = material_bom_lines(db, payload.item_id)
     if not bom_lines:
         raise HTTPException(
             status_code=400,
-            detail="Product has no Material Bill of Materials / subcontract kit; "
+            detail="Item has no Material Bill of Materials / subcontract kit; "
             "cannot create a subcontract order",
         )
 
     sco = SubcontractOrder(
         sco_number=payload.sco_number,
         supplier_id=payload.supplier_id,
-        product_id=payload.product_id,
+        item_id=payload.item_id,
         quantity_ordered=payload.quantity_ordered,
         status="PLANNED",
         expected_return_date=payload.expected_return_date,
@@ -117,7 +116,7 @@ def create_subcontract_order(
         )
         sco.components.append(
             SubcontractOrderComponent(
-                component_product_id=bom_line.component_product_id,
+                component_item_id=bom_line.component_item_id,
                 quantity_required=quantity_required,
                 quantity_issued=Decimal("0"),
             )
@@ -150,18 +149,18 @@ def calculate_components(
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
 
-    exploded = explode_assembly_components(db, sco.product_id, sco.quantity_ordered)
+    exploded = explode_assembly_components(db, sco.item_id, sco.quantity_ordered)
     issued_by_component = {
-        c.component_product_id: Decimal(str(c.quantity_issued or 0)) for c in sco.components
+        c.component_item_id: Decimal(str(c.quantity_issued or 0)) for c in sco.components
     }
 
     components: list[CalculatedComponentLine] = []
     for row in exploded:
-        issued = issued_by_component.get(row["component_product_id"], Decimal("0"))
+        issued = issued_by_component.get(row["component_item_id"], Decimal("0"))
         required = Decimal(str(row["quantity_required"]))
         components.append(
             CalculatedComponentLine(
-                component_product_id=row["component_product_id"],
+                component_item_id=row["component_item_id"],
                 description=row.get("description"),
                 quantity_per=row["quantity_per"],
                 scrap_factor=row["scrap_factor"],
@@ -178,7 +177,7 @@ def calculate_components(
 
     return CalculateComponentsResponse(
         sco_number=sco.sco_number,
-        assembly_item_id=sco.product_id,
+        assembly_item_id=sco.item_id,
         quantity_ordered=sco.quantity_ordered,
         components=components,
     )
@@ -219,7 +218,7 @@ def issue_materials(
     """
     Record a shipment of raw materials sent out to the subcontractor.
     For each line: deducts on_hand_quantity and increments wip_quantity on the
-    component Product, and increments quantity_issued on the matching
+    component Item, and increments quantity_issued on the matching
     SubcontractOrderComponent.
     """
     sco = db.get(SubcontractOrder, sco_number)
@@ -235,7 +234,7 @@ def issue_materials(
         raise HTTPException(status_code=400, detail="Material issue ID already exists")
 
     sco_components = {
-        c.component_product_id: c
+        c.component_item_id: c
         for c in db.query(SubcontractOrderComponent).filter(
             SubcontractOrderComponent.sco_number == sco_number
         )
@@ -248,22 +247,22 @@ def issue_materials(
     db.flush()
 
     for line in payload.lines:
-        sco_component = sco_components.get(line.component_product_id)
+        sco_component = sco_components.get(line.component_item_id)
         if sco_component is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"Component {line.component_product_id} is not part of this subcontract order's BOM",
+                detail=f"Component {line.component_item_id} is not part of this subcontract order's BOM",
             )
 
-        product = db.get(Product, line.component_product_id)
+        product = db.get(Item, line.component_item_id)
         if product is None:
-            raise HTTPException(status_code=400, detail=f"Component product {line.component_product_id} not found")
+            raise HTTPException(status_code=400, detail=f"Component product {line.component_item_id} not found")
 
         on_hand = Decimal(product.on_hand_quantity or 0)
         if line.quantity_issued > on_hand:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient on-hand quantity for {line.component_product_id}: "
+                detail=f"Insufficient on-hand quantity for {line.component_item_id}: "
                 f"available={product.on_hand_quantity}, requested={line.quantity_issued}",
             )
 
@@ -275,7 +274,7 @@ def issue_materials(
         db.add(
             MaterialIssueLine(
                 issue_id=issue.issue_id,
-                component_product_id=line.component_product_id,
+                component_item_id=line.component_item_id,
                 quantity_issued=line.quantity_issued,
             )
         )
@@ -283,7 +282,7 @@ def issue_materials(
             ComponentIssueLog(
                 sco_number=sco_number,
                 issue_id=issue.issue_id,
-                component_product_id=line.component_product_id,
+                component_item_id=line.component_item_id,
                 quantity_issued=line.quantity_issued,
                 notes=payload.notes,
             )
@@ -328,7 +327,7 @@ def receive_goods(
     if db.get(FinishedGoodsReceipt, payload.receipt_id) is not None:
         raise HTTPException(status_code=400, detail="Receipt ID already exists")
 
-    product = db.get(Product, sco.product_id)
+    product = db.get(Item, sco.item_id)
     if product is None:
         raise HTTPException(status_code=400, detail="Finished product not found")
 

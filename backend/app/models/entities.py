@@ -183,16 +183,6 @@ class ChartOfAccount(Base):
     account_type = Column(String(50), nullable=False) # Asset, Liability, Equity, Revenue, Expense
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
 
-class ProductBase(Base):
-    """Corresponds to the first 'products' table definition"""
-    __tablename__ = 'products_base' # Renamed to avoid collision with 'Products' below in Python
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sku = Column(String(50), unique=True, nullable=False)
-    name = Column(String(255), nullable=False)
-    unit_price = Column(Numeric(12, 2), nullable=False)
-    stock_quantity = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
 
 class AuditLog(Base):
     __tablename__ = 'audit_logs'
@@ -288,10 +278,10 @@ class CustomerLocation(Base):
     # Relationships
     customer = relationship("Customer")
 
-class Product(Base):
-    __tablename__ = 'products'
+class Item(Base):
+    __tablename__ = 'items'
 
-    product_id = Column(String(50), primary_key=True)
+    item_id = Column(String(50), primary_key=True)
     customer_part_number = Column(String(50), nullable=False)
     description = Column(Text)
     uom = Column(String(20), default='Each')
@@ -303,11 +293,11 @@ class Product(Base):
     is_subcontract_assembly = Column(Boolean, nullable=False, server_default=text('false'))
     is_raw_material = Column(Boolean, nullable=False, server_default=text('false'))
 
-    vendor_mappings = relationship("VendorItemMapping", back_populates="product", cascade="all, delete-orphan")
+    vendor_mappings = relationship("VendorItemMapping", back_populates="item", cascade="all, delete-orphan")
     bom_components = relationship(
-        "ProductBOMComponent",
-        foreign_keys="ProductBOMComponent.parent_product_id",
-        back_populates="parent_product",
+        "ItemBOMComponent",
+        foreign_keys="ItemBOMComponent.parent_item_id",
+        back_populates="parent_item",
         cascade="all, delete-orphan",
     )
 
@@ -354,7 +344,7 @@ class SalesOrderItem(Base):
     so_item_id = Column(BigInteger, primary_key=True, autoincrement=True)
     sales_order_id = Column(String(50), ForeignKey('salesorders.sales_order_id'))
     line_number = Column(Integer, nullable=False)
-    product_id = Column(String(50), ForeignKey('products.product_id'))
+    item_id = Column(String(50), ForeignKey('items.item_id'))
     
     quantity_ordered = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 4), nullable=False)
@@ -363,7 +353,7 @@ class SalesOrderItem(Base):
 
     # Relationships
     sales_order = relationship("SalesOrder", back_populates="items")
-    product = relationship("Product")
+    item = relationship("Item")
     schedules = relationship("OrderDeliverySchedule", back_populates="order_item")
 
 class OrderDeliverySchedule(Base):
@@ -415,12 +405,12 @@ class Supplier(Base):
 # 4. SUBCONTRACTING / OUTSIDE PROCESSING TABLES
 # ========================================================
 
-class ProductBOMComponent(Base):
-    __tablename__ = 'productbomcomponents'
+class ItemBOMComponent(Base):
+    __tablename__ = 'itembomcomponents'
 
     bom_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    parent_product_id = Column(String(50), ForeignKey('products.product_id', ondelete='CASCADE'), nullable=False)
-    component_product_id = Column(String(50), ForeignKey('products.product_id'), nullable=True)
+    parent_item_id = Column(String(50), ForeignKey('items.item_id', ondelete='CASCADE'), nullable=False)
+    component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=True)
     component_code = Column(String(50), nullable=True)  # Predefined Labor / Outside Service code (non-Product)
     quantity_per = Column(Numeric(12, 4), nullable=False, default=1)
     item_type = Column(String(30), nullable=False, server_default=text("'Material'"))
@@ -429,12 +419,13 @@ class ProductBOMComponent(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
-        CheckConstraint('parent_product_id <> component_product_id', name='chk_bom_not_self_referencing'),
+        UniqueConstraint('parent_item_id', 'component_item_id', 'component_code', name='unique_bom_line'),
+        CheckConstraint('parent_item_id <> component_item_id', name='chk_bom_not_self_referencing'),
     )
 
     # Relationships
-    parent_product = relationship("Product", foreign_keys=[parent_product_id], back_populates="bom_components")
-    component_product = relationship("Product", foreign_keys=[component_product_id])
+    parent_item = relationship("Item", foreign_keys=[parent_item_id], back_populates="bom_components")
+    component_item = relationship("Item", foreign_keys=[component_item_id])
 
 
 class VendorItemMapping(Base):
@@ -444,7 +435,7 @@ class VendorItemMapping(Base):
 
     mapping_id = Column(BigInteger, primary_key=True, autoincrement=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
-    product_id = Column(String(50), ForeignKey('products.product_id', ondelete='CASCADE'), nullable=False)
+    item_id = Column(String(50), ForeignKey('items.item_id', ondelete='CASCADE'), nullable=False)
     vendor_sku = Column(String(100))
     unit_cost = Column(Numeric(12, 4))
     minimum_order_qty = Column(Numeric(12, 4), nullable=False, server_default=text('1'))
@@ -453,11 +444,11 @@ class VendorItemMapping(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
-        UniqueConstraint('supplier_id', 'product_id', name='uq_vendor_item_mapping'),
+        UniqueConstraint('supplier_id', 'item_id', name='uq_vendor_item_mapping'),
     )
 
     supplier = relationship("Supplier")
-    product = relationship("Product", back_populates="vendor_mappings")
+    item = relationship("Item", back_populates="vendor_mappings")
 
 
 class ComponentIssueLog(Base):
@@ -468,7 +459,7 @@ class ComponentIssueLog(Base):
     log_id = Column(BigInteger, primary_key=True, autoincrement=True)
     sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number'), nullable=False)
     issue_id = Column(String(50), ForeignKey('materialissues.issue_id', ondelete='CASCADE'), nullable=False)
-    component_product_id = Column(String(50), ForeignKey('products.product_id'), nullable=False)
+    component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     quantity_issued = Column(Numeric(12, 4), nullable=False)
     issued_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     notes = Column(Text)
@@ -479,7 +470,7 @@ class ComponentIssueLog(Base):
 
     subcontract_order = relationship("SubcontractOrder")
     issue = relationship("MaterialIssue")
-    component_product = relationship("Product")
+    component_item = relationship("Item")
 
 
 class SubcontractOrder(Base):
@@ -487,7 +478,7 @@ class SubcontractOrder(Base):
 
     sco_number = Column(String(50), primary_key=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
-    product_id = Column(String(50), ForeignKey('products.product_id'), nullable=False)
+    item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
 
     quantity_ordered = Column(Integer, nullable=False)
     status = Column(String(30), nullable=False, default='PLANNED')
@@ -502,7 +493,7 @@ class SubcontractOrder(Base):
 
     # Relationships
     supplier = relationship("Supplier")
-    product = relationship("Product")
+    item = relationship("Item")
     components = relationship("SubcontractOrderComponent", back_populates="subcontract_order", cascade="all, delete-orphan")
     material_issues = relationship("MaterialIssue", back_populates="subcontract_order")
     finished_goods_receipts = relationship("FinishedGoodsReceipt", back_populates="subcontract_order")
@@ -513,14 +504,18 @@ class SubcontractOrderComponent(Base):
 
     sco_component_id = Column(BigInteger, primary_key=True, autoincrement=True)
     sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number', ondelete='CASCADE'), nullable=False)
-    component_product_id = Column(String(50), ForeignKey('products.product_id'), nullable=False)
+    component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
 
     quantity_required = Column(Numeric(12, 4), nullable=False)
     quantity_issued = Column(Numeric(12, 4), nullable=False, default=0)
 
+    __table_args__ = (
+        UniqueConstraint('sco_number', 'component_item_id', name='unique_component_per_sco'),
+    )
+
     # Relationships
     subcontract_order = relationship("SubcontractOrder", back_populates="components")
-    component_product = relationship("Product")
+    component_item = relationship("Item")
 
 
 class MaterialIssue(Base):
@@ -542,7 +537,7 @@ class MaterialIssueLine(Base):
 
     issue_line_id = Column(BigInteger, primary_key=True, autoincrement=True)
     issue_id = Column(String(50), ForeignKey('materialissues.issue_id', ondelete='CASCADE'), nullable=False)
-    component_product_id = Column(String(50), ForeignKey('products.product_id'), nullable=False)
+    component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     quantity_issued = Column(Numeric(12, 4), nullable=False)
 
     __table_args__ = (
@@ -551,7 +546,7 @@ class MaterialIssueLine(Base):
 
     # Relationships
     issue = relationship("MaterialIssue", back_populates="lines")
-    component_product = relationship("Product")
+    component_item = relationship("Item")
 
 
 class FinishedGoodsReceipt(Base):
@@ -737,7 +732,7 @@ class InventoryStock(Base):
     __tablename__ = 'inventorystock'
 
     stock_id = Column(String(50), primary_key=True)
-    product_id = Column(String(50), ForeignKey('products.product_id', ondelete='CASCADE'), nullable=False)
+    item_id = Column(String(50), ForeignKey('items.item_id', ondelete='CASCADE'), nullable=False)
     warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'), nullable=False)
     bin_id = Column(String(50), ForeignKey('binlocations.bin_id'), nullable=False)
     on_hand_quantity = Column(Integer, nullable=False, default=0)
@@ -748,7 +743,7 @@ class InventoryStock(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
-        UniqueConstraint('product_id', 'bin_id', name='unique_product_bin'),
+        UniqueConstraint('item_id', 'bin_id', name='unique_item_bin'),
         CheckConstraint(
             "on_hand_quantity >= 0 AND allocated_quantity >= 0 "
             "AND on_order_quantity >= 0 AND reorder_point >= 0",
@@ -756,7 +751,7 @@ class InventoryStock(Base):
         ),
     )
 
-    product = relationship("Product")
+    item = relationship("Item")
     warehouse = relationship("Warehouse")
     bin_location = relationship("BinLocation")
 
@@ -765,7 +760,7 @@ class StockMovement(Base):
     __tablename__ = 'stockmovements'
 
     movement_id = Column(String(50), primary_key=True)
-    product_id = Column(String(50), ForeignKey('products.product_id'), nullable=False)
+    item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     movement_type = Column(String(20), nullable=False)
     quantity = Column(Integer, nullable=False)
     warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'), nullable=False)
@@ -782,7 +777,7 @@ class StockMovement(Base):
         ),
     )
 
-    product = relationship("Product")
+    item = relationship("Item")
     warehouse = relationship("Warehouse")
     bin_location = relationship("BinLocation")
 

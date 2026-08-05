@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Customer, CustomerLocation, Product, SalesOrder, SalesOrderItem
+from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderItem
 from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
@@ -38,9 +38,9 @@ def _validate_sales_order_refs(db: Session, payload: SalesOrderCreate | SalesOrd
     items = data.get("items")
     if items:
         for item in items:
-            product_id = item.get("product_id") if isinstance(item, dict) else getattr(item, "product_id", None)
-            if product_id and db.get(Product, product_id) is None:
-                raise HTTPException(status_code=400, detail=f"Product '{product_id}' not found")
+            item_id = item.get("item_id") if isinstance(item, dict) else getattr(item, "item_id", None)
+            if item_id and db.get(Item, item_id) is None:
+                raise HTTPException(status_code=400, detail=f"Item '{item_id}' not found")
 
 
 @router.get("", response_model=list[SalesOrderRead])

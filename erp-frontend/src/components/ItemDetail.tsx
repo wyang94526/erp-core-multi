@@ -38,8 +38,8 @@ export function ItemDetail() {
 
   const {
     data: item,
-    isLoading: isLoadingProduct,
-    isError: isErrorProduct,
+    isLoading: isLoadingItem,
+    isError: isErrorItem,
   } = useQuery({
     queryKey: ['items', id],
     queryFn: () => itemService.getItem(id),
@@ -61,7 +61,7 @@ export function ItemDetail() {
 
   const addMutation = useMutation({
     mutationFn: (data: {
-      component_product_id: string
+      component_item_id: string
       quantity_per: number
       scrap_factor?: number
       yield_loss_percentage?: number
@@ -107,14 +107,14 @@ export function ItemDetail() {
     }
 
     addMutation.mutate({
-      component_product_id: newComponent.component_item_id,
+      component_item_id: newComponent.component_item_id,
       quantity_per: Number(newComponent.quantity_per),
       scrap_factor: Number(newComponent.scrap_factor) || 0,
       yield_loss_percentage: Number(newComponent.yield_loss_percentage) || 0,
     })
   }
 
-  if (isLoadingProduct || isLoadingBom) {
+  if (isLoadingItem || isLoadingBom) {
     return (
       <div style={containerStyle}>
         <div style={emptyStateWrapperStyle}>
@@ -124,7 +124,7 @@ export function ItemDetail() {
     )
   }
 
-  if (isErrorProduct || !item) {
+  if (isErrorItem || !item) {
     return (
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
@@ -139,7 +139,7 @@ export function ItemDetail() {
 
   // Products available to add as a component (excludes the current product itself
   // and any already on the BOM)
-  const existingComponentIds = new Set(bomComponents.map((c) => c.component_product_id))
+  const existingComponentIds = new Set(bomComponents.map((c) => c.component_item_id))
   const availableComponents = allItems.filter(
     (p: Item) => p.item_id !== id && !existingComponentIds.has(p.item_id)
   )
@@ -331,7 +331,7 @@ export function ItemDetail() {
               <tbody>
                 {bomComponents.map((bc) => (
                   <tr key={bc.bom_id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{bc.component_product_id}</td>
+                    <td style={tdStyle}>{bc.component_item_id}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(bc.quantity_per)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(bc.scrap_factor ?? 0)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>

@@ -10,6 +10,7 @@ import SalesOrderDetail from './components/SalesOrderDetail'
 import SalesOrderForm from './components/SalesOrderForm'
 import CustomerList from './components/CustomerList'
 import CustomerForm from './components/CustomerForm'
+import PurchaseOrderList from './components/PurchaseOrderList'
 import PurchaseOrderForm from './components/PurchaseOrderForm'
 import VendorList from './components/VendorList'
 import VendorForm from './components/VendorForm'
@@ -49,6 +50,14 @@ export const router = createBrowserRouter([
       },
       {
         path: 'purchase-orders',
+        element: <PurchaseOrderList />,
+      },
+      {
+        path: 'purchase-orders/new',
+        element: <PurchaseOrderForm />,
+      },
+      {
+        path: 'purchase-orders/:id',
         element: <PurchaseOrderForm />,
       },
       {

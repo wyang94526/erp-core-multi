@@ -41,13 +41,13 @@ export function POLineItemsTable({
     return product ? productLabel(product) : sku || 'N/A';
   };
 
-  const handleItemSelect = (itemId: string, productId: string) => {
-    const product = products.find((p) => p.item_id === productId);
-    const fields: Partial<PurchaseOrderItem> = { sku: productId };
+  const handleItemSelect = (rowId: string, catalogItemId: string) => {
+    const product = products.find((p) => p.item_id === catalogItemId);
+    const fields: Partial<PurchaseOrderItem> = { sku: catalogItemId };
     if (product && product.unit_price != null) {
       fields.unit_price = Number(product.unit_price);
     }
-    updateRowFields(itemId, fields);
+    updateRowFields(rowId, fields);
   };
 
   return (

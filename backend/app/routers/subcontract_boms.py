@@ -1,10 +1,10 @@
-"""Subcontract BOM / assembly kit management (Material lines on ProductBOMComponents)."""
+"""Subcontract BOM / assembly kit management (Material lines on ItemBOMComponents)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Product, ProductBOMComponent
+from app.models import Item, ItemBOMComponent
 from app.schemas import (
     SubcontractBOMLineCreate,
     SubcontractBOMLineRead,
@@ -15,17 +15,17 @@ from app.services.catalog import material_bom_lines, primary_vendor_mapping
 router = APIRouter(prefix="/subcontract-boms", tags=["subcontract-boms"])
 
 
-def _line_read(db: Session, line: ProductBOMComponent) -> SubcontractBOMLineRead:
-    component = db.get(Product, line.component_product_id) if line.component_product_id else None
+def _line_read(db: Session, line: ItemBOMComponent) -> SubcontractBOMLineRead:
+    component = db.get(Item, line.component_item_id) if line.component_item_id else None
     vendor = (
-        primary_vendor_mapping(db, line.component_product_id)
-        if line.component_product_id
+        primary_vendor_mapping(db, line.component_item_id)
+        if line.component_item_id
         else None
     )
     return SubcontractBOMLineRead(
         bom_id=line.bom_id,
-        assembly_item_id=line.parent_product_id,
-        component_item_id=line.component_product_id,
+        assembly_item_id=line.parent_item_id,
+        component_item_id=line.component_item_id,
         quantity_required=line.quantity_per,
         scrap_factor=getattr(line, "scrap_factor", 0) or 0,
         yield_loss_percentage=getattr(line, "yield_loss_percentage", 0) or 0,
@@ -39,7 +39,7 @@ def _line_read(db: Session, line: ProductBOMComponent) -> SubcontractBOMLineRead
 
 
 def _bom_read(db: Session, assembly_id: str) -> SubcontractBOMRead:
-    assembly = db.get(Product, assembly_id)
+    assembly = db.get(Item, assembly_id)
     if assembly is None:
         raise HTTPException(status_code=404, detail="Assembly item not found")
     lines = material_bom_lines(db, assembly_id)
@@ -63,10 +63,10 @@ def get_subcontract_bom(assembly_id: str, db: Session = Depends(get_db)) -> Subc
 def create_subcontract_bom_line(
     payload: SubcontractBOMLineCreate, db: Session = Depends(get_db)
 ) -> SubcontractBOMLineRead:
-    assembly = db.get(Product, payload.assembly_item_id)
+    assembly = db.get(Item, payload.assembly_item_id)
     if assembly is None:
         raise HTTPException(status_code=400, detail="Assembly item not found")
-    component = db.get(Product, payload.component_item_id)
+    component = db.get(Item, payload.component_item_id)
     if component is None:
         raise HTTPException(status_code=400, detail="Component item not found")
     if payload.assembly_item_id == payload.component_item_id:
@@ -78,20 +78,20 @@ def create_subcontract_bom_line(
         assembly.is_outside_processed = True
 
     existing = (
-        db.query(ProductBOMComponent)
+        db.query(ItemBOMComponent)
         .filter(
-            ProductBOMComponent.parent_product_id == payload.assembly_item_id,
-            ProductBOMComponent.component_product_id == payload.component_item_id,
-            ProductBOMComponent.item_type == "Material",
+            ItemBOMComponent.parent_item_id == payload.assembly_item_id,
+            ItemBOMComponent.component_item_id == payload.component_item_id,
+            ItemBOMComponent.item_type == "Material",
         )
         .first()
     )
     if existing:
         raise HTTPException(status_code=400, detail="Component already on this assembly kit")
 
-    line = ProductBOMComponent(
-        parent_product_id=payload.assembly_item_id,
-        component_product_id=payload.component_item_id,
+    line = ItemBOMComponent(
+        parent_item_id=payload.assembly_item_id,
+        component_item_id=payload.component_item_id,
         quantity_per=payload.quantity_required,
         item_type="Material",
         scrap_factor=payload.scrap_factor,
@@ -107,8 +107,8 @@ def create_subcontract_bom_line(
 def delete_subcontract_bom_line(
     assembly_id: str, bom_id: int, db: Session = Depends(get_db)
 ) -> None:
-    line = db.get(ProductBOMComponent, bom_id)
-    if not line or line.parent_product_id != assembly_id:
+    line = db.get(ItemBOMComponent, bom_id)
+    if not line or line.parent_item_id != assembly_id:
         raise HTTPException(status_code=404, detail="BOM line not found")
     db.delete(line)
     db.commit()

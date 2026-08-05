@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import BinLocation, InventoryStock, Product, Warehouse
+from app.models import BinLocation, InventoryStock, Item, Warehouse
 from app.schemas import (
     BinLocationCreate,
     BinLocationRead,
@@ -138,8 +138,8 @@ def create_stock_row(
 ) -> InventoryStockItemRead:
     if db.get(InventoryStock, payload.stock_id):
         raise HTTPException(status_code=409, detail="Stock row already exists")
-    if not db.get(Product, payload.product_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    if not db.get(Item, payload.item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
     if not db.get(Warehouse, payload.warehouse_id):
         raise HTTPException(status_code=404, detail="Warehouse not found")
     bin_loc = db.get(BinLocation, payload.bin_id)
@@ -150,24 +150,24 @@ def create_stock_row(
 
     stock = InventoryStock(**payload.model_dump())
     db.add(stock)
-    inventory_service.sync_product_on_hand(db, payload.product_id)
+    inventory_service.sync_item_on_hand(db, payload.item_id)
     db.commit()
     overview = inventory_service.list_stock_overview(db)
-    return next(item for item in overview if item.product_id == payload.product_id)
+    return next(item for item in overview if item.item_id == payload.item_id)
 
 
 @router.get("/movements", response_model=list[StockMovementRead])
 def list_movements(
-    product_id: str | None = None,
+    item_id: str | None = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
 ) -> list[StockMovementRead]:
-    rows = inventory_service.list_movements(db, product_id=product_id, skip=skip, limit=limit)
+    rows = inventory_service.list_movements(db, item_id=item_id, skip=skip, limit=limit)
     return [
         StockMovementRead(
             movement_id=m.movement_id,
-            product_id=m.product_id,
+            item_id=m.item_id,
             movement_type=m.movement_type,
             quantity=m.quantity,
             warehouse_id=m.warehouse_id,
@@ -192,8 +192,8 @@ def create_movement(
 
     if db.get(StockMovement, payload.movement_id):
         raise HTTPException(status_code=409, detail="Movement already exists")
-    if not db.get(Product, payload.product_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    if not db.get(Item, payload.item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
     warehouse = db.get(Warehouse, payload.warehouse_id)
     bin_loc = db.get(BinLocation, payload.bin_id)
     if not warehouse or not bin_loc:
@@ -208,7 +208,7 @@ def create_movement(
     db.refresh(movement)
     return StockMovementRead(
         movement_id=movement.movement_id,
-        product_id=movement.product_id,
+        item_id=movement.item_id,
         movement_type=movement.movement_type,
         quantity=movement.quantity,
         warehouse_id=movement.warehouse_id,
@@ -226,7 +226,7 @@ def create_movement(
 def adjust_stock(payload: StockAdjustRequest, db: Session = Depends(get_db)) -> InventoryStockItemRead:
     item = inventory_service.adjust_stock(
         db,
-        product_id=payload.product_id,
+        item_id=payload.item_id,
         quantity_delta=payload.quantity_delta,
         notes=payload.notes,
         warehouse_id=payload.warehouse_id,
@@ -243,7 +243,7 @@ def transfer_stock(
 ) -> InventoryStockItemRead:
     item = inventory_service.transfer_stock(
         db,
-        product_id=payload.product_id,
+        item_id=payload.item_id,
         quantity=payload.quantity,
         to_warehouse_id=payload.to_warehouse_id,
         to_bin_id=payload.to_bin_id,

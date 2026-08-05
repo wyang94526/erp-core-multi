@@ -241,7 +241,7 @@ def seed_data():
     # ------------------------------------------------------------------
     products = [
         {
-            "product_id": "PROD-1001G",
+            "item_id": "PROD-1001G",
             "customer_part_number": "1001G00001710",
             "description": "Enclosure, Bottom Cover, RSU-5941 For NEX",
             "uom": "PCS",
@@ -254,7 +254,7 @@ def seed_data():
             "is_subcontract_assembly": False,
         },
         {
-            "product_id": "PROD-1010G",
+            "item_id": "PROD-1010G",
             "customer_part_number": "1010G00001180",
             "description": "Metal Adapter Board, GLB M-Smart M25x4 For NEX",
             "uom": "PCS",
@@ -267,7 +267,7 @@ def seed_data():
             "is_subcontract_assembly": False,
         },
         {
-            "product_id": "PROD-1020G",
+            "item_id": "PROD-1020G",
             "customer_part_number": "1020G00000520",
             "description": "Assy KIT,M-SMART,LED 3 in 1_Reset For NEX",
             "uom": "PCS",
@@ -281,27 +281,27 @@ def seed_data():
         },
     ]
     for p in products:
-        r_p = requests.post(f"{BASE_URL}/products", json=p)
-        _report(f"Product {p['product_id']}", r_p)
+        r_p = requests.post(f"{BASE_URL}/items", json=p)
+        _report(f"Item {p['item_id']}", r_p)
 
     # ------------------------------------------------------------------
     # 4. BOM — 1 finished kit needs 1x enclosure + 1x adapter board
     # ------------------------------------------------------------------
     bom_lines = [
         {
-            "component_product_id": "PROD-1001G",
+            "component_item_id": "PROD-1001G",
             "quantity_per": 1,
             "item_type": "Material",
         },
         {
-            "component_product_id": "PROD-1010G",
+            "component_item_id": "PROD-1010G",
             "quantity_per": 1,
             "item_type": "Material",
         },
     ]
     for line in bom_lines:
-        r_bom = requests.post(f"{BASE_URL}/products/PROD-1020G/bom", json=line)
-        _report(f"BOM {line['component_product_id']} -> PROD-1020G", r_bom)
+        r_bom = requests.post(f"{BASE_URL}/items/PROD-1020G/bom", json=line)
+        _report(f"BOM {line['component_item_id']} -> PROD-1020G", r_bom)
 
     # ------------------------------------------------------------------
     # 4b. Vendor item mappings (purchase catalog)
@@ -309,7 +309,7 @@ def seed_data():
     vendor_maps = [
         {
             "supplier_id": "SUP-MEMBRANE-01",
-            "product_id": "PROD-1001G",
+            "item_id": "PROD-1001G",
             "vendor_sku": "MEM-1001",
             "unit_cost": 32.5,
             "minimum_order_qty": 10,
@@ -318,7 +318,7 @@ def seed_data():
         },
         {
             "supplier_id": "SUP-MEMBRANE-01",
-            "product_id": "PROD-1010G",
+            "item_id": "PROD-1010G",
             "vendor_sku": "ADP-1010",
             "unit_cost": 9.8,
             "minimum_order_qty": 10,
@@ -327,8 +327,8 @@ def seed_data():
         },
     ]
     for vm in vendor_maps:
-        r_vm = requests.post(f"{BASE_URL}/items/{vm['product_id']}/vendors", json=vm)
-        _report(f"Vendor map {vm['product_id']} <- {vm['supplier_id']}", r_vm)
+        r_vm = requests.post(f"{BASE_URL}/items/{vm['item_id']}/vendors", json=vm)
+        _report(f"Vendor map {vm['item_id']} <- {vm['supplier_id']}", r_vm)
 
     # ------------------------------------------------------------------
     # 5. Sales Order — create DRAFT then approve via workflow (AR invoice)
@@ -351,21 +351,21 @@ def seed_data():
         "items": [
             {
                 "line_number": 1,
-                "product_id": "PROD-1020G",
+                "item_id": "PROD-1020G",
                 "quantity_ordered": 100,
                 "unit_price": 25.50,
                 "total_amount": 2550.00,
             },
             {
                 "line_number": 2,
-                "product_id": "PROD-1001G",
+                "item_id": "PROD-1001G",
                 "quantity_ordered": 50,
                 "unit_price": 37.53,
                 "total_amount": 1876.50,
             },
             {
                 "line_number": 3,
-                "product_id": "PROD-1010G",
+                "item_id": "PROD-1010G",
                 "quantity_ordered": 50,
                 "unit_price": 10.52,
                 "total_amount": 526.00,
@@ -452,7 +452,7 @@ def seed_data():
     sco_data = {
         "sco_number": "SCO-2026-0001",
         "supplier_id": "SUP-SUBCON-01",
-        "product_id": "PROD-1020G",
+        "item_id": "PROD-1020G",
         "quantity_ordered": 100,
         "order_date": "2026-07-01",
         "expected_return_date": "2026-07-20",
@@ -483,8 +483,8 @@ def seed_data():
             "issue_date": "2026-07-02",
             "notes": "First material shipment to subcontractor for SCO-2026-0001.",
             "lines": [
-                {"component_product_id": "PROD-1001G", "quantity_issued": 50},
-                {"component_product_id": "PROD-1010G", "quantity_issued": 50},
+                {"component_item_id": "PROD-1001G", "quantity_issued": 50},
+                {"component_item_id": "PROD-1010G", "quantity_issued": 50},
             ],
         }
         r_issue = _post(
@@ -609,7 +609,7 @@ def seed_data():
     stock_rows = [
         {
             "stock_id": "STK-1001G-MDC",
-            "product_id": "PROD-1001G",
+            "item_id": "PROD-1001G",
             "warehouse_id": "WH-001",
             "bin_id": "BIN-002",
             "on_hand_quantity": 200,       # 250 created - 50 issued to SCO
@@ -620,7 +620,7 @@ def seed_data():
         },
         {
             "stock_id": "STK-1010G-MDC",
-            "product_id": "PROD-1010G",
+            "item_id": "PROD-1010G",
             "warehouse_id": "WH-001",
             "bin_id": "BIN-002",
             "on_hand_quantity": 200,
@@ -631,7 +631,7 @@ def seed_data():
         },
         {
             "stock_id": "STK-1020G-MDC",
-            "product_id": "PROD-1020G",
+            "item_id": "PROD-1020G",
             "warehouse_id": "WH-001",
             "bin_id": "BIN-001",
             "on_hand_quantity": 0,         # waiting on SCO return
@@ -648,7 +648,7 @@ def seed_data():
     movements = [
         {
             "movement_id": "MOV-SEED-001",
-            "product_id": "PROD-1001G",
+            "item_id": "PROD-1001G",
             "movement_type": "Receipt",
             "quantity": 250,
             "warehouse_id": "WH-001",
@@ -659,7 +659,7 @@ def seed_data():
         },
         {
             "movement_id": "MOV-SEED-002",
-            "product_id": "PROD-1010G",
+            "item_id": "PROD-1010G",
             "movement_type": "Receipt",
             "quantity": 250,
             "warehouse_id": "WH-001",
@@ -670,7 +670,7 @@ def seed_data():
         },
         {
             "movement_id": "MOV-SEED-003",
-            "product_id": "PROD-1001G",
+            "item_id": "PROD-1001G",
             "movement_type": "Issue",
             "quantity": -50,
             "warehouse_id": "WH-001",
@@ -681,7 +681,7 @@ def seed_data():
         },
         {
             "movement_id": "MOV-SEED-004",
-            "product_id": "PROD-1010G",
+            "item_id": "PROD-1010G",
             "movement_type": "Issue",
             "quantity": -50,
             "warehouse_id": "WH-001",
@@ -692,7 +692,7 @@ def seed_data():
         },
         {
             "movement_id": "MOV-SEED-005",
-            "product_id": "PROD-1020G",
+            "item_id": "PROD-1020G",
             "movement_type": "Adjustment",
             "quantity": 0,
             "warehouse_id": "WH-001",
@@ -718,7 +718,7 @@ def seed_data():
         print(f"  -> {len(r_inv.json())} inventory stock product(s) found")
         for row in r_inv.json():
             print(
-                f"     {row['product_id']}: on_hand={row['on_hand_quantity']} "
+                f"     {row['item_id']}: on_hand={row['on_hand_quantity']} "
                 f"alloc={row['allocated_quantity']} on_order={row['on_order_quantity']} "
                 f"ATP={row['available_to_promise']} [{row['status']}]"
             )
@@ -727,7 +727,7 @@ def seed_data():
     _report("Subcontract Order Detail", r_sco_get)
     if r_sco_get.status_code == 200:
         sco = r_sco_get.json()
-        print(f"  -> SCO status={sco.get('status')} product={sco.get('product_id')} "
+        print(f"  -> SCO status={sco.get('status')} product={sco.get('item_id')} "
               f"qty={sco.get('quantity_ordered')} components={len(sco.get('components', []))}")
 
     print()

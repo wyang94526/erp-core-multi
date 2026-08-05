@@ -1,59 +1,71 @@
+"""Item BOM endpoints under /items/{item_id}/bom (+ deprecated /products alias)."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Product, ProductBOMComponent
-from app.schemas import ProductBOMComponentCreate, ProductBOMComponentRead, ProductBOMComponentUpdate
+from app.models import Item, ItemBOMComponent
+from app.schemas import ItemBOMComponentCreate, ItemBOMComponentRead, ItemBOMComponentUpdate
+
+router = APIRouter(tags=["item-bom"])
 
 
-router = APIRouter(prefix="/products", tags=["product-bom"])
+def _ensure_parent(db: Session, item_id: str) -> Item:
+    parent = db.get(Item, item_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return parent
 
 
-@router.get("/{product_id}/bom", response_model=list[ProductBOMComponentRead])
-def list_bom_components(product_id: str, db: Session = Depends(get_db)) -> list[ProductBOMComponent]:
-    """List all BOM components (raw materials) required to build a given finished product."""
-    product = db.get(Product, product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+@router.get("/items/{item_id}/bom", response_model=list[ItemBOMComponentRead])
+@router.get("/products/{item_id}/bom", response_model=list[ItemBOMComponentRead], deprecated=True)
+def list_bom_components(item_id: str, db: Session = Depends(get_db)) -> list[ItemBOMComponent]:
+    _ensure_parent(db, item_id)
     return (
-        db.query(ProductBOMComponent)
-        .filter(ProductBOMComponent.parent_product_id == product_id)
+        db.query(ItemBOMComponent)
+        .filter(ItemBOMComponent.parent_item_id == item_id)
         .all()
     )
 
 
-@router.post("/{product_id}/bom", response_model=ProductBOMComponentRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/items/{item_id}/bom",
+    response_model=ItemBOMComponentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@router.post(
+    "/products/{item_id}/bom",
+    response_model=ItemBOMComponentRead,
+    status_code=status.HTTP_201_CREATED,
+    deprecated=True,
+)
 def add_bom_component(
-    product_id: str, payload: ProductBOMComponentCreate, db: Session = Depends(get_db)
-) -> ProductBOMComponent:
-    """Add a component/raw-material/labor/outside-service line to a finished product's BOM."""
-    parent = db.get(Product, product_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent product not found")
+    item_id: str, payload: ItemBOMComponentCreate, db: Session = Depends(get_db)
+) -> ItemBOMComponent:
+    _ensure_parent(db, item_id)
 
-    if payload.item_type == 'Material':
-        if payload.component_product_id == product_id:
-            raise HTTPException(status_code=400, detail="A product cannot be a component of itself")
-
-        component = db.get(Product, payload.component_product_id)
+    if payload.item_type == "Material":
+        if payload.component_item_id == item_id:
+            raise HTTPException(status_code=400, detail="An item cannot be a component of itself")
+        component = db.get(Item, payload.component_item_id)
         if not component:
-            raise HTTPException(status_code=400, detail="Component product not found")
+            raise HTTPException(status_code=400, detail="Component item not found")
 
     existing = (
-        db.query(ProductBOMComponent)
+        db.query(ItemBOMComponent)
         .filter(
-            ProductBOMComponent.parent_product_id == product_id,
-            ProductBOMComponent.component_product_id == payload.component_product_id,
-            ProductBOMComponent.component_code == payload.component_code,
+            ItemBOMComponent.parent_item_id == item_id,
+            ItemBOMComponent.component_item_id == payload.component_item_id,
+            ItemBOMComponent.component_code == payload.component_code,
         )
         .first()
     )
     if existing:
         raise HTTPException(status_code=400, detail="This component already exists on the BOM")
 
-    bom_line = ProductBOMComponent(
-        parent_product_id=product_id,
-        component_product_id=payload.component_product_id,
+    bom_line = ItemBOMComponent(
+        parent_item_id=item_id,
+        component_item_id=payload.component_item_id,
         component_code=payload.component_code,
         quantity_per=payload.quantity_per,
         item_type=payload.item_type,
@@ -66,39 +78,44 @@ def add_bom_component(
     return bom_line
 
 
-
-@router.patch("/{product_id}/bom/{bom_id}", response_model=ProductBOMComponentRead)
+@router.patch("/items/{item_id}/bom/{bom_id}", response_model=ItemBOMComponentRead)
+@router.patch(
+    "/products/{item_id}/bom/{bom_id}",
+    response_model=ItemBOMComponentRead,
+    deprecated=True,
+)
 def update_bom_component(
-    product_id: str, bom_id: int, payload: ProductBOMComponentUpdate, db: Session = Depends(get_db)
-) -> ProductBOMComponent:
-    """Update an existing BOM line (e.g. change quantity or item type)."""
+    item_id: str, bom_id: int, payload: ItemBOMComponentUpdate, db: Session = Depends(get_db)
+) -> ItemBOMComponent:
     bom_line = (
-        db.query(ProductBOMComponent)
+        db.query(ItemBOMComponent)
         .filter(
-            ProductBOMComponent.bom_id == bom_id,
-            ProductBOMComponent.parent_product_id == product_id,
+            ItemBOMComponent.bom_id == bom_id,
+            ItemBOMComponent.parent_item_id == item_id,
         )
         .first()
     )
     if not bom_line:
         raise HTTPException(status_code=404, detail="BOM component not found")
-
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(bom_line, key, value)
-
     db.commit()
     db.refresh(bom_line)
     return bom_line
 
 
-@router.delete("/{product_id}/bom/{bom_id}", status_code=status.HTTP_204_NO_CONTENT)
-
-def delete_bom_component(product_id: str, bom_id: int, db: Session = Depends(get_db)) -> None:
+@router.delete("/items/{item_id}/bom/{bom_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/products/{item_id}/bom/{bom_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    deprecated=True,
+)
+def delete_bom_component(item_id: str, bom_id: int, db: Session = Depends(get_db)) -> None:
     bom_line = (
-        db.query(ProductBOMComponent)
+        db.query(ItemBOMComponent)
         .filter(
-            ProductBOMComponent.bom_id == bom_id,
-            ProductBOMComponent.parent_product_id == product_id,
+            ItemBOMComponent.bom_id == bom_id,
+            ItemBOMComponent.parent_item_id == item_id,
         )
         .first()
     )

@@ -13,15 +13,14 @@ from app.models.entities import (
     Department,
     FinishedGoodsReceipt,
     InventoryStock,
+    Item,
+    ItemBOMComponent,
     JournalEntry,
     LedgerPosting,
     MaterialIssue,
     MaterialIssueLine,
     OrderDeliverySchedule,
     Permission,
-    Product,
-    ProductBase,
-    ProductBOMComponent,
     PurchaseOrder,
     PurchaseOrderItem,
     Role,
@@ -40,6 +39,10 @@ from app.models.entities import (
     WorkflowStep,
 )
 
+# Temporary aliases during cutover
+Product = Item
+ProductBOMComponent = ItemBOMComponent
+
 __all__ = [
     "APBill",
     "ARInvoice",
@@ -55,6 +58,8 @@ __all__ = [
     "Department",
     "FinishedGoodsReceipt",
     "InventoryStock",
+    "Item",
+    "ItemBOMComponent",
     "JournalEntry",
     "LedgerPosting",
     "MaterialIssue",
@@ -62,7 +67,6 @@ __all__ = [
     "OrderDeliverySchedule",
     "Permission",
     "Product",
-    "ProductBase",
     "ProductBOMComponent",
     "PurchaseOrder",
     "PurchaseOrderItem",
