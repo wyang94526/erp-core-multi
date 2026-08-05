@@ -117,6 +117,8 @@ const containerStyle: React.CSSProperties = {
   marginBottom: '20px',
   boxShadow: 'var(--shadow)',
   textAlign: 'left',
+  height: '100%',
+  boxSizing: 'border-box',
 };
 
 const sectionHeadingStyle: React.CSSProperties = {

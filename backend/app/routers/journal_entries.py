@@ -28,10 +28,44 @@ def list_journal_entries(
     return (
         db.query(JournalEntry)
         .options(selectinload(JournalEntry.postings))
+        .order_by(JournalEntry.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+
+
+@router.post("/month-end-close")
+def run_month_end_close(db: Session = Depends(get_db)) -> dict:
+    """
+    Batch-posting operation for the Month-End Close process.
+
+    Finds all Journal Entries currently sitting in 'Draft' posting_status
+    (across all periods) and flips them to 'Posted'. Returns the count of
+    entries that were posted and the list of their IDs.
+
+    Note: this MUST be declared before the "/{entry_id}" routes below,
+    otherwise FastAPI will try to parse "month-end-close" as a UUID path
+    parameter and return a 422 error.
+    """
+    draft_entries = (
+        db.query(JournalEntry)
+        .filter(JournalEntry.posting_status == "Draft")
+        .all()
+    )
+
+    posted_ids: list[str] = []
+    for entry in draft_entries:
+        entry.posting_status = "Posted"
+        posted_ids.append(str(entry.id))
+
+    db.commit()
+
+    return {
+        "message": "Month-End Close process completed.",
+        "entries_posted": len(posted_ids),
+        "journal_entry_ids": posted_ids,
+    }
 
 
 @router.post("", response_model=JournalEntryRead, status_code=status.HTTP_201_CREATED)

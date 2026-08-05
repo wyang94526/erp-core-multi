@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import (
+    ComponentIssueLog,
     FinishedGoodsReceipt,
     MaterialIssue,
     MaterialIssueLine,
@@ -15,6 +16,8 @@ from app.models import (
     Supplier,
 )
 from app.schemas import (
+    CalculateComponentsResponse,
+    CalculatedComponentLine,
     FinishedGoodsReceiptCreate,
     FinishedGoodsReceiptRead,
     MaterialIssueCreate,
@@ -23,6 +26,8 @@ from app.schemas import (
     SubcontractOrderRead,
     SubcontractOrderUpdate,
 )
+from app.services.approval import require_approved
+from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 
 router = APIRouter(prefix="/subcontract-orders", tags=["subcontract-orders"])
 
@@ -80,15 +85,12 @@ def create_subcontract_order(
     if product is None:
         raise HTTPException(status_code=400, detail="Product not found")
 
-    bom_lines = (
-        db.query(ProductBOMComponent)
-        .filter(ProductBOMComponent.parent_product_id == payload.product_id)
-        .all()
-    )
+    bom_lines = material_bom_lines(db, payload.product_id)
     if not bom_lines:
         raise HTTPException(
             status_code=400,
-            detail="Product has no Bill of Materials defined; cannot create a subcontract order",
+            detail="Product has no Material Bill of Materials / subcontract kit; "
+            "cannot create a subcontract order",
         )
 
     sco = SubcontractOrder(
@@ -107,7 +109,12 @@ def create_subcontract_order(
     db.flush()
 
     for bom_line in bom_lines:
-        quantity_required = bom_line.quantity_per * Decimal(payload.quantity_ordered)
+        quantity_required = required_quantity(
+            bom_line.quantity_per,
+            payload.quantity_ordered,
+            getattr(bom_line, "scrap_factor", None),
+            getattr(bom_line, "yield_loss_percentage", None),
+        )
         sco.components.append(
             SubcontractOrderComponent(
                 component_product_id=bom_line.component_product_id,
@@ -126,6 +133,55 @@ def get_subcontract_order(sco_number: str, db: Session = Depends(get_db)) -> Sub
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
     return sco
+
+
+@router.post(
+    "/{sco_number}/calculate-components",
+    response_model=CalculateComponentsResponse,
+)
+def calculate_components(
+    sco_number: str, db: Session = Depends(get_db)
+) -> CalculateComponentsResponse:
+    """
+    Recalculate required raw parts from the assembly Subcontract BOM kit
+    (quantity × BOM, including scrap / yield loss) and merge with issued qty.
+    """
+    sco = _load_sco(db, sco_number)
+    if not sco:
+        raise HTTPException(status_code=404, detail="Subcontract order not found")
+
+    exploded = explode_assembly_components(db, sco.product_id, sco.quantity_ordered)
+    issued_by_component = {
+        c.component_product_id: Decimal(str(c.quantity_issued or 0)) for c in sco.components
+    }
+
+    components: list[CalculatedComponentLine] = []
+    for row in exploded:
+        issued = issued_by_component.get(row["component_product_id"], Decimal("0"))
+        required = Decimal(str(row["quantity_required"]))
+        components.append(
+            CalculatedComponentLine(
+                component_product_id=row["component_product_id"],
+                description=row.get("description"),
+                quantity_per=row["quantity_per"],
+                scrap_factor=row["scrap_factor"],
+                yield_loss_percentage=row["yield_loss_percentage"],
+                quantity_required=required,
+                quantity_issued=issued,
+                quantity_remaining=max(required - issued, Decimal("0")),
+                on_hand_quantity=row.get("on_hand_quantity") or 0,
+                primary_vendor_id=row.get("primary_vendor_id"),
+                primary_vendor_sku=row.get("primary_vendor_sku"),
+                unit_cost=row.get("unit_cost"),
+            )
+        )
+
+    return CalculateComponentsResponse(
+        sco_number=sco.sco_number,
+        assembly_item_id=sco.product_id,
+        quantity_ordered=sco.quantity_ordered,
+        components=components,
+    )
 
 
 @router.patch("/{sco_number}", response_model=SubcontractOrderRead)
@@ -169,6 +225,8 @@ def issue_materials(
     sco = db.get(SubcontractOrder, sco_number)
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
+
+    require_approved(sco, "Subcontract order")
 
     if sco.status in _CLOSED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Cannot issue materials on a {sco.status.lower()} order")
@@ -219,6 +277,15 @@ def issue_materials(
                 issue_id=issue.issue_id,
                 component_product_id=line.component_product_id,
                 quantity_issued=line.quantity_issued,
+            )
+        )
+        db.add(
+            ComponentIssueLog(
+                sco_number=sco_number,
+                issue_id=issue.issue_id,
+                component_product_id=line.component_product_id,
+                quantity_issued=line.quantity_issued,
+                notes=payload.notes,
             )
         )
 

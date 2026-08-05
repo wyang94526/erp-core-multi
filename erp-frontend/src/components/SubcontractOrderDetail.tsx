@@ -9,6 +9,8 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { subcontractOrderService } from '../api/services'
+import { ApprovalPanel } from './ApprovalPanel'
+import type { CalculatedComponentLine } from '../types'
 
 export function SubcontractOrderDetail() {
   const { id } = useParams<{ id: string }>()
@@ -54,6 +56,12 @@ export function SubcontractOrderDetail() {
     queryFn: () => subcontractOrderService.getSubcontractOrder(id),
   })
 
+  const { data: kitBreakdown } = useQuery({
+    queryKey: ['subcontractOrders', id, 'calculate-components'],
+    queryFn: () => subcontractOrderService.calculateComponents(id),
+    enabled: !!id && !!sco,
+  })
+
   const issueMutation = useMutation({
     mutationFn: (data: {
       issue_id: string
@@ -64,6 +72,9 @@ export function SubcontractOrderDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+      queryClient.invalidateQueries({
+        queryKey: ['subcontractOrders', id, 'calculate-components'],
+      })
       setShowIssueForm(false)
       setIssueForm({ issue_id: '', issue_date: new Date().toISOString().split('T')[0], notes: '' })
       setIssueLines({})
@@ -143,6 +154,7 @@ export function SubcontractOrderDetail() {
 
   const statusColors = getStatusColors(sco.status)
   const isCancellable = sco.status !== 'COMPLETED' && sco.status !== 'CANCELLED'
+  const isApproved = (sco.approval_status || 'DRAFT').toUpperCase() === 'APPROVED'
 
   const handleIssueLineChange = (componentProductId: string, value: string) => {
     setIssueLines((prev) => ({ ...prev, [componentProductId]: value }))
@@ -210,6 +222,17 @@ export function SubcontractOrderDetail() {
         </button>
       </header>
 
+      <ApprovalPanel
+        module="subcontract-orders"
+        documentId={sco.sco_number}
+        approvalStatus={sco.approval_status}
+        currentApprovalStep={sco.current_approval_step}
+        onStatusChange={() => {
+          queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
+          queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+        }}
+      />
+
       {/* Order Header Information */}
       <div style={cardStyle}>
         <h3 style={sectionHeadingStyle}>Order Data</h3>
@@ -248,6 +271,10 @@ export function SubcontractOrderDetail() {
             </p>
           </div>
           <div>
+            <label style={labelStyle}>Approval Status</label>
+            <p style={valueStyle}>{(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}</p>
+          </div>
+          <div>
             <label style={labelStyle}>Order Date</label>
             <p style={valueStyle}>{sco.order_date ? new Date(sco.order_date).toLocaleDateString() : '-'}</p>
           </div>
@@ -264,44 +291,106 @@ export function SubcontractOrderDetail() {
         </div>
       </div>
 
-      {/* Required Components */}
+      {/* Required Components / Kit Breakdown */}
       <div style={cardStyle}>
-        <h3 style={sectionHeadingStyle}>Required Components (from BOM)</h3>
-        {sco.components && sco.components.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr style={theadRowStyle}>
-                  <th style={thStyle}>Component Product ID</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty Required</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty Issued</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Remaining</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sco.components.map((c) => (
-                  <tr key={c.sco_component_id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{c.component_product_id}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(c.quantity_required)}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(c.quantity_issued)}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>
-                      {(Number(c.quantity_required) - Number(c.quantity_issued)).toFixed(4)}
-                    </td>
+        <h3 style={sectionHeadingStyle}>Required Components / Kit Breakdown</h3>
+        <p style={{ color: 'var(--muted, #666)', fontSize: '13px', marginBottom: '12px' }}>
+          Exploded from the assembly Subcontract BOM (order qty × qty per + scrap / yield loss),
+          compared to warehouse issues to the subcontractor.
+        </p>
+        {(() => {
+          const lines: CalculatedComponentLine[] =
+            kitBreakdown?.components?.length
+              ? kitBreakdown.components
+              : (sco.components || []).map((c) => ({
+                  component_product_id: c.component_product_id,
+                  description: null,
+                  quantity_per: 0,
+                  scrap_factor: 0,
+                  yield_loss_percentage: 0,
+                  quantity_required: Number(c.quantity_required),
+                  quantity_issued: Number(c.quantity_issued),
+                  quantity_remaining: Math.max(
+                    Number(c.quantity_required) - Number(c.quantity_issued),
+                    0
+                  ),
+                  on_hand_quantity: 0,
+                  primary_vendor_id: null,
+                  primary_vendor_sku: null,
+                  unit_cost: null,
+                }))
+
+          if (lines.length === 0) {
+            return (
+              <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>No components found.</p>
+            )
+          }
+
+          return (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr style={theadRowStyle}>
+                    <th style={thStyle}>Component</th>
+                    <th style={thStyle}>Primary Vendor</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Qty / Unit</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Scrap / Yield</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Required</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Issued</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Remaining</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>On Hand</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>No components found.</p>
-        )}
+                </thead>
+                <tbody>
+                  {lines.map((c) => (
+                    <tr key={c.component_product_id} style={tbodyRowStyle}>
+                      <td style={tdStyle}>
+                        <div>{c.component_product_id}</div>
+                        {c.description && (
+                          <div style={{ fontSize: '12px', color: 'var(--muted, #666)' }}>
+                            {c.description}
+                          </div>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        {c.primary_vendor_id
+                          ? `${c.primary_vendor_id}${
+                              c.primary_vendor_sku ? ` (${c.primary_vendor_sku})` : ''
+                            }`
+                          : '—'}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {Number(c.quantity_per) || '—'}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {Number(c.scrap_factor) || Number(c.yield_loss_percentage)
+                          ? `${Number(c.scrap_factor)} / ${Number(c.yield_loss_percentage)}%`
+                          : '—'}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {Number(c.quantity_required)}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {Number(c.quantity_issued)}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>
+                        {Number(c.quantity_remaining).toFixed(4)}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{c.on_hand_quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Material Issues History */}
       <div style={cardStyle}>
         <div style={tableHeaderContainerStyle}>
           <h3 style={sectionHeadingStyleNoBorder}>Material Issues</h3>
-          {isCancellable && (
+          {isCancellable && isApproved && (
             <button
               type="button"
               onClick={() => setShowIssueForm((v) => !v)}
@@ -311,6 +400,12 @@ export function SubcontractOrderDetail() {
             </button>
           )}
         </div>
+
+        {isCancellable && !isApproved && (
+          <p style={{ color: '#e65100', fontSize: '13px', marginBottom: '12px' }}>
+            Approve this subcontract order before issuing materials.
+          </p>
+        )}
 
         {showIssueForm && (
           <form onSubmit={handleIssueSubmit} style={{ marginBottom: '20px' }}>

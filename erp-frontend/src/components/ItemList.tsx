@@ -1,28 +1,28 @@
 /**
- * ProductList Component
- * Displays a list of products in a table format with pagination
+ * ItemList Component
+ * Displays a list of items in a table format with pagination
  */
 
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { productService } from '../api/services'
-import type { Product } from '../types'
+import { itemService } from '../api/services'
+import type { Item } from '../types'
 import { useState } from 'react'
 
-export function ProductList() {
+export function ItemList() {
   const navigate = useNavigate()
   const [skip, setSkip] = useState(0)
   const limit = 10
 
   // Fetch products using React Query
   const {
-    data: products = [],
+    data: items = [],
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['products', skip, limit],
-    queryFn: () => productService.listProducts(skip, limit),
+    queryKey: ['items', skip, limit],
+    queryFn: () => itemService.listItems(skip, limit),
   })
 
   const handlePreviousPage = () => {
@@ -32,7 +32,7 @@ export function ProductList() {
   }
 
   const handleNextPage = () => {
-    if (products.length === limit) {
+    if (items.length === limit) {
       setSkip(skip + limit)
     }
   }
@@ -41,7 +41,7 @@ export function ProductList() {
     return (
       <div style={containerStyle}>
         <div style={emptyStateWrapperStyle}>
-          <p>Loading products...</p>
+          <p>Loading items...</p>
         </div>
       </div>
     )
@@ -51,7 +51,7 @@ export function ProductList() {
     return (
       <div style={containerStyle}>
         <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>
-          <p>Error loading products:</p>
+          <p>Error loading items:</p>
           <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
         </div>
       </div>
@@ -62,29 +62,29 @@ export function ProductList() {
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Products</h2>
-          <p style={pageSubStyle}>View, create and manage your product catalog</p>
+          <h2 style={pageTitleStyle}>Items</h2>
+          <p style={pageSubStyle}>View, create and manage your item catalog (SKU master)</p>
         </div>
         <button
-          onClick={() => navigate('/products/new')}
+          onClick={() => navigate('/items/new')}
           style={primaryButtonStyle}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
         >
-          + Add Product
+          + Add Item
         </button>
       </header>
 
       <div style={dashboardSectionStyle}>
-        {products.length === 0 ? (
-          <div style={directoryEmptyTdWrapperStyle}>No products found.</div>
+        {items.length === 0 ? (
+          <div style={directoryEmptyTdWrapperStyle}>No items found.</div>
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>Product ID</th>
+                    <th style={directoryThStyle}>Item ID</th>
                     <th style={directoryThStyle}>Customer Part Number</th>
                     <th style={directoryThStyle}>Description</th>
                     <th style={directoryThStyle}>UOM</th>
@@ -93,22 +93,22 @@ export function ProductList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((product: Product) => (
-                    <tr key={product.product_id} style={directoryTbodyRowStyle}>
-                      <td style={directoryTdStyle}>{product.product_id}</td>
-                      <td style={directoryTdStyle}>{product.customer_part_number}</td>
-                      <td style={directoryTdStyle}>{product.description || '-'}</td>
-                      <td style={directoryTdStyle}>{product.uom}</td>
-                      <td style={{ ...directoryTdStyle, textAlign: 'right' }}>{formatCurrency(product.unit_price)}</td>
+                  {items.map((item: Item) => (
+                    <tr key={item.item_id} style={directoryTbodyRowStyle}>
+                      <td style={directoryTdStyle}>{item.item_id}</td>
+                      <td style={directoryTdStyle}>{item.customer_part_number}</td>
+                      <td style={directoryTdStyle}>{item.description || '-'}</td>
+                      <td style={directoryTdStyle}>{item.uom}</td>
+                      <td style={{ ...directoryTdStyle, textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
                       <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                         <button
-                          onClick={() => navigate(`/products/${product.product_id}`)}
+                          onClick={() => navigate(`/items/${item.item_id}`)}
                           style={{ ...directoryActionButtonStyle, backgroundColor: '#e3f2fd', color: '#1565c0', border: '1px solid #bbdefb', marginRight: '6px' }}
                         >
                           View
                         </button>
                         <button
-                          onClick={() => navigate(`/products/${product.product_id}/edit`)}
+                          onClick={() => navigate(`/items/${item.item_id}/edit`)}
                           style={{ ...directoryActionButtonStyle, backgroundColor: '#fff3e0', color: '#e65100', border: '1px solid #ffe0b2' }}
                         >
                           Edit
@@ -132,13 +132,13 @@ export function ProductList() {
               </button>
 
               <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + products.length} of results
+                Showing {skip + 1} to {skip + items.length} of results
               </span>
 
               <button
                 onClick={handleNextPage}
-                disabled={products.length < limit}
-                style={{ ...secondaryButtonStyle, opacity: products.length < limit ? 0.5 : 1, cursor: products.length < limit ? 'not-allowed' : 'pointer' }}
+                disabled={items.length < limit}
+                style={{ ...secondaryButtonStyle, opacity: items.length < limit ? 0.5 : 1, cursor: items.length < limit ? 'not-allowed' : 'pointer' }}
               >
                 Next →
               </button>
@@ -286,4 +286,4 @@ const paginationRowStyle: React.CSSProperties = {
   gap: '12px',
 }
 
-export default ProductList
+export default ItemList

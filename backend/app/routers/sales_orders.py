@@ -1,13 +1,47 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import SalesOrder, SalesOrderItem
+from app.models import Customer, CustomerLocation, Product, SalesOrder, SalesOrderItem
 from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
+
+
+def _validate_sales_order_refs(db: Session, payload: SalesOrderCreate | SalesOrderUpdate, *, partial: bool = False) -> None:
+    """Raise 400 for missing customer / location / product references before insert."""
+    data = payload.model_dump(exclude_unset=partial)
+
+    customer_id = data.get("customer_id")
+    if customer_id is not None and db.get(Customer, customer_id) is None:
+        raise HTTPException(status_code=400, detail=f"Customer '{customer_id}' not found")
+
+    for field in ("bill_to_location_id", "ship_to_location_id"):
+        loc_id = data.get(field)
+        if loc_id is None:
+            continue
+        loc = db.get(CustomerLocation, loc_id)
+        if loc is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field} '{loc_id}' not found in customer locations",
+            )
+        if customer_id and loc.customer_id != customer_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field} '{loc_id}' does not belong to customer '{customer_id}'",
+            )
+
+    items = data.get("items")
+    if items:
+        for item in items:
+            product_id = item.get("product_id") if isinstance(item, dict) else getattr(item, "product_id", None)
+            if product_id and db.get(Product, product_id) is None:
+                raise HTTPException(status_code=400, detail=f"Product '{product_id}' not found")
+
 
 @router.get("", response_model=list[SalesOrderRead])
 def list_sales_orders(
@@ -25,13 +59,22 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
     """
     Create a new Sales Order and its associated Line Items in a single transaction.
     """
+    if db.get(SalesOrder, payload.sales_order_id) is not None:
+        raise HTTPException(status_code=400, detail="Sales order ID already exists")
+
+    _validate_sales_order_refs(db, payload)
+
     # 1. Extract the parent data, excluding the nested items
     order_data = payload.model_dump(exclude={"items"})
     order = SalesOrder(**order_data)
     
     # 2. Add the parent order to the session and flush it to generate/register the ID
     db.add(order)
-    db.flush() 
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Invalid sales order data: {exc.orig}") from exc
 
     # 3. Iterate through the nested items and link them to the newly created parent
     for item_schema in payload.items:
@@ -43,9 +86,16 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
             sales_order_id=order.sales_order_id
         )
         db.add(item)
-        
-    # 4. Commit the entire transaction atomically
-    db.commit()
+
+    # Operational status APPROVED must go through the approval workflow;
+    # do not bypass approval_status here.
+
+    # Commit the entire transaction atomically
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Invalid sales order data: {exc.orig}") from exc
     db.refresh(order)
     return order
 
@@ -95,7 +145,9 @@ def update_sales_order(
     update_data = payload.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(order, key, value)
-        
+
+    # AR invoice creation happens when approval workflow finalizes APPROVED.
+
     db.commit()
     db.refresh(order)
     return order

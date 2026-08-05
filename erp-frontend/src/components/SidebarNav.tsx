@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 type NavItem = {
   label: string
   to: string
   end?: boolean
+  permission?: string
 }
 
 type NavCategory = {
@@ -18,9 +20,9 @@ const NAV_CATEGORIES: NavCategory[] = [
     id: 'sales-purchasing',
     label: '📦 Sales & Purchasing',
     items: [
-      { label: 'Sales Orders', to: '/', end: true },
-      { label: 'Purchase Orders', to: '/purchase-orders' },
-      { label: 'Subcontract Orders', to: '/subcontract-orders' },
+      { label: 'Sales Orders', to: '/', end: true, permission: 'sales_order:view' },
+      { label: 'Purchase Orders', to: '/purchase-orders', permission: 'po:view' },
+      { label: 'Subcontract Orders', to: '/subcontract-orders', permission: 'subcontract:view' },
     ],
   },
   {
@@ -29,24 +31,44 @@ const NAV_CATEGORIES: NavCategory[] = [
     items: [
       { label: 'Customers', to: '/customers' },
       { label: 'Vendors', to: '/vendors' },
-      { label: 'Products', to: '/products' },
+      { label: 'Items', to: '/items' },
+    ],
+  },
+  {
+    id: 'inventory',
+    label: '🏭 Inventory',
+    items: [
+      { label: 'Stock On-Hand & ATP', to: '/inventory', end: true },
+      { label: 'Stock Movements', to: '/inventory/movements' },
+      { label: 'Warehouses & Bins', to: '/inventory/warehouses' },
     ],
   },
   {
     id: 'finance-accounting',
     label: '💰 Finance & Accounting',
     items: [
-      { label: 'Accounts Receivable', to: '/ar-invoices' },
-      { label: 'Accounts Payable', to: '/ap-bills' },
-      { label: 'Cash Management', to: '/cash-management' },
-      { label: 'General Ledger', to: '/general-ledger' },
+      { label: 'Chart of Accounts', to: '/chart-of-accounts', permission: 'journal:view' },
+      { label: 'Accounts Receivable', to: '/ar-invoices', permission: 'ar_invoice:view' },
+      { label: 'Accounts Payable', to: '/ap-bills', permission: 'ap_bill:view' },
+      { label: 'Cash Management', to: '/cash-management', permission: 'cash:view' },
+      { label: 'General Ledger', to: '/general-ledger', permission: 'journal:view' },
+    ],
+  },
+  {
+    id: 'admin',
+    label: '⚙️ Administration',
+    items: [
+      { label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
     ],
   },
 ]
 
 function isItemActive(pathname: string, item: NavItem): boolean {
-  if (item.end || item.to === '/') {
+  if (item.to === '/') {
     return pathname === '/' || pathname.startsWith('/orders')
+  }
+  if (item.end) {
+    return pathname === item.to
   }
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
@@ -67,6 +89,7 @@ type SidebarNavProps = {
 
 export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const location = useLocation()
+  const { hasPermission, loading } = useAuth()
   const activeCategoryId = findActiveCategoryId(location.pathname)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -88,6 +111,13 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
     setOpenCategories((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
+  const visibleCategories = NAV_CATEGORIES.map((category) => ({
+    ...category,
+    items: category.items.filter(
+      (item) => !item.permission || loading || hasPermission(item.permission),
+    ),
+  })).filter((category) => category.items.length > 0)
+
   return (
     <aside
       className={`app-sidebar${collapsed ? ' collapsed' : ''}`}
@@ -96,7 +126,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
       <div className="app-sidebar-inner">
         <div className="app-sidebar-brand">GTT-USA ERP</div>
         <nav className="app-sidebar-nav" aria-label="Main">
-          {NAV_CATEGORIES.map((category) => {
+          {visibleCategories.map((category) => {
             const isOpen = Boolean(openCategories[category.id])
             const isActiveCategory = category.id === activeCategoryId
 

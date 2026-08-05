@@ -3,11 +3,11 @@
  * Form for creating and editing sales orders with dynamic line items
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { salesOrderService, customerService, productService } from '../api/services'
-import type { Customer, Product } from '../types'
+import { salesOrderService, customerService, itemService, locationService } from '../api/services'
+import type { Customer, Item, Location } from '../types'
 
 interface LineItem {
   line_number: number
@@ -38,7 +38,7 @@ export function SalesOrderForm() {
     currency: 'USD',
     buyer_contact_name: '',
     buyer_contact_email: '',
-    status: 'RECEIVED',
+    status: 'DRAFT',
     total_amount: 0,
   })
 
@@ -62,10 +62,39 @@ export function SalesOrderForm() {
   })
 
   // Fetch products
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => productService.listProducts(0, 1000),
+  const { data: items = [] } = useQuery({
+    queryKey: ['items'],
+    queryFn: () => itemService.listItems(0, 1000),
   })
+
+  // Locations for the selected customer
+  const { data: customerLocations = [], isFetching: loadingLocations } = useQuery({
+    queryKey: ['customerLocations', formData.customer_id],
+    queryFn: () => locationService.listLocationsByCustomer(formData.customer_id),
+    enabled: !!formData.customer_id,
+  })
+
+  const billToLocations = useMemo(
+    () =>
+      customerLocations.filter(
+        (loc: Location) => loc.location_type === 'BILL_TO' || loc.location_type === 'BOTH'
+      ),
+    [customerLocations]
+  )
+
+  const shipToLocations = useMemo(
+    () =>
+      customerLocations.filter(
+        (loc: Location) => loc.location_type === 'SHIP_TO' || loc.location_type === 'BOTH'
+      ),
+    [customerLocations]
+  )
+
+  const formatLocationLabel = (loc: Location) => {
+    const name = loc.location_name || loc.location_id
+    const city = [loc.city, loc.state].filter(Boolean).join(', ')
+    return city ? `${name} — ${city}` : name
+  }
 
   // Fetch sales order if in edit mode
   const {
@@ -114,16 +143,32 @@ export function SalesOrderForm() {
     }
   }, [salesOrder])
 
-  // Create mutation
+  const emptyToNull = (v: string) => (v.trim() === '' ? null : v)
+
+  // Create mutation — send only create-schema fields; omit empty optional emails
   const createMutation = useMutation({
-    mutationFn: (data: any) =>
+    mutationFn: (data: typeof formData) =>
       salesOrderService.createSalesOrder({
-        ...data,
+        sales_order_id: data.sales_order_id,
+        customer_id: data.customer_id,
+        bill_to_location_id: data.bill_to_location_id,
+        ship_to_location_id: data.ship_to_location_id,
+        customer_po_number: data.customer_po_number,
+        po_revision_number: data.po_revision_number,
+        order_date: data.order_date,
+        payment_terms: emptyToNull(data.payment_terms) ?? undefined,
+        freight_terms: emptyToNull(data.freight_terms) ?? undefined,
+        shipping_method: emptyToNull(data.shipping_method) ?? undefined,
+        currency: data.currency || 'USD',
+        buyer_contact_name: emptyToNull(data.buyer_contact_name) ?? undefined,
+        buyer_contact_email: emptyToNull(data.buyer_contact_email) ?? undefined,
+        status: data.status,
+        total_amount: data.total_amount,
         items: lineItems,
       }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
-      navigate('/')
+      navigate(`/orders/${created.sales_order_id}`)
     },
     onError: (error: any) => {
       setErrors({
@@ -132,16 +177,25 @@ export function SalesOrderForm() {
     },
   })
 
-  // Update mutation
+  // Update mutation — only send SalesOrderUpdate fields; empty emails → null
   const updateMutation = useMutation({
-    mutationFn: (data: any) =>
+    mutationFn: (data: typeof formData) =>
       salesOrderService.updateSalesOrder(id!, {
-        ...data,
-        sales_order_id: undefined,
+        bill_to_location_id: data.bill_to_location_id,
+        ship_to_location_id: data.ship_to_location_id,
+        customer_po_number: data.customer_po_number,
+        po_revision_number: data.po_revision_number,
+        payment_terms: emptyToNull(data.payment_terms),
+        freight_terms: emptyToNull(data.freight_terms),
+        shipping_method: emptyToNull(data.shipping_method),
+        buyer_contact_name: emptyToNull(data.buyer_contact_name),
+        buyer_contact_email: emptyToNull(data.buyer_contact_email),
+        status: data.status,
+        total_amount: data.total_amount,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
-      navigate('/')
+      navigate(`/orders/${id}`)
     },
     onError: (error: any) => {
       setErrors({
@@ -152,14 +206,26 @@ export function SalesOrderForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === 'po_revision_number' ? parseInt(value) : value,
-    }))
-    if (errors[name]) {
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        [name]: name === 'po_revision_number' ? parseInt(value) || 0 : value,
+      }
+      // Changing customer clears location picks (they belong to the prior customer)
+      if (name === 'customer_id') {
+        next.bill_to_location_id = ''
+        next.ship_to_location_id = ''
+      }
+      return next
+    })
+    if (errors[name] || name === 'customer_id') {
       setErrors((prev) => {
         const newErrors = { ...prev }
         delete newErrors[name]
+        if (name === 'customer_id') {
+          delete newErrors.bill_to_location_id
+          delete newErrors.ship_to_location_id
+        }
         return newErrors
       })
     }
@@ -250,7 +316,7 @@ export function SalesOrderForm() {
     } else {
       lineItems.forEach((item, index) => {
         if (!item.product_id.trim()) {
-          newErrors[`item_${index}_product`] = 'Product is required'
+          newErrors[`item_${index}_product`] = 'Item is required'
         }
         if (item.quantity_ordered <= 0) {
           newErrors[`item_${index}_quantity`] = 'Quantity must be greater than 0'
@@ -389,12 +455,14 @@ export function SalesOrderForm() {
                 onChange={handleChange}
                 style={inputStyle}
               >
+                <option value="DRAFT">DRAFT</option>
                 <option value="RECEIVED">RECEIVED</option>
+                <option value="PENDING">PENDING</option>
                 <option value="PROCESSING">PROCESSING</option>
+                <option value="APPROVED">APPROVED</option>
                 <option value="SHIPPED">SHIPPED</option>
                 <option value="DELIVERED">DELIVERED</option>
                 <option value="CANCELLED">CANCELLED</option>
-                <option value="PENDING">PENDING</option>
               </select>
             </div>
 
@@ -436,43 +504,81 @@ export function SalesOrderForm() {
 
             <div style={fieldGroupStyle}>
               <label htmlFor="bill_to_location_id" style={labelStyle}>
-                Bill To Location ID *
+                Bill To Location *
               </label>
-              <input
-                type="text"
+              <select
                 id="bill_to_location_id"
                 name="bill_to_location_id"
                 value={formData.bill_to_location_id}
                 onChange={handleChange}
+                disabled={!formData.customer_id || loadingLocations}
                 style={{
                   ...inputStyle,
                   border: errors.bill_to_location_id ? '1px solid #f44336' : '1px solid var(--border)',
                 }}
-                placeholder="Enter bill to location ID"
-              />
+              >
+                <option value="">
+                  {!formData.customer_id
+                    ? 'Select a customer first'
+                    : loadingLocations
+                    ? 'Loading locations...'
+                    : billToLocations.length === 0
+                    ? 'No bill-to locations for this customer'
+                    : 'Select bill-to location'}
+                </option>
+                {billToLocations.map((loc: Location) => (
+                  <option key={loc.location_id} value={loc.location_id}>
+                    {formatLocationLabel(loc)}
+                  </option>
+                ))}
+              </select>
               {errors.bill_to_location_id && (
                 <span style={errorTextStyle}>{errors.bill_to_location_id}</span>
+              )}
+              {formData.customer_id && !loadingLocations && billToLocations.length === 0 && (
+                <span style={errorTextStyle}>
+                  Add a BILL_TO location for this customer before creating an order.
+                </span>
               )}
             </div>
 
             <div style={fieldGroupStyle}>
               <label htmlFor="ship_to_location_id" style={labelStyle}>
-                Ship To Location ID *
+                Ship To Location *
               </label>
-              <input
-                type="text"
+              <select
                 id="ship_to_location_id"
                 name="ship_to_location_id"
                 value={formData.ship_to_location_id}
                 onChange={handleChange}
+                disabled={!formData.customer_id || loadingLocations}
                 style={{
                   ...inputStyle,
                   border: errors.ship_to_location_id ? '1px solid #f44336' : '1px solid var(--border)',
                 }}
-                placeholder="Enter ship to location ID"
-              />
+              >
+                <option value="">
+                  {!formData.customer_id
+                    ? 'Select a customer first'
+                    : loadingLocations
+                    ? 'Loading locations...'
+                    : shipToLocations.length === 0
+                    ? 'No ship-to locations for this customer'
+                    : 'Select ship-to location'}
+                </option>
+                {shipToLocations.map((loc: Location) => (
+                  <option key={loc.location_id} value={loc.location_id}>
+                    {formatLocationLabel(loc)}
+                  </option>
+                ))}
+              </select>
               {errors.ship_to_location_id && (
                 <span style={errorTextStyle}>{errors.ship_to_location_id}</span>
+              )}
+              {formData.customer_id && !loadingLocations && shipToLocations.length === 0 && (
+                <span style={errorTextStyle}>
+                  Add a SHIP_TO location for this customer before creating an order.
+                </span>
               )}
             </div>
 
@@ -594,7 +700,7 @@ export function SalesOrderForm() {
               <thead>
                 <tr style={theadRowStyle}>
                   <th style={{ ...thStyle, width: '60px' }}>Line #</th>
-                  <th style={thStyle}>Product *</th>
+                  <th style={thStyle}>Item *</th>
                   <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
                   <th style={{ ...thStyle, width: '130px', textAlign: 'right' }}>Unit Price</th>
                   <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Amount</th>
@@ -618,10 +724,10 @@ export function SalesOrderForm() {
                           border: errors[`item_${index}_product`] ? '1px solid #f44336' : '1px solid var(--border)',
                         }}
                       >
-                        <option value="">Select product</option>
-                        {products.map((product: Product) => (
-                          <option key={product.product_id} value={product.product_id}>
-                            {product.description || product.product_id}
+                        <option value="">Select item</option>
+                        {items.map((catalogItem: Item) => (
+                          <option key={catalogItem.item_id} value={catalogItem.item_id}>
+                            {catalogItem.description || catalogItem.item_id}
                           </option>
                         ))}
                       </select>

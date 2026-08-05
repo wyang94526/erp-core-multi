@@ -1,23 +1,59 @@
 import React, { useState, useEffect, useMemo, useTransition } from 'react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
-import { mockPoService } from '../api/mockPoService';
-import type { Supplier, PurchaseOrder } from '../types';
+import { purchaseOrderService, vendorService, approvalService, itemService } from '../api/services';
+import type { Supplier, PurchaseOrder, Item } from '../types';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
 import { POSummaryCard } from './POSummaryCard';
 import { POActionToolbar } from './POActionToolbar';
+import { ApprovalPanel } from './ApprovalPanel';
+
+function toApiItems(items: PurchaseOrder['items']) {
+  return items
+    .filter((item) => item.sku && item.sku.trim() && item.quantity > 0)
+    .map(({ sku, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
+      sku,
+      quantity,
+      unit_price,
+      tax_rate,
+      line_subtotal,
+      line_tax,
+      line_total,
+    }));
+}
+
+function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
+  return {
+    po_number: state.po_number,
+    supplier_id: state.supplier_id,
+    order_date: state.order_date || undefined,
+    expected_delivery_date: state.expected_delivery_date || null,
+    payment_terms: state.payment_terms || null,
+    status,
+    shipping_fee: state.shipping_fee,
+    discount_type: state.discount_type,
+    discount_value: state.discount_value,
+    subtotal: state.subtotal,
+    total_tax: state.total_tax,
+    discount_amount: state.discount_amount,
+    grand_total: state.grand_total,
+    notes: state.notes || null,
+    items: toApiItems(state.items),
+  };
+}
 
 export function PurchaseOrderForm() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [products, setProducts] = useState<Item[]>([]);
   const [savedPOs, setSavedPOs] = useState<PurchaseOrder[]>([]);
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
+  const [isExisting, setIsExisting] = useState(false);
   const [, startTransition] = useTransition();
 
-  // Helper to generate a new PO Number
   const generateNewPONumber = () => {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
@@ -25,12 +61,12 @@ export function PurchaseOrderForm() {
     return `PO-${dateStr}-${randomHex}`;
   };
 
-  // Instantiate our centralized state management hook
   const {
     state,
     setHeader,
     addRow,
     updateRow,
+    updateRowFields,
     deleteRow,
     clearAllRows,
     updateSummary,
@@ -38,15 +74,31 @@ export function PurchaseOrderForm() {
     resetForm,
   } = usePurchaseOrderState(generateNewPONumber());
 
-  // Load initial suppliers and saved POs
+  const withSupplierNames = (pos: PurchaseOrder[], sups: Supplier[]) => {
+    const nameById = Object.fromEntries(sups.map((s) => [s.supplier_id, s.company_name]));
+    return pos.map((po) => ({
+      ...po,
+      supplier_name: nameById[po.supplier_id] || po.supplier_id,
+    }));
+  };
+
   const reloadData = async () => {
     try {
-      const sups = await mockPoService.getSuppliers();
+      const [sups, pos, purchaseItems, allProds] = await Promise.all([
+        vendorService.listVendors(),
+        purchaseOrderService.listPurchaseOrders(),
+        itemService.listPurchaseItems(0, 1000).catch(() => [] as Item[]),
+        itemService.listItems(0, 1000),
+      ]);
       setSuppliers(sups);
-      const pos = await mockPoService.getPurchaseOrders();
-      setSavedPOs(pos);
+      setSavedPOs(withSupplierNames(pos, sups));
+      // Prefer purchase-flagged items; fall back to full catalog if none flagged yet
+      setProducts(purchaseItems.length > 0 ? purchaseItems : allProds);
     } catch (err) {
       console.error('Failed to load PO initial data', err);
+      setErrors({
+        form: err instanceof Error ? err.message : 'Failed to load purchase orders',
+      });
     }
   };
 
@@ -54,31 +106,27 @@ export function PurchaseOrderForm() {
     reloadData();
   }, []);
 
-  // Form Validation logic
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // 1. PO Number must be non-empty
     if (!state.po_number || !state.po_number.trim()) {
       newErrors.po_number = 'PO Number is required';
     }
-
-    // 2. Vendor must be selected
     if (!state.supplier_id) {
       newErrors.supplier_id = 'Supplier/Vendor selection is required';
     }
-
-    // 3. Date check
     if (!state.order_date) {
       newErrors.order_date = 'Order date is required';
     }
     if (!state.expected_delivery_date) {
       newErrors.expected_delivery_date = 'Expected delivery date is required';
-    } else if (state.order_date && new Date(state.order_date) > new Date(state.expected_delivery_date)) {
+    } else if (
+      state.order_date &&
+      new Date(state.order_date) > new Date(state.expected_delivery_date)
+    ) {
       newErrors.expected_delivery_date = 'Expected delivery date must be on or after Order Date';
     }
 
-    // 4. Line items validation (At least one valid line item)
     if (state.items.length === 0) {
       newErrors.lineItems = 'At least one line item is required';
     } else {
@@ -86,7 +134,7 @@ export function PurchaseOrderForm() {
       state.items.forEach((item) => {
         const itemErrors: string[] = [];
         if (!item.sku || !item.sku.trim()) {
-          newErrors[`sku_${item.id}`] = 'SKU / description is required';
+          newErrors[`sku_${item.id}`] = 'Item / SKU is required';
           itemErrors.push('sku');
         }
         if (item.quantity <= 0) {
@@ -97,12 +145,10 @@ export function PurchaseOrderForm() {
           newErrors[`price_${item.id}`] = 'Unit price cannot be negative';
           itemErrors.push('price');
         }
-
         if (itemErrors.length === 0) {
           validItemCount++;
         }
       });
-
       if (validItemCount === 0) {
         newErrors.lineItems = 'At least one fully valid line item is required';
       }
@@ -112,17 +158,29 @@ export function PurchaseOrderForm() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Track if we currently have live validation errors
-  const hasValidationError = useMemo(() => {
-    return Object.keys(errors).length > 0;
-  }, [errors]);
+  const hasValidationError = useMemo(() => Object.keys(errors).length > 0, [errors]);
 
-  // Actions
+  const persistPO = async (status: PurchaseOrder['status']) => {
+    const payload = buildPayload(state as PurchaseOrder, status);
+    if (payload.items.length === 0 && status !== 'Draft') {
+      throw new Error('At least one valid line item is required');
+    }
+    // Draft create still needs ≥1 item for backend schema
+    if (payload.items.length === 0) {
+      throw new Error('Add at least one line item with SKU and quantity before saving');
+    }
+
+    if (isExisting) {
+      const { po_number: _, ...updateData } = payload;
+      return purchaseOrderService.updatePurchaseOrder(state.po_number, updateData);
+    }
+    return purchaseOrderService.createPurchaseOrder(payload);
+  };
+
   const handleSaveDraft = async () => {
     setIsSubmitting(true);
     setSuccessMessage('');
 
-    // Pre-validate minimal requirements for a draft: PO number and Vendor
     const draftErrors: Record<string, string> = {};
     if (!state.po_number || !state.po_number.trim()) {
       draftErrors.po_number = 'PO Number is required';
@@ -130,7 +188,6 @@ export function PurchaseOrderForm() {
     if (!state.supplier_id) {
       draftErrors.supplier_id = 'Vendor selection is required';
     }
-
     if (Object.keys(draftErrors).length > 0) {
       setErrors(draftErrors);
       setIsSubmitting(false);
@@ -138,18 +195,23 @@ export function PurchaseOrderForm() {
     }
 
     try {
-      const updatedPo: PurchaseOrder = {
-        ...state,
-        status: 'Draft',
-      };
-      await mockPoService.savePurchaseOrder(updatedPo);
+      const saved = await persistPO('Draft');
+      setFullPO({
+        ...saved,
+        supplier_name:
+          suppliers.find((s) => s.supplier_id === saved.supplier_id)?.company_name ||
+          saved.supplier_id,
+      });
+      setIsExisting(true);
       setErrors({});
       setSuccessMessage(`Draft purchase order ${state.po_number} saved successfully!`);
       setIsReadOnly(true);
       await reloadData();
     } catch (err) {
       console.error(err);
-      setErrors({ form: 'An error occurred while saving Draft PO' });
+      setErrors({
+        form: err instanceof Error ? err.message : 'An error occurred while saving Draft PO',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -165,18 +227,28 @@ export function PurchaseOrderForm() {
     }
 
     try {
-      const updatedPo: PurchaseOrder = {
-        ...state,
-        status: 'Submitted',
-      };
-      await mockPoService.savePurchaseOrder(updatedPo);
+      // Persist first (Draft), then submit for approval workflow
+      const saved = await persistPO('Draft');
+      setIsExisting(true);
+      await approvalService.submit('purchase-orders', saved.po_number);
+      const refreshed = await purchaseOrderService.getPurchaseOrder(saved.po_number);
+      setFullPO({
+        ...refreshed,
+        supplier_name:
+          suppliers.find((s) => s.supplier_id === refreshed.supplier_id)?.company_name ||
+          refreshed.supplier_id,
+      });
       setErrors({});
-      setSuccessMessage(`Purchase order ${state.po_number} has been submitted successfully!`);
+      setSuccessMessage(
+        `Purchase order ${state.po_number} submitted for approval successfully!`
+      );
       setIsReadOnly(true);
       await reloadData();
     } catch (err) {
       console.error(err);
-      setErrors({ form: 'An error occurred while submitting PO' });
+      setErrors({
+        form: err instanceof Error ? err.message : 'An error occurred while submitting PO',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -186,6 +258,7 @@ export function PurchaseOrderForm() {
     if (window.confirm('Are you sure you want to reset the form? All unsaved work will be lost.')) {
       resetForm(generateNewPONumber());
       setIsReadOnly(false);
+      setIsExisting(false);
       setErrors({});
       setSuccessMessage('');
     }
@@ -193,6 +266,7 @@ export function PurchaseOrderForm() {
 
   const handleLoadPO = (po: PurchaseOrder) => {
     setFullPO(po);
+    setIsExisting(true);
     setIsReadOnly(true);
     setErrors({});
     setSuccessMessage('');
@@ -201,13 +275,20 @@ export function PurchaseOrderForm() {
   const handleDeletePO = async (poNumber: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Are you sure you want to delete purchase order ${poNumber}?`)) {
-      await mockPoService.deletePurchaseOrder(poNumber);
-      if (state.po_number === poNumber) {
-        resetForm(generateNewPONumber());
-        setIsReadOnly(false);
+      try {
+        await purchaseOrderService.deletePurchaseOrder(poNumber);
+        if (state.po_number === poNumber) {
+          resetForm(generateNewPONumber());
+          setIsReadOnly(false);
+          setIsExisting(false);
+        }
+        setSuccessMessage(`Purchase order ${poNumber} deleted successfully.`);
+        await reloadData();
+      } catch (err) {
+        setErrors({
+          form: err instanceof Error ? err.message : 'Failed to delete purchase order',
+        });
       }
-      setSuccessMessage(`Purchase order ${poNumber} deleted successfully.`);
-      await reloadData();
     }
   };
 
@@ -215,12 +296,28 @@ export function PurchaseOrderForm() {
     setIsReadOnly((prev) => !prev);
   };
 
+  const handleApprovalChange = async () => {
+    try {
+      const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
+      setFullPO({
+        ...refreshed,
+        supplier_name:
+          suppliers.find((s) => s.supplier_id === refreshed.supplier_id)?.company_name ||
+          refreshed.supplier_id,
+      });
+      await reloadData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const filteredPOs = useMemo(() => {
     return savedPOs.filter(
       (po) =>
         po.po_number.toLowerCase().includes(searchFilter.toLowerCase()) ||
         (po.supplier_name && po.supplier_name.toLowerCase().includes(searchFilter.toLowerCase())) ||
-        po.status.toLowerCase().includes(searchFilter.toLowerCase())
+        po.status.toLowerCase().includes(searchFilter.toLowerCase()) ||
+        (po.approval_status || '').toLowerCase().includes(searchFilter.toLowerCase())
     );
   }, [savedPOs, searchFilter]);
 
@@ -231,12 +328,8 @@ export function PurchaseOrderForm() {
     });
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(value);
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 
   return (
     <div style={containerStyle}>
@@ -247,7 +340,6 @@ export function PurchaseOrderForm() {
         </div>
       </header>
 
-      {/* Success Notification Bar */}
       {successMessage && (
         <div style={successAlertStyle}>
           <span>🟢 {successMessage}</span>
@@ -261,14 +353,17 @@ export function PurchaseOrderForm() {
         </div>
       )}
 
-      {/* Main Form validation summary errors */}
       {errors.lineItems && (
         <div style={errorAlertStyle}>
           <span>⚠️ {errors.lineItems}</span>
         </div>
       )}
+      {errors.form && (
+        <div style={errorAlertStyle}>
+          <span>⚠️ {errors.form}</span>
+        </div>
+      )}
 
-      {/* Action Toolbar */}
       <POActionToolbar
         isReadOnly={isReadOnly}
         onToggleMode={handleToggleMode}
@@ -279,57 +374,62 @@ export function PurchaseOrderForm() {
         hasValidationError={hasValidationError}
       />
 
-      <div style={workspaceLayoutstyle}>
-        {/* Main Document Area */}
-        <div style={documentAreaStyle}>
-          {/* Header Card */}
-          <POHeader
-            state={state}
-            setHeader={setHeader}
-            isReadOnly={isReadOnly}
-            suppliers={suppliers}
-            errors={errors}
-          />
+      {isExisting && (
+        <ApprovalPanel
+          module="purchase-orders"
+          documentId={state.po_number}
+          approvalStatus={state.approval_status}
+          currentApprovalStep={state.current_approval_step}
+          onStatusChange={handleApprovalChange}
+        />
+      )}
 
-          {/* Line Items Table */}
-          <POLineItemsTable
-            items={state.items}
-            updateRow={updateRow}
-            deleteRow={deleteRow}
-            addRow={addRow}
-            clearAllRows={clearAllRows}
-            isReadOnly={isReadOnly}
-            errors={errors}
-          />
-
-          {/* Notes Section */}
-          <div style={notesCardStyle}>
-            <label style={notesLabelStyle} htmlFor="po_notes">Order Notes & Internal Comments</label>
-            {isReadOnly ? (
-              <div style={readOnlyNotesValueStyle}>{state.notes || 'No notes provided.'}</div>
-            ) : (
-              <textarea
-                id="po_notes"
-                value={state.notes || ''}
-                onChange={(e) => setHeader('notes', e.target.value)}
-                placeholder="Enter special instructions or notes to supplier here..."
-                style={textareaStyle}
-              />
-            )}
+      <div style={documentAreaStyle}>
+        <div style={headerSummaryRowStyle}>
+          <div style={headerColumnStyle}>
+            <POHeader
+              state={state}
+              setHeader={setHeader}
+              isReadOnly={isReadOnly}
+              suppliers={suppliers}
+              errors={errors}
+            />
+          </div>
+          <div style={summaryColumnStyle}>
+            <POSummaryCard state={state} updateSummary={updateSummary} isReadOnly={isReadOnly} />
           </div>
         </div>
 
-        {/* Sidebar Summary Area */}
-        <div style={sidebarAreaStyle}>
-          <POSummaryCard
-            state={state}
-            updateSummary={updateSummary}
-            isReadOnly={isReadOnly}
-          />
+        <POLineItemsTable
+          items={state.items}
+          products={products}
+          updateRow={updateRow}
+          updateRowFields={updateRowFields}
+          deleteRow={deleteRow}
+          addRow={addRow}
+          clearAllRows={clearAllRows}
+          isReadOnly={isReadOnly}
+          errors={errors}
+        />
+
+        <div style={notesCardStyle}>
+          <label style={notesLabelStyle} htmlFor="po_notes">
+            Order Notes & Internal Comments
+          </label>
+          {isReadOnly ? (
+            <div style={readOnlyNotesValueStyle}>{state.notes || 'No notes provided.'}</div>
+          ) : (
+            <textarea
+              id="po_notes"
+              value={state.notes || ''}
+              onChange={(e) => setHeader('notes', e.target.value)}
+              placeholder="Enter special instructions or notes to supplier here..."
+              style={textareaStyle}
+            />
+          )}
         </div>
       </div>
 
-      {/* Dashboard: Saved POs Table list */}
       <div style={dashboardSectionStyle}>
         <div style={dashboardHeaderStyle}>
           <h3 style={dashboardTitleStyle}>Purchase Orders Directory</h3>
@@ -354,6 +454,7 @@ export function PurchaseOrderForm() {
                 <th style={directoryThStyle}>Expected Delivery Date</th>
                 <th style={{ ...directoryThStyle, textAlign: 'right' }}>Total Amount</th>
                 <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
+                <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
                 <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
@@ -408,6 +509,9 @@ export function PurchaseOrderForm() {
                         </span>
                       </td>
                       <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
+                        {(po.approval_status || 'DRAFT').replace(/_/g, ' ')}
+                      </td>
+                      <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                         <button
                           type="button"
                           onClick={(e) => handleDeletePO(po.po_number, e)}
@@ -421,7 +525,7 @@ export function PurchaseOrderForm() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} style={directoryEmptyTdStyle}>
+                  <td colSpan={8} style={directoryEmptyTdStyle}>
                     No saved purchase orders found.
                   </td>
                 </tr>
@@ -434,7 +538,6 @@ export function PurchaseOrderForm() {
   );
 }
 
-// Styling definitions
 const containerStyle: React.CSSProperties = {
   padding: '24px',
   maxWidth: '1200px',
@@ -462,98 +565,89 @@ const pageSubStyle: React.CSSProperties = {
 };
 
 const successAlertStyle: React.CSSProperties = {
-  backgroundColor: '#e8f5e9',
-  color: '#2e7d32',
-  border: '1px solid #c8e6c9',
-  borderRadius: '6px',
-  padding: '12px 20px',
-  marginBottom: '20px',
-  fontSize: '14px',
-  fontWeight: 'bold',
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
+  backgroundColor: '#e8f5e9',
+  color: '#2e7d32',
+  padding: '12px 16px',
+  borderRadius: '6px',
+  marginBottom: '16px',
+  border: '1px solid #c8e6c9',
 };
 
 const errorAlertStyle: React.CSSProperties = {
   backgroundColor: '#ffebee',
   color: '#c62828',
-  border: '1px solid #ffcdd2',
+  padding: '12px 16px',
   borderRadius: '6px',
-  padding: '12px 20px',
-  marginBottom: '20px',
-  fontSize: '14px',
-  fontWeight: 'bold',
-};
-
-const workspaceLayoutstyle: React.CSSProperties = {
-  display: 'flex',
-  gap: '24px',
-  flexWrap: 'wrap',
-  marginBottom: '40px',
+  marginBottom: '16px',
+  border: '1px solid #ffcdd2',
 };
 
 const documentAreaStyle: React.CSSProperties = {
-  flex: '3 1 650px',
-  display: 'flex',
-  flexDirection: 'column',
+  marginTop: '16px',
 };
 
-const sidebarAreaStyle: React.CSSProperties = {
-  flex: '1 1 300px',
+const headerSummaryRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '20px',
+  alignItems: 'stretch',
+  flexWrap: 'wrap',
+  marginBottom: '4px',
+};
+
+const headerColumnStyle: React.CSSProperties = {
+  flex: '1 1 520px',
+  minWidth: 0,
+};
+
+const summaryColumnStyle: React.CSSProperties = {
+  flex: '0 1 320px',
+  minWidth: '260px',
 };
 
 const notesCardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
   borderRadius: '8px',
-  padding: '24px',
+  padding: '16px 20px',
+  marginTop: '16px',
   boxShadow: 'var(--shadow)',
 };
 
 const notesLabelStyle: React.CSSProperties = {
-  fontSize: '13px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-  marginBottom: '8px',
   display: 'block',
+  fontWeight: 600,
+  marginBottom: '8px',
+  color: 'var(--text-h)',
+  fontSize: '13px',
+};
+
+const readOnlyNotesValueStyle: React.CSSProperties = {
+  color: 'var(--text)',
+  fontSize: '13px',
+  whiteSpace: 'pre-wrap',
 };
 
 const textareaStyle: React.CSSProperties = {
   width: '100%',
-  minHeight: '100px',
-  padding: '12px',
+  minHeight: '80px',
+  boxSizing: 'border-box',
+  padding: '8px 10px',
   borderRadius: '6px',
   border: '1px solid var(--border)',
-  fontSize: '13px',
-  color: 'var(--text-h)',
-  backgroundColor: 'var(--bg)',
   fontFamily: 'inherit',
-  outline: 'none',
-  resize: 'vertical',
-  boxSizing: 'border-box',
-};
-
-const readOnlyNotesValueStyle: React.CSSProperties = {
-  padding: '12px',
-  borderRadius: '6px',
-  backgroundColor: 'var(--social-bg)',
-  border: '1px solid var(--border)',
   fontSize: '13px',
-  color: 'var(--text)',
-  minHeight: '100px',
-  boxSizing: 'border-box',
-  whiteSpace: 'pre-wrap',
 };
 
-// Dashboard/Directory Styles
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
   borderRadius: '8px',
   padding: '24px',
+  marginTop: '28px',
   boxShadow: 'var(--shadow)',
-  marginTop: '20px',
 };
 
 const dashboardHeaderStyle: React.CSSProperties = {
@@ -561,32 +655,29 @@ const dashboardHeaderStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
   marginBottom: '16px',
-  flexWrap: 'wrap',
   gap: '12px',
+  flexWrap: 'wrap',
 };
 
 const dashboardTitleStyle: React.CSSProperties = {
   margin: 0,
   fontSize: '18px',
-  fontWeight: 'bold',
+  fontWeight: 700,
   color: 'var(--text-h)',
 };
 
 const searchContainerStyle: React.CSSProperties = {
-  display: 'flex',
-  width: '300px',
+  minWidth: '220px',
 };
 
 const searchInputStyle: React.CSSProperties = {
   width: '100%',
-  padding: '8px 12px',
+  padding: '8px 10px',
   borderRadius: '6px',
   border: '1px solid var(--border)',
   fontSize: '13px',
-  color: 'var(--text-h)',
-  backgroundColor: 'var(--bg)',
-  outline: 'none',
   fontFamily: 'inherit',
+  boxSizing: 'border-box',
 };
 
 const directoryTableStyle: React.CSSProperties = {
@@ -597,7 +688,7 @@ const directoryTableStyle: React.CSSProperties = {
 
 const directoryTheadRowStyle: React.CSSProperties = {
   borderBottom: '2px solid var(--border)',
-  backgroundColor: 'var(--social-bg)',
+  backgroundColor: '#f5f5f5',
 };
 
 const directoryThStyle: React.CSSProperties = {
@@ -608,9 +699,9 @@ const directoryThStyle: React.CSSProperties = {
 };
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid #eee',
   cursor: 'pointer',
-  transition: 'background-color 0.2s',
+  transition: 'background-color 0.15s',
 };
 
 const directoryTdStyle: React.CSSProperties = {
@@ -619,23 +710,21 @@ const directoryTdStyle: React.CSSProperties = {
   verticalAlign: 'middle',
 };
 
+const directoryEmptyTdStyle: React.CSSProperties = {
+  padding: '24px',
+  textAlign: 'center',
+  color: 'var(--text)',
+};
+
 const directoryDeleteButtonStyle: React.CSSProperties = {
-  padding: '4px 8px',
+  padding: '4px 10px',
   backgroundColor: '#ffebee',
   color: '#c62828',
   border: '1px solid #ffcdd2',
   borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '11px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-};
-
-const directoryEmptyTdStyle: React.CSSProperties = {
-  padding: '30px',
-  textAlign: 'center',
-  color: '#666',
-  fontStyle: 'italic',
+  fontSize: '12px',
+  fontFamily: 'inherit',
 };
 
 export default PurchaseOrderForm;

@@ -3,13 +3,15 @@
  * Displays full details of a single sales order including customer info, status, and line items
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { salesOrderService } from '../api/services'
+import { ApprovalPanel } from './ApprovalPanel'
 
 export function SalesOrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   if (!id) {
     return (
@@ -83,6 +85,17 @@ export function SalesOrderDetail() {
         </button>
       </header>
 
+      <ApprovalPanel
+        module="sales-orders"
+        documentId={order.sales_order_id}
+        approvalStatus={order.approval_status}
+        currentApprovalStep={order.current_approval_step}
+        onStatusChange={() => {
+          queryClient.invalidateQueries({ queryKey: ['salesOrders', id] })
+          queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+        }}
+      />
+
       {/* Order Header Information */}
       <div style={cardStyle}>
         <h3 style={sectionHeadingStyle}>Order Data</h3>
@@ -114,6 +127,12 @@ export function SalesOrderDetail() {
               >
                 {order.status}
               </span>
+            </p>
+          </div>
+          <div>
+            <label style={labelStyle}>Approval Status</label>
+            <p style={valueStyle}>
+              {(order.approval_status || 'DRAFT').replace(/_/g, ' ')}
             </p>
           </div>
           <div>
@@ -250,12 +269,14 @@ export function SalesOrderDetail() {
 
 function getStatusColors(status: string): { bg: string; text: string } {
   const statusColors: Record<string, { bg: string; text: string }> = {
+    DRAFT: { bg: '#f5f5f5', text: '#616161' },
     RECEIVED: { bg: '#e8f5e9', text: '#2e7d32' },
+    PENDING: { bg: '#fffde7', text: '#f9a825' },
     PROCESSING: { bg: '#e3f2fd', text: '#1565c0' },
+    APPROVED: { bg: '#e8f5e9', text: '#2e7d32' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
-    PENDING: { bg: '#fffde7', text: '#f9a825' },
   }
   return statusColors[status] || { bg: '#f5f5f5', text: '#616161' }
 }

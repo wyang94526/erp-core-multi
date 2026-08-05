@@ -9,8 +9,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { subcontractOrderService, vendorService, productService, productBomService } from '../api/services'
-import type { Supplier, Product } from '../types'
+import { subcontractOrderService, vendorService, itemService, itemBomService } from '../api/services'
+import type { Supplier, Item } from '../types'
 
 export function SubcontractOrderForm() {
   const navigate = useNavigate()
@@ -36,14 +36,14 @@ export function SubcontractOrderForm() {
 
   // Fetch products (finished goods that could be subcontracted)
   const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => productService.listProducts(0, 1000),
+    queryKey: ['items'],
+    queryFn: () => itemService.listItems(0, 1000),
   })
 
   // Fetch BOM preview for the selected product so the user can see what will be required
   const { data: bomComponents = [] } = useQuery({
     queryKey: ['productBom', formData.product_id],
-    queryFn: () => productBomService.listBomComponents(formData.product_id),
+    queryFn: () => itemBomService.listBomComponents(formData.product_id),
     enabled: !!formData.product_id,
   })
 
@@ -96,7 +96,7 @@ export function SubcontractOrderForm() {
       newErrors.supplier_id = 'Supplier is required'
     }
     if (!formData.product_id.trim()) {
-      newErrors.product_id = 'Product is required'
+      newErrors.product_id = 'Item is required'
     }
     if (!formData.quantity_ordered || formData.quantity_ordered <= 0) {
       newErrors.quantity_ordered = 'Quantity must be greater than 0'
@@ -182,7 +182,7 @@ export function SubcontractOrderForm() {
 
             <div style={fieldGroupStyle}>
               <label htmlFor="product_id" style={labelStyle}>
-                Finished Product *
+                Finished Item *
               </label>
               <select
                 id="product_id"
@@ -195,9 +195,9 @@ export function SubcontractOrderForm() {
                 }}
               >
                 <option value="">Select a product</option>
-                {products.map((product: Product) => (
-                  <option key={product.product_id} value={product.product_id}>
-                    {product.description || product.product_id} ({product.product_id})
+                {products.map((catalogItem: Item) => (
+                  <option key={catalogItem.item_id} value={catalogItem.item_id}>
+                    {catalogItem.description || catalogItem.item_id} ({catalogItem.item_id})
                   </option>
                 ))}
               </select>
@@ -288,7 +288,7 @@ export function SubcontractOrderForm() {
               <table style={tableStyle}>
                 <thead>
                   <tr style={theadRowStyle}>
-                    <th style={thStyle}>Component Product ID</th>
+                    <th style={thStyle}>Component Item ID</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Qty Per Unit</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Total Required</th>
                   </tr>

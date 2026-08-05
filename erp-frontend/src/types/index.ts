@@ -37,17 +37,88 @@ export interface Location {
 }
 
 // ==========================================
-// PRODUCT TYPES
+// ITEM CATALOG TYPES (SKU master)
+// Backend table/API still uses products.product_id; frontend maps to item_id.
 // ==========================================
-export interface Product {
-  product_id: string;
+export interface Item {
+  item_id: string;
   customer_part_number: string;
   description: string | null;
   uom: string;
   unit_price?: number | null;
   on_hand_quantity?: number;
   wip_quantity?: number;
+  is_outside_processed?: boolean;
+  /** Eligible for purchase order line selection */
+  is_purchase_item?: boolean;
+  /** Finished / subcontracted assembly with a component kit */
+  is_subcontract_assembly?: boolean;
+  /** Raw material / purchased part used in kits */
+  is_raw_material?: boolean;
 }
+
+/** @deprecated Prefer Item — alias during migration */
+export type Product = Item & { product_id: string };
+
+export interface VendorItemMapping {
+  mapping_id: number;
+  supplier_id: string;
+  /** Catalog item (API field: product_id) */
+  item_id: string;
+  vendor_sku: string | null;
+  unit_cost: number | null;
+  minimum_order_qty: number;
+  lead_time_days: number;
+  is_primary_vendor: boolean;
+  created_at?: string | null;
+  supplier_name?: string | null;
+  item_description?: string | null;
+}
+
+export interface SubcontractBOMLine {
+  bom_id: number;
+  assembly_item_id: string;
+  component_item_id: string | null;
+  quantity_required: number;
+  scrap_factor: number;
+  yield_loss_percentage: number;
+  component_description?: string | null;
+  is_purchase_item?: boolean | null;
+  is_raw_material?: boolean | null;
+  primary_vendor_id?: string | null;
+  primary_vendor_sku?: string | null;
+  unit_cost?: number | null;
+}
+
+export interface SubcontractBOM {
+  assembly_item_id: string;
+  assembly_description?: string | null;
+  is_subcontract_assembly: boolean;
+  components: SubcontractBOMLine[];
+}
+
+export interface CalculatedComponentLine {
+  component_product_id: string;
+  description?: string | null;
+  quantity_per: number;
+  scrap_factor: number;
+  yield_loss_percentage: number;
+  quantity_required: number;
+  quantity_issued: number;
+  quantity_remaining: number;
+  on_hand_quantity: number;
+  primary_vendor_id?: string | null;
+  primary_vendor_sku?: string | null;
+  unit_cost?: number | null;
+}
+
+export interface CalculateComponentsResponse {
+  sco_number: string;
+  assembly_item_id: string;
+  quantity_ordered: number;
+  components: CalculatedComponentLine[];
+}
+
 
 // ==========================================
 // SALES ORDER TYPES
@@ -61,6 +132,92 @@ export interface SalesOrderItem {
   unit_price: number; // Decimal from backend
   tax_amount: number; // Decimal from backend
   total_amount: number; // Decimal from backend
+}
+
+export type ApprovalStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | string;
+
+export interface ApprovalHistory {
+  id: number;
+  document_type?: string;
+  document_id?: string;
+  transaction_type?: string;
+  transaction_id?: string;
+  step_number?: number | null;
+  step_name?: string | null;
+  action: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DELEGATED' | string;
+  performed_by_user_id?: string | null;
+  actor_user_id?: string | null;
+  actor_name?: string | null;
+  comments: string | null;
+  created_at: string;
+  timestamp?: string;
+}
+
+export interface RoleBrief {
+  role_id: string;
+  role_name: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  full_name: string;
+  status?: string;
+  department_id?: string | null;
+  department_name?: string | null;
+  roles?: RoleBrief[];
+  permissions?: string[];
+  role_id: string | null;
+  role_name: string | null;
+}
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  full_name: string;
+  status?: string;
+  department_id?: string | null;
+  roles?: RoleBrief[];
+}
+
+export interface RoleDetail {
+  role_id: string;
+  role_name: string;
+  description?: string | null;
+  permissions?: string[];
+  created_at?: string | null;
+}
+
+export interface Permission {
+  id: string;
+  code: string;
+  module: string;
+  description?: string | null;
+}
+
+export interface WorkflowStep {
+  id: string;
+  step_number: number;
+  step_name: string;
+  required_role_id?: string | null;
+  required_permission?: string | null;
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  module: string;
+  min_amount: number;
+  max_amount: number | null;
+  is_active: boolean;
+  name?: string | null;
+  steps: WorkflowStep[];
+  created_at?: string | null;
 }
 
 export interface SalesOrder {
@@ -78,6 +235,8 @@ export interface SalesOrder {
   buyer_contact_name: string | null;
   buyer_contact_email: string | null;
   status: string;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
   total_amount: number; // Decimal from backend
   created_at: string | null; // ISO datetime
   items: SalesOrderItem[];
@@ -137,6 +296,8 @@ export interface PurchaseOrder {
   expected_delivery_date: string;
   payment_terms: string;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Void';
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
   items: PurchaseOrderItem[];
   shipping_fee: number;
   discount_type: 'percentage' | 'fixed';
@@ -155,10 +316,16 @@ export interface PurchaseOrder {
 export interface ProductBOMComponent {
   bom_id: number;
   parent_product_id: string;
-  component_product_id: string;
+  component_product_id: string | null;
+  component_code: string | null;
   quantity_per: number;
+  item_type: 'Material' | 'Labor' | 'Outside Service' | string;
+  scrap_factor?: number;
+  yield_loss_percentage?: number;
   created_at: string;
 }
+
+
 
 export interface SubcontractOrderComponent {
   sco_component_id: number;
@@ -207,6 +374,8 @@ export interface SubcontractOrder {
   product_id: string;
   quantity_ordered: number;
   status: SubcontractOrderStatus | string;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
   order_date: string;
   expected_return_date: string | null;
   notes: string | null;
@@ -214,4 +383,135 @@ export interface SubcontractOrder {
   components: SubcontractOrderComponent[];
   material_issues: MaterialIssue[];
   finished_goods_receipts: FinishedGoodsReceipt[];
+}
+
+// ==========================================
+// FINANCE MODULE: AR / AP / CASH MANAGEMENT / GENERAL LEDGER
+// ==========================================
+
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | string;
+
+export interface ChartOfAccount {
+  id: string; // UUID
+  account_code: string;
+  account_name: string;
+  account_type: AccountType;
+  created_at: string; // ISO datetime
+}
+
+export interface ChartOfAccountCreate {
+  account_code: string;
+  account_name: string;
+  account_type: AccountType;
+}
+
+export interface ARInvoice {
+  invoice_id: string;
+  sales_order_id: string;
+  customer_id: string;
+  amount: number;
+  status: 'Unpaid' | 'Partial' | 'Paid' | string;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
+  due_date: string; // ISO date
+  created_at: string | null;
+}
+
+export interface APBill {
+  bill_id: string;
+  purchase_order_id: string;
+  vendor_id: string;
+  amount: number;
+  status: 'Unpaid' | 'Partial' | 'Paid' | string;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
+  due_date: string; // ISO date
+  created_at: string | null;
+}
+
+export interface CashTransaction {
+  transaction_id: string;
+  type: 'Check Issue' | 'Check Deposit' | string;
+  reference_id: string;
+  amount: number;
+  transaction_date: string | null; // ISO datetime
+  bank_account_id: string | null;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
+}
+
+export interface LedgerPosting {
+  id: string; // UUID
+  entry_id: string; // UUID
+  account_id: string; // UUID
+  debit: number;
+  credit: number;
+  currency: string;
+}
+
+export interface JournalEntry {
+  id: string; // UUID
+  created_at: string; // ISO datetime
+  description: string;
+  posted_by_user_id: string | null;
+  period: string | null; // e.g. '2026-08'
+  posting_status: 'Draft' | 'Posted' | string | null;
+  approval_status?: ApprovalStatus;
+  current_approval_step?: number | null;
+  postings: LedgerPosting[];
+}
+
+// ==========================================
+// INVENTORY & WAREHOUSE TYPES
+// ==========================================
+
+export type StockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock';
+
+export type StockMovementType = 'Receipt' | 'Issue' | 'Adjustment' | 'Transfer';
+
+export interface Warehouse {
+  warehouse_id: string;
+  name: string;
+  code: string;
+  address: string | null;
+  is_active: boolean;
+}
+
+export interface BinLocation {
+  bin_id: string;
+  warehouse_id: string;
+  warehouse_code?: string | null;
+  bin_code: string;
+  description: string | null;
+  is_active: boolean;
+}
+
+export interface InventoryStockItem {
+  product_id: string;
+  description: string | null;
+  uom: string;
+  on_hand_quantity: number;
+  allocated_quantity: number; // reserved for open Sales Orders
+  on_order_quantity: number; // open Purchase Orders
+  available_to_promise: number; // on_hand - allocated + on_order
+  reorder_point: number;
+  status: StockStatus;
+  primary_warehouse_id: string;
+  primary_warehouse_code: string;
+  primary_bin_code: string;
+}
+
+export interface StockMovement {
+  movement_id: string;
+  product_id: string;
+  movement_type: StockMovementType;
+  quantity: number;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  bin_id: string;
+  bin_code: string | null;
+  reference: string | null;
+  notes: string | null;
+  movement_date: string; // ISO date
+  created_at?: string | null;
 }

@@ -15,7 +15,12 @@ def list_products(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Product:
-    product = Product(**payload.model_dump())
+    data = payload.model_dump()
+    if data.get("is_subcontract_assembly"):
+        data["is_outside_processed"] = True
+    elif data.get("is_outside_processed"):
+        data["is_subcontract_assembly"] = True
+    product = Product(**data)
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -35,7 +40,12 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("is_subcontract_assembly") is True:
+        data["is_outside_processed"] = True
+    elif data.get("is_outside_processed") is True:
+        data["is_subcontract_assembly"] = True
+    for key, value in data.items():
         setattr(product, key, value)
     db.commit()
     db.refresh(product)

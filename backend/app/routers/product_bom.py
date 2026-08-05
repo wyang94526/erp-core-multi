@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Product, ProductBOMComponent
-from app.schemas import ProductBOMComponentCreate, ProductBOMComponentRead
+from app.schemas import ProductBOMComponentCreate, ProductBOMComponentRead, ProductBOMComponentUpdate
+
 
 router = APIRouter(prefix="/products", tags=["product-bom"])
 
@@ -25,23 +26,25 @@ def list_bom_components(product_id: str, db: Session = Depends(get_db)) -> list[
 def add_bom_component(
     product_id: str, payload: ProductBOMComponentCreate, db: Session = Depends(get_db)
 ) -> ProductBOMComponent:
-    """Add a component/raw-material line to a finished product's Bill of Materials."""
+    """Add a component/raw-material/labor/outside-service line to a finished product's BOM."""
     parent = db.get(Product, product_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Parent product not found")
 
-    if payload.component_product_id == product_id:
-        raise HTTPException(status_code=400, detail="A product cannot be a component of itself")
+    if payload.item_type == 'Material':
+        if payload.component_product_id == product_id:
+            raise HTTPException(status_code=400, detail="A product cannot be a component of itself")
 
-    component = db.get(Product, payload.component_product_id)
-    if not component:
-        raise HTTPException(status_code=400, detail="Component product not found")
+        component = db.get(Product, payload.component_product_id)
+        if not component:
+            raise HTTPException(status_code=400, detail="Component product not found")
 
     existing = (
         db.query(ProductBOMComponent)
         .filter(
             ProductBOMComponent.parent_product_id == product_id,
             ProductBOMComponent.component_product_id == payload.component_product_id,
+            ProductBOMComponent.component_code == payload.component_code,
         )
         .first()
     )
@@ -51,7 +54,11 @@ def add_bom_component(
     bom_line = ProductBOMComponent(
         parent_product_id=product_id,
         component_product_id=payload.component_product_id,
+        component_code=payload.component_code,
         quantity_per=payload.quantity_per,
+        item_type=payload.item_type,
+        scrap_factor=payload.scrap_factor,
+        yield_loss_percentage=payload.yield_loss_percentage,
     )
     db.add(bom_line)
     db.commit()
@@ -59,7 +66,33 @@ def add_bom_component(
     return bom_line
 
 
+
+@router.patch("/{product_id}/bom/{bom_id}", response_model=ProductBOMComponentRead)
+def update_bom_component(
+    product_id: str, bom_id: int, payload: ProductBOMComponentUpdate, db: Session = Depends(get_db)
+) -> ProductBOMComponent:
+    """Update an existing BOM line (e.g. change quantity or item type)."""
+    bom_line = (
+        db.query(ProductBOMComponent)
+        .filter(
+            ProductBOMComponent.bom_id == bom_id,
+            ProductBOMComponent.parent_product_id == product_id,
+        )
+        .first()
+    )
+    if not bom_line:
+        raise HTTPException(status_code=404, detail="BOM component not found")
+
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(bom_line, key, value)
+
+    db.commit()
+    db.refresh(bom_line)
+    return bom_line
+
+
 @router.delete("/{product_id}/bom/{bom_id}", status_code=status.HTTP_204_NO_CONTENT)
+
 def delete_bom_component(product_id: str, bom_id: int, db: Session = Depends(get_db)) -> None:
     bom_line = (
         db.query(ProductBOMComponent)

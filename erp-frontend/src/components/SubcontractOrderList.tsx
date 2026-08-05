@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { subcontractOrderService } from '../api/services'
 import type { SubcontractOrder } from '../types'
 import { useState } from 'react'
@@ -14,8 +14,14 @@ export function SubcontractOrderList() {
   const [skip, setSkip] = useState(0)
   const limit = 10
 
+  // Optional productId query param (e.g. /subcontract-orders?productId=PROD-1001G)
+  // set when navigating here from the "View Related Subcontract Orders" link
+  // on the Edit Product page for outside-processed products.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const productIdFilter = searchParams.get('productId') || ''
+
   const {
-    data: scos = [],
+    data: allScos = [],
     isLoading,
     isError,
     error,
@@ -23,6 +29,18 @@ export function SubcontractOrderList() {
     queryKey: ['subcontractOrders', skip, limit],
     queryFn: () => subcontractOrderService.listSubcontractOrders(skip, limit),
   })
+
+  // Client-side filter by productId when the query param is present
+  const scos = productIdFilter
+    ? allScos.filter((sco) => sco.product_id === productIdFilter)
+    : allScos
+
+  const handleClearFilter = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('productId')
+    setSearchParams(next)
+  }
+
 
   const handlePreviousPage = () => {
     if (skip >= limit) {
@@ -63,8 +81,17 @@ export function SubcontractOrderList() {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Subcontract Orders</h2>
           <p style={pageSubStyle}>Manage outside processing orders sent to subcontractors</p>
+          {productIdFilter && (
+            <div style={filterBadgeRowStyle}>
+              <span style={filterBadgeStyle}>Filtered by Product: {productIdFilter}</span>
+              <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
+                Clear filter
+              </button>
+            </div>
+          )}
         </div>
         <button
+
           onClick={() => navigate('/subcontract-orders/new')}
           style={primaryButtonStyle}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
@@ -89,6 +116,7 @@ export function SubcontractOrderList() {
                     <th style={{ ...directoryThStyle, textAlign: 'right' }}>Qty Ordered</th>
                     <th style={directoryThStyle}>Order Date</th>
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
+                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
@@ -117,6 +145,9 @@ export function SubcontractOrderList() {
                           >
                             {sco.status}
                           </span>
+                        </td>
+                        <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
+                          {(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}
                         </td>
                         <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                           <button
@@ -300,4 +331,33 @@ const paginationRowStyle: React.CSSProperties = {
   gap: '12px',
 }
 
+const filterBadgeRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  marginTop: '8px',
+}
+
+const filterBadgeStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  borderRadius: '12px',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  backgroundColor: '#e3f2fd',
+  color: '#1565c0',
+}
+
+const clearFilterLinkStyle: React.CSSProperties = {
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  color: '#1976d2',
+  fontSize: '12px',
+  fontWeight: 'bold',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
 export default SubcontractOrderList
+

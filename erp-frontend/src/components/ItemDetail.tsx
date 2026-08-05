@@ -1,6 +1,6 @@
 /**
- * ProductDetail Component
- * Displays full details of a product and provides a UI for managing its
+ * ItemDetail Component
+ * Displays full details of an item and provides a UI for managing its
  * Bill of Materials (BOM) — the raw-material components required to build
  * this product, used when creating Subcontract Orders (outside processing).
  */
@@ -8,18 +8,21 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { productService, productBomService } from '../api/services'
-import type { Product } from '../types'
+import { itemService, itemBomService } from '../api/services'
+import type { Item } from '../types'
+import { VendorItemMappingSection } from './VendorItemMappingSection'
 
-export function ProductDetail() {
+export function ItemDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [newComponent, setNewComponent] = useState({
-    component_product_id: '',
+    component_item_id: '',
     quantity_per: '',
+    scrap_factor: '0',
+    yield_loss_percentage: '0',
   })
   const [formError, setFormError] = useState('')
 
@@ -27,42 +30,51 @@ export function ProductDetail() {
     return (
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
-          <p>Error: No product ID provided</p>
+          <p>Error: No item ID provided</p>
         </div>
       </div>
     )
   }
 
   const {
-    data: product,
+    data: item,
     isLoading: isLoadingProduct,
     isError: isErrorProduct,
   } = useQuery({
-    queryKey: ['products', id],
-    queryFn: () => productService.getProduct(id),
+    queryKey: ['items', id],
+    queryFn: () => itemService.getItem(id),
   })
 
   const {
     data: bomComponents = [],
     isLoading: isLoadingBom,
   } = useQuery({
-    queryKey: ['productBom', id],
-    queryFn: () => productBomService.listBomComponents(id),
+    queryKey: ['itemBom', id],
+    queryFn: () => itemBomService.listBomComponents(id),
   })
 
   // Fetch all products so the user can pick a component from a dropdown
-  const { data: allProducts = [] } = useQuery({
-    queryKey: ['products', 0, 1000],
-    queryFn: () => productService.listProducts(0, 1000),
+  const { data: allItems = [] } = useQuery({
+    queryKey: ['items', 0, 1000],
+    queryFn: () => itemService.listItems(0, 1000),
   })
 
   const addMutation = useMutation({
-    mutationFn: (data: { component_product_id: string; quantity_per: number }) =>
-      productBomService.addBomComponent(id, data),
+    mutationFn: (data: {
+      component_product_id: string
+      quantity_per: number
+      scrap_factor?: number
+      yield_loss_percentage?: number
+    }) => itemBomService.addBomComponent(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['productBom', id] })
+      queryClient.invalidateQueries({ queryKey: ['itemBom', id] })
       setShowAddForm(false)
-      setNewComponent({ component_product_id: '', quantity_per: '' })
+      setNewComponent({
+        component_item_id: '',
+        quantity_per: '',
+        scrap_factor: '0',
+        yield_loss_percentage: '0',
+      })
       setFormError('')
     },
     onError: (error: any) => {
@@ -71,9 +83,9 @@ export function ProductDetail() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (bomId: number) => productBomService.deleteBomComponent(id, bomId),
+    mutationFn: (bomId: number) => itemBomService.deleteBomComponent(id, bomId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['productBom', id] })
+      queryClient.invalidateQueries({ queryKey: ['itemBom', id] })
     },
   })
 
@@ -81,22 +93,24 @@ export function ProductDetail() {
     e.preventDefault()
     setFormError('')
 
-    if (!newComponent.component_product_id.trim()) {
-      setFormError('Please select a component product')
+    if (!newComponent.component_item_id.trim()) {
+      setFormError('Please select a component item')
       return
     }
     if (!newComponent.quantity_per || Number(newComponent.quantity_per) <= 0) {
       setFormError('Quantity per must be greater than 0')
       return
     }
-    if (newComponent.component_product_id === id) {
-      setFormError('A product cannot be a component of itself')
+    if (newComponent.component_item_id === id) {
+      setFormError('An item cannot be a component of itself')
       return
     }
 
     addMutation.mutate({
-      component_product_id: newComponent.component_product_id,
+      component_product_id: newComponent.component_item_id,
       quantity_per: Number(newComponent.quantity_per),
+      scrap_factor: Number(newComponent.scrap_factor) || 0,
+      yield_loss_percentage: Number(newComponent.yield_loss_percentage) || 0,
     })
   }
 
@@ -104,19 +118,19 @@ export function ProductDetail() {
     return (
       <div style={containerStyle}>
         <div style={emptyStateWrapperStyle}>
-          <p>Loading product...</p>
+          <p>Loading item...</p>
         </div>
       </div>
     )
   }
 
-  if (isErrorProduct || !product) {
+  if (isErrorProduct || !item) {
     return (
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
-          <p>Error loading product</p>
-          <button onClick={() => navigate('/products')} style={secondaryButtonStyle}>
-            Back to Products
+          <p>Error loading item</p>
+          <button onClick={() => navigate('/items')} style={secondaryButtonStyle}>
+            Back to Items
           </button>
         </div>
       </div>
@@ -126,72 +140,92 @@ export function ProductDetail() {
   // Products available to add as a component (excludes the current product itself
   // and any already on the BOM)
   const existingComponentIds = new Set(bomComponents.map((c) => c.component_product_id))
-  const availableComponents = allProducts.filter(
-    (p: Product) => p.product_id !== id && !existingComponentIds.has(p.product_id)
+  const availableComponents = allItems.filter(
+    (p: Item) => p.item_id !== id && !existingComponentIds.has(p.item_id)
   )
 
   return (
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Product Details</h2>
-          <p style={pageSubStyle}>Viewing {product.product_id}</p>
+          <h2 style={pageTitleStyle}>Item Details</h2>
+          <p style={pageSubStyle}>Viewing {item.item_id}</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={() => navigate(`/products/${product.product_id}/edit`)} style={secondaryButtonStyle}>
-            Edit Product
+          <button onClick={() => navigate(`/items/${item.item_id}/edit`)} style={secondaryButtonStyle}>
+            Edit Item
           </button>
-          <button onClick={() => navigate('/products')} style={secondaryButtonStyle}>
-            Back to Products
+          <button onClick={() => navigate('/items')} style={secondaryButtonStyle}>
+            Back to Items
           </button>
         </div>
       </header>
 
-      {/* Product Info */}
+      {/* Item Info */}
       <div style={cardStyle}>
-        <h3 style={sectionHeadingStyle}>Product Information</h3>
+        <h3 style={sectionHeadingStyle}>Item Information</h3>
         <div style={gridStyle}>
           <div>
-            <label style={labelStyle}>Product ID</label>
-            <p style={valueStyle}>{product.product_id}</p>
+            <label style={labelStyle}>Item ID</label>
+            <p style={valueStyle}>{item.item_id}</p>
           </div>
           <div>
             <label style={labelStyle}>Customer Part Number</label>
-            <p style={valueStyle}>{product.customer_part_number}</p>
+            <p style={valueStyle}>{item.customer_part_number}</p>
           </div>
           <div>
             <label style={labelStyle}>UOM</label>
-            <p style={valueStyle}>{product.uom}</p>
+            <p style={valueStyle}>{item.uom}</p>
           </div>
           <div>
             <label style={labelStyle}>Unit Price</label>
-            <p style={valueStyle}>{formatCurrency(product.unit_price)}</p>
+            <p style={valueStyle}>{formatCurrency(item.unit_price)}</p>
           </div>
           <div>
             <label style={labelStyle}>On-Hand Quantity</label>
-            <p style={valueStyle}>{product.on_hand_quantity ?? 0}</p>
+            <p style={valueStyle}>{item.on_hand_quantity ?? 0}</p>
           </div>
           <div>
             <label style={labelStyle}>WIP Quantity (at Subcontractor)</label>
-            <p style={valueStyle}>{product.wip_quantity ?? 0}</p>
+            <p style={valueStyle}>{item.wip_quantity ?? 0}</p>
+          </div>
+          <div>
+            <label style={labelStyle}>Classification</label>
+            <p style={valueStyle}>
+              {[
+                item.is_purchase_item ? 'Purchase Item' : null,
+                item.is_raw_material ? 'Raw Material' : null,
+                item.is_subcontract_assembly || item.is_outside_processed
+                  ? 'Subcontract Assembly'
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || '—'}
+            </p>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Description</label>
-            <p style={valueStyle}>{product.description || '-'}</p>
+            <p style={valueStyle}>{item.description || '-'}</p>
           </div>
         </div>
       </div>
 
-      {/* Bill of Materials */}
+      <VendorItemMappingSection itemId={id} />
+
+      {/* Bill of Materials / Subcontract Kit */}
       <div style={cardStyle}>
         <div style={tableHeaderContainerStyle}>
-          <h3 style={sectionHeadingStyleNoBorder}>Bill of Materials (BOM)</h3>
+          <h3 style={sectionHeadingStyleNoBorder}>
+            {item.is_subcontract_assembly || item.is_outside_processed
+              ? 'Subcontract BOM / Assembly Kit'
+              : 'Bill of Materials (BOM)'}
+          </h3>
           <button type="button" onClick={() => setShowAddForm((v) => !v)} style={addButtonStyle}>
             {showAddForm ? 'Cancel' : '+ Add Component'}
           </button>
         </div>
         <p style={{ ...pageSubStyle, marginBottom: '16px' }}>
-          Raw materials/components required to build one unit of this product. Used to
+          Raw materials/components required to build one unit of this item. Used to
           automatically calculate requirements when creating a Subcontract Order.
         </p>
 
@@ -199,18 +233,18 @@ export function ProductDetail() {
           <form onSubmit={handleAddSubmit} style={{ marginBottom: '20px' }}>
             <div style={gridStyle}>
               <div style={fieldGroupStyle}>
-                <label style={labelStyle}>Component Product *</label>
+                <label style={labelStyle}>Component Item *</label>
                 <select
-                  value={newComponent.component_product_id}
+                  value={newComponent.component_item_id}
                   onChange={(e) =>
-                    setNewComponent((prev) => ({ ...prev, component_product_id: e.target.value }))
+                    setNewComponent((prev) => ({ ...prev, component_item_id: e.target.value }))
                   }
                   style={inputStyle}
                 >
-                  <option value="">Select a component product</option>
-                  {availableComponents.map((p: Product) => (
-                    <option key={p.product_id} value={p.product_id}>
-                      {p.description || p.product_id} ({p.product_id})
+                  <option value="">Select a component item</option>
+                  {availableComponents.map((p: Item) => (
+                    <option key={p.item_id} value={p.item_id}>
+                      {p.description || p.item_id} ({p.item_id})
                     </option>
                   ))}
                 </select>
@@ -225,6 +259,37 @@ export function ProductDetail() {
                   onChange={(e) => setNewComponent((prev) => ({ ...prev, quantity_per: e.target.value }))}
                   style={inputStyle}
                   placeholder="e.g. 2"
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle}>Scrap Factor</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={newComponent.scrap_factor}
+                  onChange={(e) =>
+                    setNewComponent((prev) => ({ ...prev, scrap_factor: e.target.value }))
+                  }
+                  style={inputStyle}
+                  placeholder="0.05 = 5%"
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle}>Yield Loss %</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={newComponent.yield_loss_percentage}
+                  onChange={(e) =>
+                    setNewComponent((prev) => ({
+                      ...prev,
+                      yield_loss_percentage: e.target.value,
+                    }))
+                  }
+                  style={inputStyle}
                 />
               </div>
             </div>
@@ -256,8 +321,10 @@ export function ProductDetail() {
             <table style={tableStyle}>
               <thead>
                 <tr style={theadRowStyle}>
-                  <th style={thStyle}>Component Product ID</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Quantity Per Unit</th>
+                  <th style={thStyle}>Component Item ID</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty / Unit</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Scrap Factor</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Yield Loss %</th>
                   <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
@@ -266,6 +333,10 @@ export function ProductDetail() {
                   <tr key={bc.bom_id} style={tbodyRowStyle}>
                     <td style={tdStyle}>{bc.component_product_id}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(bc.quantity_per)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(bc.scrap_factor ?? 0)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      {Number(bc.yield_loss_percentage ?? 0)}
+                    </td>
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <button
                         onClick={() => deleteMutation.mutate(bc.bom_id)}
@@ -288,7 +359,7 @@ export function ProductDetail() {
           </div>
         ) : (
           <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>
-            No BOM components defined yet. Add components above to enable this product for
+            No BOM components defined yet. Add components above to enable this item for
             subcontract orders.
           </p>
         )}
@@ -499,4 +570,4 @@ const emptyStateWrapperStyle: React.CSSProperties = {
   textAlign: 'center',
 }
 
-export default ProductDetail
+export default ItemDetail

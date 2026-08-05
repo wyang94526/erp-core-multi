@@ -8,14 +8,69 @@ import type {
   User,
   Customer,
   Location,
+  Item,
   Product,
   SalesOrder,
   Supplier,
+  PurchaseOrder,
   ProductBOMComponent,
   SubcontractOrder,
   MaterialIssue,
   FinishedGoodsReceipt,
+  ARInvoice,
+  APBill,
+  CashTransaction,
+  JournalEntry,
+  ChartOfAccount,
+  ChartOfAccountCreate,
+  ApprovalHistory,
+  CurrentUser,
+  InventoryStockItem,
+  StockMovement,
+  Warehouse,
+  BinLocation,
+  VendorItemMapping,
+  SubcontractBOM,
+  SubcontractBOMLine,
+  CalculateComponentsResponse,
 } from '../types';
+
+/** Map backend products.product_id wire format → frontend Item.item_id */
+function mapItem(raw: Record<string, unknown>): Item {
+  const id = String(raw.item_id ?? raw.product_id ?? '');
+  return {
+    item_id: id,
+    customer_part_number: String(raw.customer_part_number ?? ''),
+    description: (raw.description as string | null) ?? null,
+    uom: String(raw.uom ?? 'Each'),
+    unit_price: (raw.unit_price as number | null | undefined) ?? null,
+    on_hand_quantity: Number(raw.on_hand_quantity ?? 0),
+    wip_quantity: Number(raw.wip_quantity ?? 0),
+    is_outside_processed: Boolean(raw.is_outside_processed),
+    is_purchase_item: Boolean(raw.is_purchase_item),
+    is_subcontract_assembly: Boolean(raw.is_subcontract_assembly),
+    is_raw_material: Boolean(raw.is_raw_material),
+  };
+}
+
+function mapVendorMapping(raw: Record<string, unknown>): VendorItemMapping {
+  return {
+    mapping_id: Number(raw.mapping_id),
+    supplier_id: String(raw.supplier_id),
+    item_id: String(raw.item_id ?? raw.product_id ?? ''),
+    vendor_sku: (raw.vendor_sku as string | null) ?? null,
+    unit_cost: (raw.unit_cost as number | null) ?? null,
+    minimum_order_qty: Number(raw.minimum_order_qty ?? 1),
+    lead_time_days: Number(raw.lead_time_days ?? 0),
+    is_primary_vendor: Boolean(raw.is_primary_vendor),
+    created_at: (raw.created_at as string | null) ?? null,
+    supplier_name: (raw.supplier_name as string | null) ?? null,
+    item_description:
+      (raw.item_description as string | null) ??
+      (raw.product_description as string | null) ??
+      null,
+  };
+}
 
 // ==========================================
 // USER SERVICES
@@ -151,55 +206,161 @@ export const locationService = {
 };
 
 // ==========================================
-// PRODUCT SERVICES
+// ITEM CATALOG SERVICES (SKU master)
+// Uses /api/v1/items; maps item_id ↔ backend product_id.
 // ==========================================
 
-export const productService = {
-  /**
-   * Fetch all products with pagination
-   */
-  async listProducts(skip: number = 0, limit: number = 100): Promise<Product[]> {
-    return apiClient.get<Product[]>('/api/v1/products', {
+export const itemService = {
+  async listItems(skip: number = 0, limit: number = 100): Promise<Item[]> {
+    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items', {
       params: { skip, limit },
     });
+    return rows.map(mapItem);
   },
 
-  /**
-   * Fetch a single product by ID
-   */
-  async getProduct(productId: string): Promise<Product> {
-    return apiClient.get<Product>(`/api/v1/products/${productId}`);
+  async listPurchaseItems(skip: number = 0, limit: number = 500): Promise<Item[]> {
+    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/purchase-items', {
+      params: { skip, limit },
+    });
+    return rows.map(mapItem);
   },
 
-  /**
-   * Create a new product
-   */
-  async createProduct(data: {
+  async listRawMaterials(skip: number = 0, limit: number = 500): Promise<Item[]> {
+    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/raw-materials', {
+      params: { skip, limit },
+    });
+    return rows.map(mapItem);
+  },
+
+  async listAssemblies(skip: number = 0, limit: number = 500): Promise<Item[]> {
+    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/assemblies', {
+      params: { skip, limit },
+    });
+    return rows.map(mapItem);
+  },
+
+  async getItem(itemId: string): Promise<Item> {
+    const raw = await apiClient.get<Record<string, unknown>>(`/api/v1/items/${itemId}`);
+    return mapItem(raw);
+  },
+
+  async createItem(data: {
+    item_id: string;
+    customer_part_number: string;
+    description?: string;
+    uom?: string;
+    unit_price?: number;
+    is_outside_processed?: boolean;
+    is_purchase_item?: boolean;
+    is_subcontract_assembly?: boolean;
+    is_raw_material?: boolean;
+  }): Promise<Item> {
+    const { item_id, ...rest } = data;
+    const raw = await apiClient.post<Record<string, unknown>>('/api/v1/items', {
+      product_id: item_id,
+      ...rest,
+    });
+    return mapItem(raw);
+  },
+
+  async updateItem(itemId: string, data: Partial<Omit<Item, 'item_id'>>): Promise<Item> {
+    const raw = await apiClient.patch<Record<string, unknown>>(
+      `/api/v1/items/${itemId}`,
+      data
+    );
+    return mapItem(raw);
+  },
+
+  async deleteItem(itemId: string): Promise<void> {
+    return apiClient.delete<void>(`/api/v1/items/${itemId}`);
+  },
+
+  async listItemVendors(itemId: string): Promise<VendorItemMapping[]> {
+    const rows = await apiClient.get<Record<string, unknown>[]>(
+      `/api/v1/items/${itemId}/vendors`
+    );
+    return rows.map(mapVendorMapping);
+  },
+
+  async addItemVendor(
+    itemId: string,
+    data: {
+      supplier_id: string;
+      product_id?: string;
+      item_id?: string;
+      vendor_sku?: string | null;
+      unit_cost?: number | null;
+      minimum_order_qty?: number;
+      lead_time_days?: number;
+      is_primary_vendor?: boolean;
+    }
+  ): Promise<VendorItemMapping> {
+    const raw = await apiClient.post<Record<string, unknown>>(
+      `/api/v1/items/${itemId}/vendors`,
+      {
+        ...data,
+        product_id: data.product_id ?? data.item_id ?? itemId,
+      }
+    );
+    return mapVendorMapping(raw);
+  },
+
+  async updateItemVendor(
+    itemId: string,
+    mappingId: number,
+    data: Partial<{
+      vendor_sku: string | null;
+      unit_cost: number | null;
+      minimum_order_qty: number;
+      lead_time_days: number;
+      is_primary_vendor: boolean;
+    }>
+  ): Promise<VendorItemMapping> {
+    const raw = await apiClient.patch<Record<string, unknown>>(
+      `/api/v1/items/${itemId}/vendors/${mappingId}`,
+      data
+    );
+    return mapVendorMapping(raw);
+  },
+
+  async deleteItemVendor(itemId: string, mappingId: number): Promise<void> {
+    return apiClient.delete<void>(`/api/v1/items/${itemId}/vendors/${mappingId}`);
+  },
+};
+
+/** @deprecated Use itemService */
+export const productService = {
+  listProducts: (skip = 0, limit = 100) => itemService.listItems(skip, limit),
+  getProduct: (id: string) => itemService.getItem(id),
+  createProduct: (data: {
     product_id: string;
     customer_part_number: string;
     description?: string;
     uom?: string;
     unit_price?: number;
-  }): Promise<Product> {
-    return apiClient.post<Product>('/api/v1/products', data);
+    is_outside_processed?: boolean;
+    is_purchase_item?: boolean;
+    is_subcontract_assembly?: boolean;
+    is_raw_material?: boolean;
+  }) =>
+    itemService.createItem({
+      item_id: data.product_id,
+      customer_part_number: data.customer_part_number,
+      description: data.description,
+      uom: data.uom,
+      unit_price: data.unit_price,
+      is_outside_processed: data.is_outside_processed,
+      is_purchase_item: data.is_purchase_item,
+      is_subcontract_assembly: data.is_subcontract_assembly,
+      is_raw_material: data.is_raw_material,
+    }),
+  updateProduct: (id: string, data: Partial<Product>) => {
+    const { product_id: _pid, item_id: _iid, ...rest } = data as Partial<Item> & {
+      product_id?: string;
+    };
+    return itemService.updateItem(id, rest);
   },
-
-  /**
-   * Update a product
-   */
-  async updateProduct(
-    productId: string,
-    data: Partial<Product>
-  ): Promise<Product> {
-    return apiClient.patch<Product>(`/api/v1/products/${productId}`, data);
-  },
-
-  /**
-   * Delete a product
-   */
-  async deleteProduct(productId: string): Promise<void> {
-    return apiClient.delete<void>(`/api/v1/products/${productId}`);
-  },
+  deleteProduct: (id: string) => itemService.deleteItem(id),
 };
 
 // ==========================================
@@ -338,10 +499,100 @@ export const vendorService = {
 };
 
 // ==========================================
-// PRODUCT BOM SERVICES
+// PURCHASE ORDER SERVICES
 // ==========================================
 
-export const productBomService = {
+function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
+  const rawItems = (po.items || []) as Array<Record<string, unknown> | PurchaseOrder['items'][number]>;
+  return {
+    ...po,
+    order_date: String(po.order_date || '').slice(0, 10),
+    expected_delivery_date: po.expected_delivery_date
+      ? String(po.expected_delivery_date).slice(0, 10)
+      : '',
+    shipping_fee: Number(po.shipping_fee ?? 0),
+    discount_value: Number(po.discount_value ?? 0),
+    subtotal: Number(po.subtotal ?? 0),
+    total_tax: Number(po.total_tax ?? 0),
+    discount_amount: Number(po.discount_amount ?? 0),
+    grand_total: Number(po.grand_total ?? 0),
+    approval_status: po.approval_status || 'DRAFT',
+    current_approval_step: po.current_approval_step ?? null,
+    items: rawItems.map((item, idx) => {
+      const row = item as Record<string, unknown>;
+      return {
+        id: String(row.item_id ?? row.id ?? `row-${idx}`),
+        sku: String(row.sku || ''),
+        quantity: Number(row.quantity ?? 0),
+        unit_price: Number(row.unit_price ?? 0),
+        tax_rate: Number(row.tax_rate ?? 0),
+        line_subtotal: Number(row.line_subtotal ?? 0),
+        line_tax: Number(row.line_tax ?? 0),
+        line_total: Number(row.line_total ?? 0),
+      };
+    }),
+  };
+}
+
+export const purchaseOrderService = {
+  async listPurchaseOrders(skip: number = 0, limit: number = 100): Promise<PurchaseOrder[]> {
+    const rows = await apiClient.get<PurchaseOrder[]>('/api/v1/purchase-orders', {
+      params: { skip, limit },
+    });
+    return rows.map(mapPurchaseOrderFromApi);
+  },
+
+  async getPurchaseOrder(poNumber: string): Promise<PurchaseOrder> {
+    const po = await apiClient.get<PurchaseOrder>(`/api/v1/purchase-orders/${poNumber}`);
+    return mapPurchaseOrderFromApi(po);
+  },
+
+  async createPurchaseOrder(data: Omit<PurchaseOrder, 'supplier_name' | 'approval_status'> & {
+    items: Array<{
+      sku: string;
+      quantity: number;
+      unit_price: number;
+      tax_rate: number;
+      line_subtotal: number;
+      line_tax: number;
+      line_total: number;
+    }>;
+  }): Promise<PurchaseOrder> {
+    const po = await apiClient.post<PurchaseOrder>('/api/v1/purchase-orders', data);
+    return mapPurchaseOrderFromApi(po);
+  },
+
+  async updatePurchaseOrder(
+    poNumber: string,
+    data: Partial<Omit<PurchaseOrder, 'po_number' | 'supplier_name' | 'items'>> & {
+      items?: Array<{
+        sku: string;
+        quantity: number;
+        unit_price: number;
+        tax_rate: number;
+        line_subtotal: number;
+        line_tax: number;
+        line_total: number;
+      }>;
+    }
+  ): Promise<PurchaseOrder> {
+    const po = await apiClient.patch<PurchaseOrder>(
+      `/api/v1/purchase-orders/${poNumber}`,
+      data
+    );
+    return mapPurchaseOrderFromApi(po);
+  },
+
+  async deletePurchaseOrder(poNumber: string): Promise<void> {
+    return apiClient.delete<void>(`/api/v1/purchase-orders/${poNumber}`);
+  },
+};
+
+// ==========================================
+// ITEM BOM SERVICES
+// ==========================================
+
+export const itemBomService = {
   /**
    * List all BOM components (raw materials) for a given finished product
    */
@@ -350,14 +601,45 @@ export const productBomService = {
   },
 
   /**
-   * Add a component/raw-material line to a finished product's BOM
+   * Add a component/raw-material/labor/outside-service line to a finished product's BOM.
+   * For item_type='Material', pass component_product_id. For 'Labor'/'Outside Service',
+   * pass component_code (one of the predefined LABOR_SERVICE_CODES).
    */
   async addBomComponent(
     productId: string,
-    data: { component_product_id: string; quantity_per: number }
+    data: {
+      component_product_id?: string | null;
+      component_code?: string | null;
+      quantity_per: number;
+      item_type?: 'Material' | 'Labor' | 'Outside Service';
+      scrap_factor?: number;
+      yield_loss_percentage?: number;
+    }
   ): Promise<ProductBOMComponent> {
     return apiClient.post<ProductBOMComponent>(`/api/v1/products/${productId}/bom`, data);
   },
+
+  /**
+   * Update an existing BOM component line (e.g. quantity or item type)
+   */
+  async updateBomComponent(
+    productId: string,
+    bomId: number,
+    data: Partial<{
+      component_product_id: string | null;
+      component_code: string | null;
+      quantity_per: number;
+      item_type: 'Material' | 'Labor' | 'Outside Service';
+      scrap_factor: number;
+      yield_loss_percentage: number;
+    }>
+  ): Promise<ProductBOMComponent> {
+    return apiClient.patch<ProductBOMComponent>(
+      `/api/v1/products/${productId}/bom/${bomId}`,
+      data
+    );
+  },
+
 
   /**
    * Remove a BOM component line
@@ -365,7 +647,11 @@ export const productBomService = {
   async deleteBomComponent(productId: string, bomId: number): Promise<void> {
     return apiClient.delete<void>(`/api/v1/products/${productId}/bom/${bomId}`);
   },
+
 };
+
+/** @deprecated Use itemBomService */
+export const productBomService = itemBomService;
 
 // ==========================================
 // SUBCONTRACT ORDER SERVICES
@@ -467,10 +753,313 @@ export const subcontractOrderService = {
       status: 'CANCELLED',
     });
   },
+
+  /**
+   * Explode assembly BOM kit for this SCO (qty × BOM + scrap/yield) vs issued stock.
+   */
+  async calculateComponents(scoNumber: string): Promise<CalculateComponentsResponse> {
+    return apiClient.post<CalculateComponentsResponse>(
+      `/api/v1/subcontract-orders/${scoNumber}/calculate-components`
+    );
+  },
+};
+
+export const subcontractBomService = {
+  async getKit(assemblyId: string): Promise<SubcontractBOM> {
+    return apiClient.get<SubcontractBOM>(`/api/v1/subcontract-boms/${assemblyId}`);
+  },
+
+  async addComponent(data: {
+    assembly_item_id: string;
+    component_item_id: string;
+    quantity_required: number;
+    scrap_factor?: number;
+    yield_loss_percentage?: number;
+  }): Promise<SubcontractBOMLine> {
+    return apiClient.post<SubcontractBOMLine>('/api/v1/subcontract-boms/', data);
+  },
+
+  async deleteComponent(assemblyId: string, bomId: number): Promise<void> {
+    return apiClient.delete<void>(
+      `/api/v1/subcontract-boms/${assemblyId}/components/${bomId}`
+    );
+  },
 };
 
 // Re-export related types used by consumers of this module for convenience
 export type { MaterialIssue, FinishedGoodsReceipt };
+
+// ==========================================
+// APPROVAL WORKFLOW SERVICES
+// ==========================================
+
+export const approvalService = {
+  me(): Promise<CurrentUser> {
+    return apiClient.get<CurrentUser>('/api/v1/me');
+  },
+
+  submit(module: string, documentId: string, comments?: string) {
+    return apiClient.post(`/api/v1/transactions/${module}/${documentId}/submit`, {
+      comments,
+    });
+  },
+
+  approve(module: string, documentId: string, comments?: string) {
+    return apiClient.post(`/api/v1/transactions/${module}/${documentId}/approve`, {
+      comments,
+    });
+  },
+
+  reject(module: string, documentId: string, comments?: string) {
+    return apiClient.post(`/api/v1/transactions/${module}/${documentId}/reject`, {
+      comments,
+    });
+  },
+
+  /** @deprecated use reject */
+  decline(module: string, documentId: string, comments?: string) {
+    return this.reject(module, documentId, comments);
+  },
+
+  getHistory(module: string, documentId: string): Promise<ApprovalHistory[]> {
+    return apiClient.get<ApprovalHistory[]>(
+      `/api/v1/transactions/${module}/${documentId}/approval-history`,
+    );
+  },
+};
+
+export const adminRbacService = {
+  listRoles() {
+    return apiClient.get<import('../types').RoleDetail[]>('/api/v1/admin/roles');
+  },
+  listPermissions() {
+    return apiClient.get<import('../types').Permission[]>('/api/v1/admin/permissions');
+  },
+  listUsers() {
+    return apiClient.get<import('../types').UserSummary[]>('/api/v1/admin/users');
+  },
+  assignRoles(userId: string, roleIds: string[]) {
+    return apiClient.post<import('../types').UserSummary>(
+      `/api/v1/admin/users/${userId}/roles`,
+      { role_ids: roleIds },
+    );
+  },
+  listWorkflows(module?: string) {
+    return apiClient.get<import('../types').WorkflowDefinition[]>(
+      '/api/v1/admin/workflows',
+      module ? { params: { module } } : undefined,
+    );
+  },
+};
+
+// ==========================================
+// CHART OF ACCOUNTS SERVICES
+// ==========================================
+
+export const chartOfAccountsService = {
+  async listAccounts(skip: number = 0, limit: number = 100): Promise<ChartOfAccount[]> {
+    return apiClient.get<ChartOfAccount[]>('/api/v1/accounts', {
+      params: { skip, limit },
+    });
+  },
+
+  async getAccount(accountId: string): Promise<ChartOfAccount> {
+    return apiClient.get<ChartOfAccount>(`/api/v1/accounts/${accountId}`);
+  },
+
+  async createAccount(data: ChartOfAccountCreate): Promise<ChartOfAccount> {
+    return apiClient.post<ChartOfAccount>('/api/v1/accounts', data);
+  },
+
+  async updateAccount(
+    accountId: string,
+    data: Partial<ChartOfAccountCreate>,
+  ): Promise<ChartOfAccount> {
+    return apiClient.patch<ChartOfAccount>(`/api/v1/accounts/${accountId}`, data);
+  },
+
+  async deleteAccount(accountId: string): Promise<void> {
+    return apiClient.delete<void>(`/api/v1/accounts/${accountId}`);
+  },
+};
+
+// ==========================================
+// ACCOUNTS RECEIVABLE (AR INVOICE) SERVICES
+// ==========================================
+
+export const arInvoiceService = {
+  /**
+   * Fetch all AR invoices with pagination
+   */
+  async listInvoices(skip: number = 0, limit: number = 100): Promise<ARInvoice[]> {
+    return apiClient.get<ARInvoice[]>('/api/v1/ar-invoices', {
+      params: { skip, limit },
+    });
+  },
+
+  /**
+   * Fetch a single AR invoice by ID
+   */
+  async getInvoice(invoiceId: string): Promise<ARInvoice> {
+    return apiClient.get<ARInvoice>(`/api/v1/ar-invoices/${invoiceId}`);
+  },
+
+  /**
+   * Record receipt of payment against an AR Invoice.
+   * Marks the invoice Paid, creates a Cash Transaction (Check Deposit),
+   * and posts a balanced Journal Entry (Debit: Cash, Credit: AR).
+   */
+  async receivePayment(invoiceId: string): Promise<CashTransaction> {
+    return apiClient.post<CashTransaction>(`/api/v1/ar-invoices/${invoiceId}/pay`);
+  },
+};
+
+// ==========================================
+// ACCOUNTS PAYABLE (AP BILL) SERVICES
+// ==========================================
+
+export const apBillService = {
+  /**
+   * Fetch all AP bills with pagination
+   */
+  async listBills(skip: number = 0, limit: number = 100): Promise<APBill[]> {
+    return apiClient.get<APBill[]>('/api/v1/ap-bills', {
+      params: { skip, limit },
+    });
+  },
+
+  /**
+   * Fetch a single AP bill by ID
+   */
+  async getBill(billId: string): Promise<APBill> {
+    return apiClient.get<APBill>(`/api/v1/ap-bills/${billId}`);
+  },
+
+  /**
+   * Record an outgoing payment against an AP Bill.
+   * Marks the bill Paid, creates a Cash Transaction (Check Issue),
+   * and posts a balanced Journal Entry (Debit: AP, Credit: Cash).
+   */
+  async makePayment(billId: string): Promise<CashTransaction> {
+    return apiClient.post<CashTransaction>(`/api/v1/ap-bills/${billId}/pay`);
+  },
+};
+
+// ==========================================
+// CASH MANAGEMENT SERVICES
+// ==========================================
+
+export const cashTransactionService = {
+  /**
+   * Fetch all cash transactions (chronological ledger) with pagination
+   */
+  async listTransactions(
+    skip: number = 0,
+    limit: number = 100
+  ): Promise<CashTransaction[]> {
+    return apiClient.get<CashTransaction[]>('/api/v1/cash-transactions', {
+      params: { skip, limit },
+    });
+  },
+
+  /**
+   * Fetch a single cash transaction by ID
+   */
+  async getTransaction(transactionId: string): Promise<CashTransaction> {
+    return apiClient.get<CashTransaction>(`/api/v1/cash-transactions/${transactionId}`);
+  },
+};
+
+// ==========================================
+// GENERAL LEDGER / JOURNAL ENTRY SERVICES
+// ==========================================
+
+export const journalEntryService = {
+  /**
+   * Fetch all journal entries (with nested ledger postings) with pagination
+   */
+  async listJournalEntries(
+    skip: number = 0,
+    limit: number = 100
+  ): Promise<JournalEntry[]> {
+    return apiClient.get<JournalEntry[]>('/api/v1/journal-entries', {
+      params: { skip, limit },
+    });
+  },
+
+  /**
+   * Fetch a single journal entry by ID
+   */
+  async getJournalEntry(entryId: string): Promise<JournalEntry> {
+    return apiClient.get<JournalEntry>(`/api/v1/journal-entries/${entryId}`);
+  },
+
+  /**
+   * Trigger the batch Month-End Close posting process
+   * (flips any Draft journal entries to Posted).
+   */
+  async runMonthEndClose(): Promise<{
+    message: string;
+    entries_posted: number;
+    journal_entry_ids: string[];
+  }> {
+    return apiClient.post('/api/v1/journal-entries/month-end-close');
+  },
+};
+
+// ==========================================
+// INVENTORY & WAREHOUSE SERVICES
+// ==========================================
+
+export const inventoryService = {
+  async listStock(): Promise<InventoryStockItem[]> {
+    return apiClient.get<InventoryStockItem[]>('/api/v1/inventory/stock');
+  },
+
+  async listMovements(productId?: string): Promise<StockMovement[]> {
+    return apiClient.get<StockMovement[]>('/api/v1/inventory/movements', {
+      params: productId ? { product_id: productId } : undefined,
+    });
+  },
+
+  async listWarehouses(skip: number = 0, limit: number = 100): Promise<Warehouse[]> {
+    return apiClient.get<Warehouse[]>('/api/v1/inventory/warehouses', {
+      params: { skip, limit },
+    });
+  },
+
+  async listBins(warehouseId?: string): Promise<BinLocation[]> {
+    return apiClient.get<BinLocation[]>('/api/v1/inventory/bins', {
+      params: warehouseId ? { warehouse_id: warehouseId } : undefined,
+    });
+  },
+
+  async adjustStock(
+    productId: string,
+    quantityDelta: number,
+    notes?: string,
+  ): Promise<InventoryStockItem> {
+    return apiClient.post<InventoryStockItem>('/api/v1/inventory/adjust', {
+      product_id: productId,
+      quantity_delta: quantityDelta,
+      notes,
+    });
+  },
+
+  async transferStock(
+    productId: string,
+    quantity: number,
+    toWarehouseId: string,
+    toBinId: string,
+  ): Promise<InventoryStockItem> {
+    return apiClient.post<InventoryStockItem>('/api/v1/inventory/transfer', {
+      product_id: productId,
+      quantity,
+      to_warehouse_id: toWarehouseId,
+      to_bin_id: toBinId,
+    });
+  },
+};
 
 // ==========================================
 // EXPORT ALL SERVICES
@@ -483,8 +1072,18 @@ export const apiServices = {
   products: productService,
   salesOrders: salesOrderService,
   vendors: vendorService,
+  purchaseOrders: purchaseOrderService,
+  itemBom: itemBomService,
   productBom: productBomService,
   subcontractOrders: subcontractOrderService,
+  items: itemService,
+  subcontractBoms: subcontractBomService,
+  chartOfAccounts: chartOfAccountsService,
+  arInvoices: arInvoiceService,
+  apBills: apBillService,
+  cashTransactions: cashTransactionService,
+  journalEntries: journalEntryService,
+  inventory: inventoryService,
 };
 
 export default apiServices;

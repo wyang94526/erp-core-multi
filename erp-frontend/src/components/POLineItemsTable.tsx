@@ -1,9 +1,11 @@
 import React from 'react';
-import type { PurchaseOrderItem } from '../types';
+import type { Item, PurchaseOrderItem } from '../types';
 
 interface POLineItemsTableProps {
   items: PurchaseOrderItem[];
+  products: Item[];
   updateRow: (id: string, field: keyof PurchaseOrderItem, value: any) => void;
+  updateRowFields: (id: string, fields: Partial<PurchaseOrderItem>) => void;
   deleteRow: (id: string) => void;
   addRow: () => void;
   clearAllRows: () => void;
@@ -13,7 +15,9 @@ interface POLineItemsTableProps {
 
 export function POLineItemsTable({
   items,
+  products,
   updateRow,
+  updateRowFields,
   deleteRow,
   addRow,
   clearAllRows,
@@ -25,6 +29,25 @@ export function POLineItemsTable({
       style: 'currency',
       currency: 'USD',
     }).format(value);
+  };
+
+  const productLabel = (product: Item) => {
+    const desc = product.description || product.customer_part_number || product.item_id;
+    return `${product.item_id} — ${desc}`;
+  };
+
+  const resolveItemLabel = (sku: string) => {
+    const product = products.find((p) => p.item_id === sku);
+    return product ? productLabel(product) : sku || 'N/A';
+  };
+
+  const handleItemSelect = (itemId: string, productId: string) => {
+    const product = products.find((p) => p.item_id === productId);
+    const fields: Partial<PurchaseOrderItem> = { sku: productId };
+    if (product && product.unit_price != null) {
+      fields.unit_price = Number(product.unit_price);
+    }
+    updateRowFields(itemId, fields);
   };
 
   return (
@@ -60,7 +83,7 @@ export function POLineItemsTable({
           <thead>
             <tr style={theadRowStyle}>
               <th style={{ ...thStyle, width: '40px' }}>#</th>
-              <th style={thStyle}>Item Description / SKU *</th>
+              <th style={thStyle}>Item / SKU *</th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
               <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Unit Price ($) *</th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
@@ -71,6 +94,7 @@ export function POLineItemsTable({
           <tbody>
             {items.map((item, index) => {
               const rowHasError = errors[`item_${item.id}`] || errors[`sku_${item.id}`] || errors[`qty_${item.id}`] || errors[`price_${item.id}`];
+              const knownSku = products.some((p) => p.item_id === item.sku);
               return (
                 <tr
                   key={item.id}
@@ -82,23 +106,32 @@ export function POLineItemsTable({
                   {/* Row Number */}
                   <td style={tdStyle}>{index + 1}</td>
 
-                  {/* SKU / Description */}
+                  {/* Item / SKU dropdown */}
                   <td style={tdStyle}>
                     {isReadOnly ? (
-                      <div style={readOnlyCellText}>{item.sku || 'N/A'}</div>
+                      <div style={readOnlyCellText}>{resolveItemLabel(item.sku)}</div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <input
-                          type="text"
-                          aria-label={`SKU for item ${index + 1}`}
-                          value={item.sku}
-                          onChange={(e) => updateRow(item.id, 'sku', e.target.value)}
-                          placeholder="e.g. SKU-10023 or Item description"
+                        <select
+                          aria-label={`Item / SKU for row ${index + 1}`}
+                          value={item.sku || ''}
+                          onChange={(e) => handleItemSelect(item.id, e.target.value)}
                           style={{
                             ...inputStyle,
+                            width: '100%',
                             border: errors[`sku_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
                           }}
-                        />
+                        >
+                          <option value="">Select item / SKU</option>
+                          {!knownSku && item.sku ? (
+                            <option value={item.sku}>{item.sku} (not in catalog)</option>
+                          ) : null}
+                          {products.map((product) => (
+                            <option key={product.item_id} value={product.item_id}>
+                              {productLabel(product)}
+                            </option>
+                          ))}
+                        </select>
                         {errors[`sku_${item.id}`] && (
                           <span style={errorTextStyle}>{errors[`sku_${item.id}`]}</span>
                         )}

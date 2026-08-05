@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import SidebarNav from './components/SidebarNav'
+import UserSwitcher from './components/UserSwitcher'
 import './App.css'
 
 const MOBILE_BREAKPOINT = 768
@@ -65,6 +66,7 @@ function App() {
             </span>
           </button>
           <h1 className="app-topbar-title">GTT-USA ERP System</h1>
+          <UserSwitcher />
         </header>
         <main className="app-main">
           <Outlet />

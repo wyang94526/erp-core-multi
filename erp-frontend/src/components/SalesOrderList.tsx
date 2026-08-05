@@ -88,6 +88,7 @@ export function SalesOrderList() {
                     <th style={directoryThStyle}>Customer ID</th>
                     <th style={directoryThStyle}>Order Date</th>
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
+                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
                     <th style={{ ...directoryThStyle, textAlign: 'right' }}>Total Amount</th>
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Items</th>
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
@@ -96,6 +97,7 @@ export function SalesOrderList() {
                 <tbody>
                   {salesOrders.map((order: SalesOrder) => {
                     const statusColors = getStatusColors(order.status)
+                    const approval = (order.approval_status || 'DRAFT').replace(/_/g, ' ')
                     return (
                       <tr key={order.sales_order_id} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{order.sales_order_id}</td>
@@ -117,6 +119,7 @@ export function SalesOrderList() {
                             {order.status}
                           </span>
                         </td>
+                        <td style={{ ...directoryTdStyle, textAlign: 'center' }}>{approval}</td>
                         <td style={{ ...directoryTdStyle, textAlign: 'right' }}>
                           {order.currency} {Number(order.total_amount || 0).toFixed(2)}
                         </td>
@@ -126,7 +129,7 @@ export function SalesOrderList() {
                             onClick={() => navigate(`/orders/${order.sales_order_id}`)}
                             style={{ ...directoryActionButtonStyle, backgroundColor: '#e3f2fd', color: '#1565c0', border: '1px solid #bbdefb', marginRight: '6px' }}
                           >
-                            View
+                            View / Approve
                           </button>
                           <button
                             onClick={() => navigate(`/orders/${order.sales_order_id}/edit`)}
@@ -177,12 +180,14 @@ export function SalesOrderList() {
 
 function getStatusColors(status: string): { bg: string; text: string } {
   const statusColors: Record<string, { bg: string; text: string }> = {
+    DRAFT: { bg: '#f5f5f5', text: '#616161' },
     RECEIVED: { bg: '#e8f5e9', text: '#2e7d32' },
+    PENDING: { bg: '#fffde7', text: '#f9a825' },
     PROCESSING: { bg: '#e3f2fd', text: '#1565c0' },
+    APPROVED: { bg: '#e8f5e9', text: '#2e7d32' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
-    PENDING: { bg: '#fffde7', text: '#f9a825' },
   }
   return statusColors[status] || { bg: '#f5f5f5', text: '#616161' }
 }

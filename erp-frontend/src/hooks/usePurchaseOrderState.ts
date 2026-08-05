@@ -12,6 +12,7 @@ export type POAction =
   | { type: 'SET_HEADER'; payload: { field: string; value: any } }
   | { type: 'ADD_ROW' }
   | { type: 'UPDATE_ROW'; payload: { id: string; field: keyof PurchaseOrderItem; value: any } }
+  | { type: 'UPDATE_ROW_FIELDS'; payload: { id: string; fields: Partial<PurchaseOrderItem> } }
   | { type: 'DELETE_ROW'; payload: { id: string } }
   | { type: 'CLEAR_ALL_ROWS' }
   | { type: 'UPDATE_SUMMARY'; payload: { field: 'shipping_fee' | 'discount_type' | 'discount_value'; value: any } }
@@ -41,6 +42,8 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
     expected_delivery_date: '',
     payment_terms: 'Net 30',
     status: 'Draft',
+    approval_status: 'DRAFT',
+    current_approval_step: null as number | null,
     items: [initialRow(generateId())],
     shipping_fee: 0,
     discount_type: 'percentage',
@@ -164,6 +167,22 @@ function poReducer(state: POFormState, action: POAction): POFormState {
       };
     }
 
+    case 'UPDATE_ROW_FIELDS': {
+      const updatedItems = state.items.map((item) => {
+        if (item.id === action.payload.id) {
+          return {
+            ...item,
+            ...action.payload.fields,
+          };
+        }
+        return item;
+      });
+      return {
+        ...state,
+        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
+      };
+    }
+
     case 'DELETE_ROW': {
       // Keep at least one row, but clear it if only one
       let updatedItems = state.items.filter((item) => item.id !== action.payload.id);
@@ -218,6 +237,8 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         expected_delivery_date: po.expected_delivery_date,
         payment_terms: po.payment_terms,
         status: po.status,
+        approval_status: po.approval_status || 'DRAFT',
+        current_approval_step: po.current_approval_step ?? null,
         items: po.items,
         shipping_fee: po.shipping_fee,
         discount_type: po.discount_type,
@@ -254,6 +275,10 @@ export function usePurchaseOrderState(initialPoNumber = '') {
     dispatch({ type: 'UPDATE_ROW', payload: { id, field, value } });
   }, []);
 
+  const updateRowFields = useCallback((id: string, fields: Partial<PurchaseOrderItem>) => {
+    dispatch({ type: 'UPDATE_ROW_FIELDS', payload: { id, fields } });
+  }, []);
+
   const deleteRow = useCallback((id: string) => {
     dispatch({ type: 'DELETE_ROW', payload: { id } });
   }, []);
@@ -279,6 +304,7 @@ export function usePurchaseOrderState(initialPoNumber = '') {
     setHeader,
     addRow,
     updateRow,
+    updateRowFields,
     deleteRow,
     clearAllRows,
     updateSummary,

@@ -56,8 +56,12 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     description TEXT NOT NULL,
-    posted_by_user_id UUID REFERENCES users(id)
+    posted_by_user_id UUID REFERENCES users(id),
+    -- Finance module additions: accounting period (YYYY-MM) and posting workflow status
+    period VARCHAR(7),
+    posting_status VARCHAR(20) NOT NULL DEFAULT 'Posted'
 );
+
 
 DROP TABLE IF EXISTS ledger_postings CASCADE;
 -- Ledger Postings (Debits and Credits must balance to 0)
@@ -127,14 +131,19 @@ CREATE TABLE CustomerLocations (
 DROP TABLE IF EXISTS Products CASCADE;
 -- 4. Internal Products & Customer Part Cross-Reference
 CREATE TABLE Products (
-    product_id VARCHAR(50) PRIMARY KEY,        -- Internal SKU
+    product_id VARCHAR(50) PRIMARY KEY,        -- Internal SKU / Item ID
     customer_part_number VARCHAR(50) NOT NULL, -- DENSO Part No: 'LAY95172-0780'
     description TEXT,                          
     uom VARCHAR(20) DEFAULT 'Each',
     unit_price NUMERIC(12, 2),
     on_hand_quantity INT DEFAULT 0,            -- Quantity physically in stock (raw material or finished good)
-    wip_quantity INT DEFAULT 0                 -- Quantity currently out at a subcontractor (work-in-progress)
+    wip_quantity INT DEFAULT 0,                -- Quantity currently out at a subcontractor (work-in-progress)
+    is_outside_processed BOOLEAN NOT NULL DEFAULT FALSE, -- Legacy: 3rd-party/outside processed assemblies
+    is_purchase_item BOOLEAN NOT NULL DEFAULT FALSE,      -- Available on Purchase Orders
+    is_subcontract_assembly BOOLEAN NOT NULL DEFAULT FALSE, -- Finished/semi FG built via subcontract
+    is_raw_material BOOLEAN NOT NULL DEFAULT FALSE         -- Purchased/raw component stock
 );
+
 
 
 -- 5. Sales Orders Header
@@ -161,7 +170,7 @@ CREATE TABLE SalesOrders (
     buyer_contact_email VARCHAR(150),          
     
     -- Status & Financial Tracking
-    status VARCHAR(30) DEFAULT 'RECEIVED',     -- 'RECEIVED', 'CANCELLED', etc.
+    status VARCHAR(30) DEFAULT 'DRAFT',     -- 'DRAFT', 'RECEIVED', 'APPROVED', 'CANCELLED', etc.
     total_amount DECIMAL(12, 2) NOT NULL,      
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -193,13 +202,38 @@ DROP TABLE IF EXISTS ProductBOMComponents CASCADE;
 CREATE TABLE ProductBOMComponents (
     bom_id BIGSERIAL PRIMARY KEY,
     parent_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
-    component_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    component_product_id VARCHAR(50) REFERENCES Products(product_id),   -- Set for 'Material' rows only
+    component_code VARCHAR(50),                        -- Set for 'Labor' / 'Outside Service' rows only (predefined codes, not real Products)
     quantity_per NUMERIC(12, 4) NOT NULL DEFAULT 1,   -- Qty of component required per 1 unit of parent
+    item_type VARCHAR(30) NOT NULL DEFAULT 'Material', -- 'Material', 'Labor', or 'Outside Service'
+    scrap_factor NUMERIC(8, 4) NOT NULL DEFAULT 0,     -- Extra material allowance (0.05 = +5%)
+    yield_loss_percentage NUMERIC(8, 4) NOT NULL DEFAULT 0, -- Expected yield loss %
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT unique_bom_line UNIQUE (parent_product_id, component_product_id),
-    CONSTRAINT chk_bom_not_self_referencing CHECK (parent_product_id <> component_product_id)
+    CONSTRAINT unique_bom_line UNIQUE (parent_product_id, component_product_id, component_code),
+    CONSTRAINT chk_bom_not_self_referencing CHECK (parent_product_id <> component_product_id),
+    CONSTRAINT chk_bom_component_ref CHECK (
+        (item_type = 'Material' AND component_product_id IS NOT NULL AND component_code IS NULL) OR
+        (item_type IN ('Labor', 'Outside Service') AND component_code IS NOT NULL AND component_product_id IS NULL)
+    )
 );
+
+DROP TABLE IF EXISTS VendorItemMappings CASCADE;
+-- Vendor catalog: which suppliers sell which purchase items, and at what cost/terms
+CREATE TABLE VendorItemMappings (
+    mapping_id BIGSERIAL PRIMARY KEY,
+    supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
+    vendor_sku VARCHAR(100),
+    unit_cost NUMERIC(12, 4),
+    minimum_order_qty NUMERIC(12, 4) NOT NULL DEFAULT 1,
+    lead_time_days INT NOT NULL DEFAULT 0,
+    is_primary_vendor BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_vendor_item_mapping UNIQUE (supplier_id, product_id)
+);
+
+
 
 DROP TABLE IF EXISTS SubcontractOrders CASCADE;
 -- 8. Subcontract Order (SCO) Header — sending a finished/semi-finished product out for outside processing
@@ -250,6 +284,18 @@ CREATE TABLE MaterialIssueLines (
     quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0)
 );
 
+DROP TABLE IF EXISTS ComponentIssueLogs CASCADE;
+-- Durable audit log of components issued to subcontractors (mirrors MaterialIssueLines + SCO context)
+CREATE TABLE ComponentIssueLogs (
+    log_id BIGSERIAL PRIMARY KEY,
+    sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number),
+    issue_id VARCHAR(50) NOT NULL REFERENCES MaterialIssues(issue_id) ON DELETE CASCADE,
+    component_product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0),
+    issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+);
+
 DROP TABLE IF EXISTS FinishedGoodsReceipts CASCADE;
 -- 12. Finished Goods Receipts — deducts wip_quantity, increments on_hand_quantity of the finished product
 CREATE TABLE FinishedGoodsReceipts (
@@ -260,4 +306,171 @@ CREATE TABLE FinishedGoodsReceipts (
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ========================================================
+-- 5. PROCUREMENT: PURCHASE ORDERS
+-- ========================================================
+
+DROP TABLE IF EXISTS PurchaseOrders CASCADE;
+-- 13. Purchase Order Header — an order placed with a Supplier/Vendor
+CREATE TABLE PurchaseOrders (
+    po_number VARCHAR(50) PRIMARY KEY,
+    supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+
+    order_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    expected_delivery_date DATE,
+    payment_terms VARCHAR(50) DEFAULT 'Net 30',
+    status VARCHAR(20) NOT NULL DEFAULT 'Draft', -- 'Draft', 'Submitted', 'Approved', 'Void'
+
+    shipping_fee NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    discount_type VARCHAR(20) NOT NULL DEFAULT 'percentage', -- 'percentage' or 'fixed'
+    discount_value NUMERIC(12, 2) NOT NULL DEFAULT 0,
+
+    subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_tax NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    discount_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    grand_total NUMERIC(12, 2) NOT NULL DEFAULT 0,
+
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_po_status CHECK (status IN ('Draft', 'Submitted', 'Approved', 'Void')),
+    CONSTRAINT chk_po_discount_type CHECK (discount_type IN ('percentage', 'fixed'))
+);
+
+DROP TABLE IF EXISTS PurchaseOrderItems CASCADE;
+-- 14. Purchase Order Line Items
+CREATE TABLE PurchaseOrderItems (
+    item_id BIGSERIAL PRIMARY KEY,
+    po_number VARCHAR(50) NOT NULL REFERENCES PurchaseOrders(po_number) ON DELETE CASCADE,
+
+    sku VARCHAR(100) NOT NULL,
+    quantity NUMERIC(12, 4) NOT NULL DEFAULT 1,
+    unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    tax_rate NUMERIC(6, 3) NOT NULL DEFAULT 0,
+
+    line_subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    line_tax NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    line_total NUMERIC(12, 2) NOT NULL DEFAULT 0
+);
+
+-- ========================================================
+-- 6. FINANCE MODULE: ACCOUNTS RECEIVABLE / PAYABLE / CASH
+-- ========================================================
+
+DROP TABLE IF EXISTS ar_invoices CASCADE;
+-- 15. Accounts Receivable Invoice — auto-generated when a Sales Order is Approved
+CREATE TABLE ar_invoices (
+    invoice_id VARCHAR(50) PRIMARY KEY,
+    sales_order_id VARCHAR(50) NOT NULL REFERENCES SalesOrders(sales_order_id),
+    customer_id VARCHAR(50) NOT NULL REFERENCES Customers(customer_id),
+
+    amount NUMERIC(12, 2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Unpaid', -- Unpaid, Partial, Paid
+    due_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_ar_invoice_status CHECK (status IN ('Unpaid', 'Partial', 'Paid'))
+);
+
+DROP TABLE IF EXISTS ap_bills CASCADE;
+-- 16. Accounts Payable Bill — auto-generated when a Purchase Order is Approved
+CREATE TABLE ap_bills (
+    bill_id VARCHAR(50) PRIMARY KEY,
+    purchase_order_id VARCHAR(50) NOT NULL REFERENCES PurchaseOrders(po_number),
+    vendor_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+
+    amount NUMERIC(12, 2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Unpaid', -- Unpaid, Partial, Paid
+    due_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_ap_bill_status CHECK (status IN ('Unpaid', 'Partial', 'Paid'))
+);
+
+DROP TABLE IF EXISTS cash_transactions CASCADE;
+-- 17. Cash Management Ledger — records Check Issue (AP payment) / Check Deposit (AR payment)
+CREATE TABLE cash_transactions (
+    transaction_id VARCHAR(50) PRIMARY KEY,
+    type VARCHAR(20) NOT NULL, -- 'Check Issue' or 'Check Deposit'
+    reference_id VARCHAR(50) NOT NULL, -- AR Invoice ID or AP Bill ID (polymorphic, no strict FK)
+    amount NUMERIC(12, 2) NOT NULL,
+    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    bank_account_id VARCHAR(50),
+
+    CONSTRAINT chk_cash_transaction_type CHECK (type IN ('Check Issue', 'Check Deposit'))
+);
+
+-- ========================================================
+-- 7. INVENTORY & WAREHOUSE MANAGEMENT
+-- ========================================================
+
+DROP TABLE IF EXISTS StockMovements CASCADE;
+DROP TABLE IF EXISTS InventoryStock CASCADE;
+DROP TABLE IF EXISTS BinLocations CASCADE;
+DROP TABLE IF EXISTS Warehouses CASCADE;
+
+-- 18. Warehouses — physical storage sites
+CREATE TABLE Warehouses (
+    warehouse_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    address VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 19. Bin Locations — storage bins within a warehouse
+CREATE TABLE BinLocations (
+    bin_id VARCHAR(50) PRIMARY KEY,
+    warehouse_id VARCHAR(50) NOT NULL REFERENCES Warehouses(warehouse_id) ON DELETE CASCADE,
+    bin_code VARCHAR(50) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT unique_bin_per_warehouse UNIQUE (warehouse_id, bin_code)
+);
+
+-- 20. Inventory Stock — on-hand / allocated / on-order qty per product + bin
+--     Products.on_hand_quantity remains the company-wide aggregate cache
+CREATE TABLE InventoryStock (
+    stock_id VARCHAR(50) PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id) ON DELETE CASCADE,
+    warehouse_id VARCHAR(50) NOT NULL REFERENCES Warehouses(warehouse_id),
+    bin_id VARCHAR(50) NOT NULL REFERENCES BinLocations(bin_id),
+    on_hand_quantity INT NOT NULL DEFAULT 0,
+    allocated_quantity INT NOT NULL DEFAULT 0,  -- reserved for open Sales Orders
+    on_order_quantity INT NOT NULL DEFAULT 0,   -- open Purchase Orders
+    reorder_point INT NOT NULL DEFAULT 0,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,  -- primary pick location for the product
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT unique_product_bin UNIQUE (product_id, bin_id),
+    CONSTRAINT chk_inventory_qty_nonneg CHECK (
+        on_hand_quantity >= 0
+        AND allocated_quantity >= 0
+        AND on_order_quantity >= 0
+        AND reorder_point >= 0
+    )
+);
+
+-- 21. Stock Movements — receipts, issues, adjustments, transfers
+CREATE TABLE StockMovements (
+    movement_id VARCHAR(50) PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL REFERENCES Products(product_id),
+    movement_type VARCHAR(20) NOT NULL,
+    quantity INT NOT NULL,                      -- signed: +receipt / -issue
+    warehouse_id VARCHAR(50) NOT NULL REFERENCES Warehouses(warehouse_id),
+    bin_id VARCHAR(50) NOT NULL REFERENCES BinLocations(bin_id),
+    reference VARCHAR(50),                     -- PO / SO / ADJ / XFER id
+    notes TEXT,
+    movement_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_stock_movement_type CHECK (
+        movement_type IN ('Receipt', 'Issue', 'Adjustment', 'Transfer')
+    )
+);
+
 

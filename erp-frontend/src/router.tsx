@@ -3,7 +3,7 @@
  * Defines all routes for the ERP application using React Router v8
  */
 
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
 import App from './App'
 import SalesOrderList from './components/SalesOrderList'
 import SalesOrderDetail from './components/SalesOrderDetail'
@@ -13,17 +13,32 @@ import CustomerForm from './components/CustomerForm'
 import PurchaseOrderForm from './components/PurchaseOrderForm'
 import VendorList from './components/VendorList'
 import VendorForm from './components/VendorForm'
-import ProductList from './components/ProductList'
-import ProductForm from './components/ProductForm'
-import ProductDetail from './components/ProductDetail'
+import ItemList from './components/ItemList'
+import ItemForm from './components/ItemForm'
+import ItemDetail from './components/ItemDetail'
 
 import SubcontractOrderList from './components/SubcontractOrderList'
 import SubcontractOrderForm from './components/SubcontractOrderForm'
 import SubcontractOrderDetail from './components/SubcontractOrderDetail'
 
+import ChartOfAccounts from './components/ChartOfAccounts'
+import ARInvoices from './components/ARInvoices'
+import APBills from './components/APBills'
+import CashManagement from './components/CashManagement'
+import GeneralLedger from './components/GeneralLedger'
+import InventoryOverview from './components/InventoryOverview'
+import StockMovements from './components/StockMovements'
+import WarehousesBins from './components/WarehousesBins'
+import AdminRbacPage from './components/AdminRbacPage'
+
+/** Legacy /products/:id → /items/:id */
+function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
+  const { id } = useParams<{ id: string }>()
+  const to = edit ? `/items/${id}/edit` : `/items/${id}`
+  return <Navigate to={to} replace />
+}
 
 export const router = createBrowserRouter([
-
   {
     path: '/',
     element: <App />,
@@ -73,21 +88,26 @@ export const router = createBrowserRouter([
         element: <VendorForm />,
       },
       {
-        path: 'products',
-        element: <ProductList />,
+        path: 'items',
+        element: <ItemList />,
       },
       {
-        path: 'products/new',
-        element: <ProductForm />,
+        path: 'items/new',
+        element: <ItemForm />,
       },
       {
-        path: 'products/:id',
-        element: <ProductDetail />,
+        path: 'items/:id',
+        element: <ItemDetail />,
       },
       {
-        path: 'products/:id/edit',
-        element: <ProductForm />,
+        path: 'items/:id/edit',
+        element: <ItemForm />,
       },
+      // Legacy Product routes → Items
+      { path: 'products', element: <Navigate to="/items" replace /> },
+      { path: 'products/new', element: <Navigate to="/items/new" replace /> },
+      { path: 'products/:id', element: <RedirectProductToItem /> },
+      { path: 'products/:id/edit', element: <RedirectProductToItem edit /> },
 
       {
         path: 'subcontract-orders',
@@ -101,9 +121,45 @@ export const router = createBrowserRouter([
         path: 'subcontract-orders/:id',
         element: <SubcontractOrderDetail />,
       },
+
+      {
+        path: 'inventory',
+        element: <InventoryOverview />,
+      },
+      {
+        path: 'inventory/movements',
+        element: <StockMovements />,
+      },
+      {
+        path: 'inventory/warehouses',
+        element: <WarehousesBins />,
+      },
+
+      {
+        path: 'chart-of-accounts',
+        element: <ChartOfAccounts />,
+      },
+      {
+        path: 'ar-invoices',
+        element: <ARInvoices />,
+      },
+      {
+        path: 'ap-bills',
+        element: <APBills />,
+      },
+      {
+        path: 'cash-management',
+        element: <CashManagement />,
+      },
+      {
+        path: 'general-ledger',
+        element: <GeneralLedger />,
+      },
+      {
+        path: 'admin/rbac',
+        element: <AdminRbacPage />,
+      },
     ],
-
-
   },
 ])
 
