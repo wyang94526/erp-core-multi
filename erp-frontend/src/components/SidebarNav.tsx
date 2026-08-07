@@ -124,7 +124,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
       aria-hidden={collapsed}
     >
       <div className="app-sidebar-inner">
-        <div className="app-sidebar-brand">GTT-USA ERP</div>
+        <div className="app-sidebar-brand">Grand-Tek Technology USA</div>
         <nav className="app-sidebar-nav" aria-label="Main">
           {visibleCategories.map((category) => {
             const isOpen = Boolean(openCategories[category.id])

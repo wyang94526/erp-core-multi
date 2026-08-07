@@ -65,7 +65,7 @@ function App() {
               <span />
             </span>
           </button>
-          <h1 className="app-topbar-title">GTT-USA ERP System</h1>
+          <h1 className="app-topbar-title">Grand-Tek Technology USA</h1>
           <UserSwitcher />
         </header>
         <main className="app-main">
