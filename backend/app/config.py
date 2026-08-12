@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    # Auth — override JWT_SECRET in .env for any non-local deployment
+    jwt_secret: str = "erp-dev-jwt-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 12
+    # Shared demo password used when seeding / migrating existing users
+    default_user_password: str = "Password123!"
 
     @property
     def database_url(self) -> str:

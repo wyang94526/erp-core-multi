@@ -1,11 +1,7 @@
 """Authentication / RBAC dependencies.
 
-Identity is provided via the ``X-User-Id`` header (UUID of a ``users`` row).
-If omitted, falls back to the first Admin user (or any user) so local demos
-keep working.
-
-JWT follow-up: replace header resolution in ``get_current_user`` with Bearer
-token decode; leave permission helpers unchanged.
+Identity is resolved from ``Authorization: Bearer <JWT>``.
+``X-User-Id`` remains as a seed/dev fallback when no Bearer token is present.
 """
 
 from __future__ import annotations
@@ -17,7 +13,8 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Permission, Role, User
+from app.models import Role, User
+from app.services.auth import decode_access_token
 
 
 def user_role_ids(user: User) -> set[str]:
@@ -38,15 +35,58 @@ def user_permission_codes(user: User) -> set[str]:
     return codes
 
 
+def _load_user(db: Session, user_uuid: UUID) -> User:
+    user = (
+        db.query(User)
+        .options(
+            joinedload(User.roles).joinedload(Role.permissions),
+            joinedload(User.department),
+        )
+        .filter(User.id == user_uuid)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    if (user.status or "ACTIVE").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive",
+        )
+    return user
+
+
 def get_current_user(
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ) -> User:
-    """Resolve the acting user. Swap this function body for JWT later."""
-    role_opts = joinedload(User.roles).joinedload(Role.permissions)
-    dept_opt = joinedload(User.department)
+    """Resolve the acting user from JWT Bearer token (or X-User-Id fallback)."""
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Authorization header",
+            )
+        payload = decode_access_token(token)
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing subject",
+            )
+        try:
+            user_uuid = UUID(str(sub))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token subject",
+            ) from exc
+        return _load_user(db, user_uuid)
 
-    user: User | None = None
     if x_user_id:
         try:
             user_uuid = UUID(x_user_id)
@@ -55,40 +95,12 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid X-User-Id header",
             ) from exc
-        user = (
-            db.query(User)
-            .options(role_opts, dept_opt)
-            .filter(User.id == user_uuid)
-            .first()
-        )
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found for X-User-Id",
-            )
-    else:
-        # Prefer an Admin via user_roles join
-        user = (
-            db.query(User)
-            .options(role_opts, dept_opt)
-            .join(User.roles)
-            .filter(Role.role_id == "ROLE-ADMIN")
-            .first()
-        )
-        if user is None:
-            user = db.query(User).options(role_opts, dept_opt).first()
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="No users available; seed the database first",
-            )
+        return _load_user(db, user_uuid)
 
-    if (user.status or "ACTIVE").upper() != "ACTIVE":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
-        )
-    return user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+    )
 
 
 def require_permission(code: str) -> Callable:

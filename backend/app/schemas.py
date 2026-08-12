@@ -17,19 +17,72 @@ class ORMModel(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
     status: str = Field(default='ACTIVE', max_length=20)
     department_id: str | None = Field(default=None, max_length=50)
     role_ids: list[str] = Field(default_factory=list)
     # Legacy single role (mapped into role_ids on create)
     role_id: str | None = Field(default=None, max_length=50)
+    security_question: str | None = Field(default=None, min_length=1, max_length=255)
+    security_answer: str | None = Field(default=None, min_length=1, max_length=128)
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     status: str | None = Field(default=None, max_length=20)
     department_id: str | None = Field(default=None, max_length=50)
     role_ids: list[str] | None = None
     role_id: str | None = Field(default=None, max_length=50)
+    security_question: str | None = Field(default=None, min_length=1, max_length=255)
+    security_answer: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class AuthRegisterRequest(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    security_question: str = Field(min_length=1, max_length=255)
+    security_answer: str = Field(min_length=1, max_length=128)
+
+
+class AuthLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AuthChangePasswordRequest(BaseModel):
+    email: EmailStr
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class AuthChangePasswordResponse(BaseModel):
+    message: str = "Password updated successfully"
+
+
+class AuthSecurityQuestionLookupRequest(BaseModel):
+    email: EmailStr
+
+
+class AuthSecurityQuestionLookupResponse(BaseModel):
+    email: EmailStr
+    security_question: str
+
+
+class AuthResetPasswordRequest(BaseModel):
+    email: EmailStr
+    security_answer: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class AuthResetPasswordResponse(BaseModel):
+    message: str = "Password reset successfully"
+
+
+class AuthSecurityQuestionsResponse(BaseModel):
+    questions: list[str]
+
 
 class UserRoleBrief(BaseModel):
     role_id: str
@@ -848,9 +901,16 @@ class CurrentUserRead(BaseModel):
     department_name: str | None = None
     roles: list[UserRoleBrief] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+    has_security_question: bool = False
     # Legacy fields
     role_id: str | None = None
     role_name: str | None = None
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = 'bearer'
+    user: CurrentUserRead
 
 
 

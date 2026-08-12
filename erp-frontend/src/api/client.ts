@@ -6,6 +6,8 @@
 // Empty = same-origin (Vite proxy in dev). Override with VITE_API_BASE_URL if needed.
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
+export const AUTH_TOKEN_KEY = 'erp.authToken';
+
 export interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean>;
 }
@@ -56,6 +58,22 @@ function formatApiError(data: unknown, fallback: string): string {
   return fallback
 }
 
+export function getStoredAuthToken(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  return localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function setStoredAuthToken(token: string | null): void {
+  if (typeof localStorage === 'undefined') return
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token)
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY)
+  }
+  // Clear legacy impersonation key
+  localStorage.removeItem('erp.activeUserId')
+}
+
 /**
  * Makes an HTTP request and handles errors
  */
@@ -71,11 +89,9 @@ async function request<T>(
     'Content-Type': 'application/json',
   };
 
-  // JWT follow-up: replace X-User-Id with Authorization: Bearer <token>
-  const userId =
-    typeof localStorage !== 'undefined' ? localStorage.getItem('erp.activeUserId') : null;
-  if (userId) {
-    (defaultHeaders as Record<string, string>)['X-User-Id'] = userId;
+  const token = getStoredAuthToken();
+  if (token) {
+    (defaultHeaders as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
   let response: Response;

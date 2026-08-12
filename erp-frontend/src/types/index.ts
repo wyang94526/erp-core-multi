@@ -174,6 +174,7 @@ export interface CurrentUser {
   department_name?: string | null;
   roles?: RoleBrief[];
   permissions?: string[];
+  has_security_question?: boolean;
   role_id: string | null;
   role_name: string | null;
 }
@@ -515,4 +516,15 @@ export interface StockMovement {
   notes: string | null;
   movement_date: string; // ISO date
   created_at?: string | null;
+}
+
+export interface AuditLog {
+  id: number;
+  table_name: string;
+  record_id: string;
+  action: string;
+  old_data?: Record<string, unknown> | null;
+  new_data?: Record<string, unknown> | null;
+  user_id: string | null;
+  changed_at: string;
 }

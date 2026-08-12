@@ -1,7 +1,5 @@
 /**
- * AuthContext — JWT-ready identity layer.
- * Today: X-User-Id via localStorage + User Switcher.
- * Later: swap setUserId/login to store Bearer tokens; keep hasPermission.
+ * AuthContext — JWT session + RBAC helpers.
  */
 
 import {
@@ -13,50 +11,54 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { adminRbacService, approvalService } from '../api/services'
-import type { CurrentUser, UserSummary } from '../types'
-
-const STORAGE_KEY = 'erp.activeUserId'
+import { getStoredAuthToken, setStoredAuthToken } from '../api/client'
+import { authService } from '../api/services'
+import type { CurrentUser } from '../types'
 
 type AuthContextValue = {
   user: CurrentUser | null
-  users: UserSummary[]
+  token: string | null
   loading: boolean
-  setUserId: (id: string) => void
+  isAuthenticated: boolean
+  login: (email: string, password: string) => Promise<void>
+  register: (
+    fullName: string,
+    email: string,
+    password: string,
+    securityQuestion: string,
+    securityAnswer: string,
+  ) => Promise<void>
+  logout: () => void
   refresh: () => Promise<void>
   hasPermission: (code: string) => boolean
   hasAnyPermission: (codes: string[]) => boolean
+  hasAnyRole: (roleIds: string[]) => boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null)
-  const [users, setUsers] = useState<UserSummary[]>([])
+  const [token, setToken] = useState<string | null>(() => getStoredAuthToken())
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
+    const stored = getStoredAuthToken()
+    if (!stored) {
+      setUser(null)
+      setToken(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
-      const [me, list] = await Promise.all([
-        approvalService.me(),
-        adminRbacService.listUsers().catch(() => [] as UserSummary[]),
-      ])
+      const me = await authService.me()
       setUser(me)
-      setUsers(
-        list.map((u) => ({
-          id: String(u.id),
-          email: u.email,
-          full_name: u.full_name,
-          status: u.status,
-          roles: u.roles,
-        })),
-      )
-      if (me?.id && !localStorage.getItem(STORAGE_KEY)) {
-        localStorage.setItem(STORAGE_KEY, me.id)
-      }
+      setToken(stored)
     } catch {
+      setStoredAuthToken(null)
       setUser(null)
+      setToken(null)
     } finally {
       setLoading(false)
     }
@@ -66,13 +68,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh()
   }, [refresh])
 
-  const setUserId = useCallback(
-    (id: string) => {
-      localStorage.setItem(STORAGE_KEY, id)
-      refresh()
+  const login = useCallback(async (email: string, password: string) => {
+    const result = await authService.login({ email, password })
+    setStoredAuthToken(result.access_token)
+    setToken(result.access_token)
+    setUser(result.user)
+  }, [])
+
+  const register = useCallback(
+    async (
+      fullName: string,
+      email: string,
+      password: string,
+      securityQuestion: string,
+      securityAnswer: string,
+    ) => {
+      const result = await authService.register({
+        full_name: fullName,
+        email,
+        password,
+        security_question: securityQuestion,
+        security_answer: securityAnswer,
+      })
+      setStoredAuthToken(result.access_token)
+      setToken(result.access_token)
+      setUser(result.user)
     },
-    [refresh],
+    [],
   )
+
+  const logout = useCallback(() => {
+    setStoredAuthToken(null)
+    setToken(null)
+    setUser(null)
+  }, [])
 
   const hasPermission = useCallback(
     (code: string) => {
@@ -88,17 +117,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [hasPermission],
   )
 
+  const hasAnyRole = useCallback(
+    (roleIds: string[]) => {
+      if (!user) return false
+      if (user.roles?.some((r) => r.role_id === 'ROLE-ADMIN')) return true
+      const owned = new Set(user.roles?.map((r) => r.role_id) || [])
+      return roleIds.some((id) => owned.has(id))
+    },
+    [user],
+  )
+
   const value = useMemo(
     () => ({
       user,
-      users,
+      token,
       loading,
-      setUserId,
+      isAuthenticated: Boolean(user && token),
+      login,
+      register,
+      logout,
       refresh,
       hasPermission,
       hasAnyPermission,
+      hasAnyRole,
     }),
-    [user, users, loading, setUserId, refresh, hasPermission, hasAnyPermission],
+    [
+      user,
+      token,
+      loading,
+      login,
+      register,
+      logout,
+      refresh,
+      hasPermission,
+      hasAnyPermission,
+      hasAnyRole,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
@@ -110,9 +164,4 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth must be used within AuthProvider')
   }
   return ctx
-}
-
-export function getStoredUserId(): string | null {
-  if (typeof localStorage === 'undefined') return null
-  return localStorage.getItem(STORAGE_KEY)
 }

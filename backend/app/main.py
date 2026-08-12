@@ -8,6 +8,7 @@ from app.routers import (
     approvals,
     ar_invoices,
     audit_logs,
+    auth,
     cash_transactions,
     customer_locations,
     customers,
@@ -48,6 +49,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(customers.router, prefix="/api/v1")
 app.include_router(customer_locations.router, prefix="/api/v1") # <-- Added

@@ -29,8 +29,9 @@ then in another terminal:
 import requests
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
+DEFAULT_PASSWORD = "Password123!"
 
-# Populated after users are seeded so approval calls act as Admin.
+# Populated after admin login so approval calls act as Admin.
 _SESSION_HEADERS: dict[str, str] = {}
 
 
@@ -59,58 +60,91 @@ def seed_data():
         {
             "email": "wendy.yang@grand-tek.com",
             "full_name": "Wendy Yang",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-ADMIN",
             "role_ids": ["ROLE-ADMIN"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "sales.rep@grand-tek.com",
             "full_name": "Sam SalesRep",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-SALES",
             "role_ids": ["ROLE-SALES-REP"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "sales.mgr@grand-tek.com",
             "full_name": "Morgan SalesMgr",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-SALES",
             "role_ids": ["ROLE-SALES-MGR"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "purch.agent@grand-tek.com",
             "full_name": "Pat PurchAgent",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-PURCH",
             "role_ids": ["ROLE-PURCH-AGENT"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "purch.mgr@grand-tek.com",
             "full_name": "Perry PurchMgr",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-PURCH",
             "role_ids": ["ROLE-PURCH-MGR"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "sco.sup@grand-tek.com",
             "full_name": "Sky ScoSupervisor",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-SCO",
             "role_ids": ["ROLE-SCO-SUP"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
         {
             "email": "finance@grand-tek.com",
             "full_name": "Fran Finance",
+            "password": DEFAULT_PASSWORD,
             "department_id": "DEPT-FIN",
             "role_ids": ["ROLE-FIN-APPR"],
+            "security_question": "What is your favorite color?",
+            "security_answer": "blue",
         },
     ]
     for user_data in users:
         r_user = requests.post(f"{BASE_URL}/users", json=user_data)
         _report(f"User {user_data['email']}", r_user)
 
-    # Resolve Admin user id for subsequent privileged API calls
-    r_users = requests.get(f"{BASE_URL}/users")
-    if r_users.status_code == 200:
-        for u in r_users.json():
-            if u.get("email") == "wendy.yang@grand-tek.com":
-                _SESSION_HEADERS["X-User-Id"] = u["id"]
-                print(f"✅ Acting as Admin user {u['id']}")
-                break
+    # Authenticate as Admin for subsequent privileged API calls
+    r_login = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": "wendy.yang@grand-tek.com", "password": DEFAULT_PASSWORD},
+    )
+    _report("Admin login", r_login)
+    if r_login.status_code == 200:
+        token = r_login.json().get("access_token")
+        if token:
+            _SESSION_HEADERS["Authorization"] = f"Bearer {token}"
+            print("✅ Authenticated as Admin (JWT)")
+    else:
+        # Fallback for older backends during cutover
+        r_users = requests.get(f"{BASE_URL}/users")
+        if r_users.status_code == 200:
+            for u in r_users.json():
+                if u.get("email") == "wendy.yang@grand-tek.com":
+                    _SESSION_HEADERS["X-User-Id"] = u["id"]
+                    print(f"✅ Acting as Admin user {u['id']} (X-User-Id fallback)")
+                    break
 
     customer_data = {
         "customer_id": "CUST-GTT-USA",

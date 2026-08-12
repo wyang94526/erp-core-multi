@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import SidebarNav from './components/SidebarNav'
-import UserSwitcher from './components/UserSwitcher'
+import UserMenu from './components/UserMenu'
 import './App.css'
 
 const MOBILE_BREAKPOINT = 768
@@ -66,7 +66,9 @@ function App() {
             </span>
           </button>
           <h1 className="app-topbar-title">Grand-Tek Technology USA</h1>
-          <UserSwitcher />
+          <div className="app-topbar-actions">
+            <UserMenu />
+          </div>
         </header>
         <main className="app-main">
           <Outlet />

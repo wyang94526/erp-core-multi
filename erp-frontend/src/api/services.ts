@@ -33,6 +33,7 @@ import type {
   SubcontractBOM,
   SubcontractBOMLine,
   CalculateComponentsResponse,
+  AuditLog,
 } from '../types';
 
 /** Map backend Item.item_id wire format → frontend Item */
@@ -789,9 +790,83 @@ export type { MaterialIssue, FinishedGoodsReceipt };
 // APPROVAL WORKFLOW SERVICES
 // ==========================================
 
+export type AuthTokenResponse = {
+  access_token: string;
+  token_type: string;
+  user: CurrentUser;
+};
+
+export type AuthChangePasswordResponse = {
+  message: string;
+};
+
+export type AuthSecurityQuestionLookupResponse = {
+  email: string;
+  security_question: string;
+};
+
+export type AuthResetPasswordResponse = {
+  message: string;
+};
+
+export const authService = {
+  login(data: { email: string; password: string }): Promise<AuthTokenResponse> {
+    return apiClient.post<AuthTokenResponse>('/api/v1/auth/login', data);
+  },
+
+  register(data: {
+    email: string;
+    full_name: string;
+    password: string;
+    security_question: string;
+    security_answer: string;
+  }): Promise<AuthTokenResponse> {
+    return apiClient.post<AuthTokenResponse>('/api/v1/auth/register', data);
+  },
+
+  changePassword(data: {
+    email: string;
+    current_password: string;
+    new_password: string;
+  }): Promise<AuthChangePasswordResponse> {
+    return apiClient.post<AuthChangePasswordResponse>(
+      '/api/v1/auth/change-password',
+      data,
+    );
+  },
+
+  lookupSecurityQuestion(data: {
+    email: string;
+  }): Promise<AuthSecurityQuestionLookupResponse> {
+    return apiClient.post<AuthSecurityQuestionLookupResponse>(
+      '/api/v1/auth/security-question',
+      data,
+    );
+  },
+
+  resetPassword(data: {
+    email: string;
+    security_answer: string;
+    new_password: string;
+  }): Promise<AuthResetPasswordResponse> {
+    return apiClient.post<AuthResetPasswordResponse>(
+      '/api/v1/auth/reset-password',
+      data,
+    );
+  },
+
+  listSecurityQuestions(): Promise<{ questions: string[] }> {
+    return apiClient.get<{ questions: string[] }>('/api/v1/auth/security-questions');
+  },
+
+  me(): Promise<CurrentUser> {
+    return apiClient.get<CurrentUser>('/api/v1/auth/me');
+  },
+};
+
 export const approvalService = {
   me(): Promise<CurrentUser> {
-    return apiClient.get<CurrentUser>('/api/v1/me');
+    return authService.me();
   },
 
   submit(module: string, documentId: string, comments?: string) {
@@ -1145,6 +1220,18 @@ export const inventoryService = {
 };
 
 // ==========================================
+// AUDIT LOGS
+// ==========================================
+
+export const auditLogService = {
+  async listAuditLogs(skip: number = 0, limit: number = 50): Promise<AuditLog[]> {
+    return apiClient.get<AuditLog[]>('/api/v1/audit-logs', {
+      params: { skip, limit },
+    });
+  },
+};
+
+// ==========================================
 // EXPORT ALL SERVICES
 // ==========================================
 
@@ -1167,6 +1254,7 @@ export const apiServices = {
   cashTransactions: cashTransactionService,
   journalEntries: journalEntryService,
   inventory: inventoryService,
+  auditLogs: auditLogService,
 };
 
 export default apiServices;

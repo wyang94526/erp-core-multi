@@ -5,6 +5,11 @@
 
 import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
 import App from './App'
+import RequireAuth from './components/RequireAuth'
+import LoginPage from './components/LoginPage'
+import RegisterPage from './components/RegisterPage'
+import ChangePasswordPage from './components/ChangePasswordPage'
+import ResetPasswordPage from './components/ResetPasswordPage'
 import SalesOrderList from './components/SalesOrderList'
 import SalesOrderDetail from './components/SalesOrderDetail'
 import SalesOrderForm from './components/SalesOrderForm'
@@ -41,8 +46,28 @@ function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
 
 export const router = createBrowserRouter([
   {
+    path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    path: '/register',
+    element: <RegisterPage />,
+  },
+  {
+    path: '/change-password',
+    element: <ChangePasswordPage />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
+  },
+  {
     path: '/',
-    element: <App />,
+    element: (
+      <RequireAuth>
+        <App />
+      </RequireAuth>
+    ),
     children: [
       {
         index: true,

@@ -11,8 +11,32 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
     full_name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    security_question VARCHAR(255),
+    security_answer_hash VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+DROP TABLE IF EXISTS security_question_options CASCADE;
+CREATE TABLE IF NOT EXISTS security_question_options (
+    id SERIAL PRIMARY KEY,
+    question_text VARCHAR(255) UNIQUE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+INSERT INTO security_question_options (sort_order, question_text) VALUES
+  (10, 'What is your favorite color?'),
+  (20, 'What is your mother''s surname?'),
+  (30, 'What is your favorite place visited?'),
+  (40, 'What was the name of your first pet?'),
+  (50, 'In what city were you born?'),
+  (60, 'What was the make of your first car?'),
+  (70, 'What is the name of the street you grew up on?'),
+  (80, 'What was your childhood nickname?')
+ON CONFLICT DO NOTHING;
 
 DROP TABLE IF EXISTS chart_of_accounts CASCADE;
 -- Chart of Accounts

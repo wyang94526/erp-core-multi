@@ -1,9 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-import uuid
 from sqlalchemy import (
     Boolean,
     Column,
@@ -95,12 +94,32 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False)
     full_name = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    security_question = Column(String(255), nullable=True)
+    security_answer_hash = Column(String(255), nullable=True)
     status = Column(String(20), nullable=False, server_default=text("'ACTIVE'"))
     department_id = Column(String(50), ForeignKey('departments.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text('NOW()'),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     department = relationship("Department", back_populates="users")
     roles = relationship("Role", secondary="user_roles", back_populates="users")
+
+
+class SecurityQuestionOption(Base):
+    """Admin-managed catalog of security questions users can choose from."""
+
+    __tablename__ = 'security_question_options'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    question_text = Column(String(255), unique=True, nullable=False)
+    is_active = Column(Boolean, nullable=False, server_default=text('true'))
+    sort_order = Column(Integer, nullable=False, server_default=text('0'))
+    created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
 
 
 class WorkflowDefinition(Base):
