@@ -268,50 +268,61 @@ function aggregateDashboardData(
   }
 }
 
-export function useDashboardData() {
+export function useDashboardData(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true
   const results = useQueries({
     queries: [
       {
         queryKey: ['dashboard', 'salesOrders'],
         queryFn: () => salesOrderService.listSalesOrders(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'purchaseOrders'],
         queryFn: () => purchaseOrderService.listPurchaseOrders(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'subcontractOrders'],
         queryFn: () => subcontractOrderService.listSubcontractOrders(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'stock'],
         queryFn: () => inventoryService.listStock(),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'movements'],
         queryFn: () => inventoryService.listMovements(),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'arInvoices'],
         queryFn: () => arInvoiceService.listInvoices(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'apBills'],
         queryFn: () => apBillService.listBills(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'cashTransactions'],
         queryFn: () => cashTransactionService.listTransactions(0, LIST_LIMIT),
+        enabled,
       },
       {
         queryKey: ['dashboard', 'auditLogs'],
         queryFn: () => auditLogService.listAuditLogs(0, 50),
         // Audit endpoint may be empty or restricted; do not fail the whole dashboard.
         retry: false,
+        enabled,
       },
       {
         queryKey: ['dashboard', 'items'],
         queryFn: () => itemService.listItems(0, LIST_LIMIT),
+        enabled,
       },
     ],
   })

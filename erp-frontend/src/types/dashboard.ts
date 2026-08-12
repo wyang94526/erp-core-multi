@@ -11,6 +11,7 @@ import type {
 } from './index'
 
 export type DashboardRole =
+  | 'onboarding'
   | 'executive'
   | 'sales'
   | 'purchasing'

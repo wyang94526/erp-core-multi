@@ -13,6 +13,8 @@ import {
 import type { CurrentUser } from '../types'
 import type { DashboardAggregates, DashboardRole, DashboardUrgentSummary, QuickAction } from '../types/dashboard'
 
+export const ROLE_UNASSIGNED = 'ROLE-UNASSIGNED'
+
 const ROLE_PRIORITY: Array<{ roleIds: string[]; view: DashboardRole }> = [
   { roleIds: ['ROLE-ADMIN'], view: 'executive' },
   { roleIds: ['ROLE-FIN-APPR'], view: 'finance' },
@@ -22,6 +24,7 @@ const ROLE_PRIORITY: Array<{ roleIds: string[]; view: DashboardRole }> = [
 ]
 
 export const DASHBOARD_ROLE_LABELS: Record<DashboardRole, string> = {
+  onboarding: 'Unassigned',
   executive: 'Admin',
   sales: 'Sales',
   purchasing: 'Purchasing',
@@ -29,29 +32,45 @@ export const DASHBOARD_ROLE_LABELS: Record<DashboardRole, string> = {
   finance: 'Finance',
 }
 
+export function isUnassignedUser(user: CurrentUser | null): boolean {
+  if (!user) return true
+  const roles = user.roles || []
+  const functional = roles.filter((r) => r.role_id !== ROLE_UNASSIGNED)
+  if (functional.length > 0) return false
+  if (user.role_id && user.role_id !== ROLE_UNASSIGNED) return false
+  return true
+}
+
 export function resolveDashboardRole(user: CurrentUser | null): DashboardRole {
-  if (!user) return 'sales'
+  if (!user || isUnassignedUser(user)) return 'onboarding'
+
   const owned = new Set((user.roles || []).map((r) => r.role_id))
   if (user.role_id) owned.add(user.role_id)
+  owned.delete(ROLE_UNASSIGNED)
 
   for (const entry of ROLE_PRIORITY) {
     if (entry.roleIds.some((id) => owned.has(id))) {
       return entry.view
     }
   }
-  return 'sales'
+  return 'onboarding'
 }
 
 export function getDisplayRoleName(user: CurrentUser | null, view: DashboardRole): string {
   if (!user) return DASHBOARD_ROLE_LABELS[view]
-  const names = (user.roles || []).map((r) => r.role_name).filter(Boolean)
+  const names = (user.roles || [])
+    .filter((r) => r.role_id !== ROLE_UNASSIGNED || view === 'onboarding')
+    .map((r) => r.role_name)
+    .filter(Boolean)
   if (names.length > 0) return names[0]
-  if (user.role_name) return user.role_name
+  if (user.role_name && user.role_id !== ROLE_UNASSIGNED) return user.role_name
   return DASHBOARD_ROLE_LABELS[view]
 }
 
 export function getQuickActions(view: DashboardRole): QuickAction[] {
   switch (view) {
+    case 'onboarding':
+      return []
     case 'executive':
       return [
         { id: 'approve-sos', label: 'Approve High-Value SOs', to: '/sales-orders', icon: CheckSquare },
@@ -90,6 +109,12 @@ export function getUrgentSummary(
   data: DashboardAggregates,
 ): DashboardUrgentSummary {
   switch (view) {
+    case 'onboarding':
+      return {
+        count: 0,
+        message:
+          'Your account is ready. An administrator will assign your role before you can access ERP modules.',
+      }
     case 'executive': {
       const count = data.pendingSoApprovals + data.pendingPoApprovals
       return {

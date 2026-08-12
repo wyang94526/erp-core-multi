@@ -21,6 +21,7 @@ ON CONFLICT DO NOTHING;
 -- Expanded roles (keep ROLE-ADMIN; add specialized roles)
 INSERT INTO roles (role_id, role_name, description) VALUES
     ('ROLE-ADMIN', 'Admin', 'Full system access'),
+    ('ROLE-UNASSIGNED', 'Unassigned', 'Self-registered user awaiting role assignment by an admin'),
     ('ROLE-SALES-REP', 'Sales Rep', 'Create and submit sales orders'),
     ('ROLE-SALES-MGR', 'Sales Manager', 'Approve sales orders (manager band)'),
     ('ROLE-PURCH-AGENT', 'Purchasing Agent', 'Create and submit purchase orders'),

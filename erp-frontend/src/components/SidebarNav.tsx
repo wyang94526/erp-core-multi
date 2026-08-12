@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { isUnassignedUser } from '../config/dashboardRoles'
 
 type NavItem = {
   label: string
@@ -19,6 +20,7 @@ type NavCategory = {
 
 const ALL_ROLES = [
   'ROLE-ADMIN',
+  'ROLE-UNASSIGNED',
   'ROLE-SALES-REP',
   'ROLE-SALES-MGR',
   'ROLE-PURCH-AGENT',
@@ -135,7 +137,8 @@ type SidebarNavProps = {
 
 export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const location = useLocation()
-  const { hasPermission, hasAnyRole, loading } = useAuth()
+  const { user, hasPermission, hasAnyRole, loading } = useAuth()
+  const homeLabel = isUnassignedUser(user) ? 'Welcome' : 'Dashboard'
   const activeCategoryId = findActiveCategoryId(location.pathname)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -162,9 +165,13 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   )
     .map((category) => ({
       ...category,
-      items: category.items.filter(
-        (item) => !item.permission || loading || hasPermission(item.permission),
-      ),
+      items: category.items
+        .map((item) =>
+          item.to === '/' ? { ...item, label: homeLabel } : item,
+        )
+        .filter(
+          (item) => !item.permission || loading || hasPermission(item.permission),
+        ),
     }))
     .filter((category) => category.items.length > 0)
 

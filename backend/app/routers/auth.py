@@ -27,7 +27,7 @@ from app.services.auth import create_access_token, hash_password, verify_passwor
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-DEFAULT_REGISTER_ROLE = "ROLE-SALES-REP"
+DEFAULT_REGISTER_ROLE = "ROLE-UNASSIGNED"
 CUSTOM_QUESTION_SENTINEL = "__custom__"
 
 

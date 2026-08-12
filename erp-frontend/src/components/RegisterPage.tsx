@@ -93,8 +93,8 @@ export default function RegisterPage() {
         <div className="auth-brand">Grand-Tek Technology USA</div>
         <h1 className="auth-title">Create account</h1>
         <p className="auth-subtitle">
-          New accounts start with the Sales Rep role. Choose a security question for
-          password recovery, or write your own.
+          New accounts start as Unassigned. An admin can grant a role after registration.
+          Choose a security question for password recovery, or write your own.
         </p>
 
         <form className="auth-form" onSubmit={onSubmit}>

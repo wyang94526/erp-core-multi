@@ -15,6 +15,7 @@ import SalesDashboard from './dashboard/SalesDashboard'
 import PurchasingDashboard from './dashboard/PurchasingDashboard'
 import InventoryDashboard from './dashboard/InventoryDashboard'
 import FinanceDashboard from './dashboard/FinanceDashboard'
+import WelcomeOnboarding from './dashboard/WelcomeOnboarding'
 import {
   containerStyle,
   emptyStateStyle,
@@ -26,15 +27,19 @@ import {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { data, isLoading, isError, error } = useDashboardData()
-
   const view = resolveDashboardRole(user)
+  const { data, isLoading, isError, error } = useDashboardData({ enabled: view !== 'onboarding' })
+
   const roleName = getDisplayRoleName(user, view)
   const actions = getQuickActions(view)
   const urgent = getUrgentSummary(view, data)
 
   const openMetric = (key: MetricDrillKey) => {
     navigate(getMetricDestination(key))
+  }
+
+  if (view === 'onboarding') {
+    return <WelcomeOnboarding fullName={user?.full_name || 'User'} />
   }
 
   if (isLoading) {
