@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     accounts,
     admin_rbac,
+    ai_chat,
     ap_bills,
     approvals,
     ar_invoices,
@@ -50,6 +51,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(ai_chat.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(customers.router, prefix="/api/v1")
 app.include_router(customer_locations.router, prefix="/api/v1") # <-- Added

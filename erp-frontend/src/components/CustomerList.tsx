@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom'
 import { customerService } from '../api/services'
 import type { Customer } from '../types'
 import { useState } from 'react'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
 
 export function CustomerList() {
   const navigate = useNavigate()
@@ -24,6 +26,8 @@ export function CustomerList() {
     queryKey: ['customers', skip, limit],
     queryFn: () => customerService.listCustomers(skip, limit),
   })
+
+  const { items: sortedCustomers, requestSort, sortConfig } = useSortableData(customers)
 
   const handlePreviousPage = () => {
     if (skip >= limit) {
@@ -84,14 +88,14 @@ export function CustomerList() {
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>Customer ID</th>
-                    <th style={directoryThStyle}>Company Name</th>
-                    <th style={directoryThStyle}>Customer Number Ext</th>
+                    <SortableTh label="Customer ID" columnKey="customer_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Company Name" columnKey="company_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Customer Number Ext" columnKey="customer_number_ext" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((customer: Customer) => (
+                  {sortedCustomers.map((customer: Customer) => (
                     <tr key={customer.customer_id} style={directoryTbodyRowStyle}>
                       <td style={directoryTdStyle}>{customer.customer_id}</td>
                       <td style={directoryTdStyle}>{customer.company_name}</td>

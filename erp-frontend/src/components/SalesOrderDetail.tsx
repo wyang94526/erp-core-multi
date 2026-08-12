@@ -50,7 +50,7 @@ export function SalesOrderDetail() {
         <div style={{ ...cardStyle, color: '#c62828' }}>
           <p>Error loading order:</p>
           <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
-          <button onClick={() => navigate('/')} style={secondaryButtonStyle}>
+          <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
             Back to Orders
           </button>
         </div>
@@ -63,7 +63,7 @@ export function SalesOrderDetail() {
       <div style={containerStyle}>
         <div style={cardStyle}>
           <p>Order not found</p>
-          <button onClick={() => navigate('/')} style={secondaryButtonStyle}>
+          <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
             Back to Orders
           </button>
         </div>
@@ -80,7 +80,7 @@ export function SalesOrderDetail() {
           <h2 style={pageTitleStyle}>Sales Order Details</h2>
           <p style={pageSubStyle}>Viewing order {order.sales_order_id}</p>
         </div>
-        <button onClick={() => navigate('/')} style={secondaryButtonStyle}>
+        <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
           Back to Orders
         </button>
       </header>
@@ -255,7 +255,7 @@ export function SalesOrderDetail() {
         >
           Edit Order
         </button>
-        <button onClick={() => navigate('/')} style={secondaryButtonStyle}>
+        <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
           Back to Orders
         </button>
       </div>

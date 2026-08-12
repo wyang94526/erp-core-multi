@@ -7,18 +7,67 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { subcontractOrderService } from '../api/services'
 import type { SubcontractOrder } from '../types'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const SCO_FILTERS: FilterField[] = [
+  {
+    key: 'view',
+    label: 'View',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'active', label: 'Active' },
+      { value: 'completed', label: 'Completed' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'PLANNED', label: 'Planned' },
+      { value: 'PARTIALLY_ISSUED', label: 'Partially Issued' },
+      { value: 'MATERIALS_ISSUED', label: 'Materials Issued' },
+      { value: 'PARTIALLY_RECEIVED', label: 'Partially Received' },
+      { value: 'COMPLETED', label: 'Completed' },
+      { value: 'CANCELLED', label: 'Cancelled' },
+    ],
+  },
+]
 
 export function SubcontractOrderList() {
   const navigate = useNavigate()
   const [skip, setSkip] = useState(0)
   const limit = 10
+  const listLimit = 100
 
   // Optional itemId query param (e.g. /subcontract-orders?itemId=PROD-1001G)
   // set when navigating here from the "View Related Subcontract Orders" link
   // on the Edit Product page for outside-processed products.
   const [searchParams, setSearchParams] = useSearchParams()
   const itemIdFilter = searchParams.get('itemId') || ''
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(SCO_FILTERS)
 
   const {
     data: allScos = [],
@@ -26,21 +75,45 @@ export function SubcontractOrderList() {
     isError,
     error,
   } = useQuery({
-    queryKey: ['subcontractOrders', skip, limit],
-    queryFn: () => subcontractOrderService.listSubcontractOrders(skip, limit),
+    queryKey: ['subcontractOrders', 'list', listLimit],
+    queryFn: () => subcontractOrderService.listSubcontractOrders(0, listLimit),
   })
 
-  // Client-side filter by itemId when the query param is present
-  const scos = itemIdFilter
-    ? allScos.filter((sco) => sco.item_id === itemIdFilter)
-    : allScos
+  const scos = useMemo(() => {
+    return allScos.filter((sco) => {
+      if (itemIdFilter && sco.item_id !== itemIdFilter) return false
+      if (values.view === 'active') {
+        const s = (sco.status || '').toUpperCase()
+        if (['COMPLETED', 'CANCELLED'].includes(s)) return false
+      }
+      if (values.view === 'completed') {
+        if ((sco.status || '').toUpperCase() !== 'COMPLETED') return false
+      }
+      if (values.status !== 'ALL' && (sco.status || '').toUpperCase() !== values.status) {
+        return false
+      }
+      if (values.approval !== 'ALL') {
+        const approval = (sco.approval_status || 'DRAFT').toUpperCase()
+        if (approval !== values.approval.toUpperCase()) return false
+      }
+      return true
+    })
+  }, [allScos, itemIdFilter, values.view, values.status, values.approval])
+
+  const pageRows = scos.slice(skip, skip + limit)
+
+  const { items: sortedScos, requestSort, sortConfig } = useSortableData(pageRows, {
+    columnTypes: {
+      quantity_ordered: 'number',
+      order_date: 'date',
+    },
+  })
 
   const handleClearFilter = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('itemId')
     setSearchParams(next)
   }
-
 
   const handlePreviousPage = () => {
     if (skip >= limit) {
@@ -49,7 +122,7 @@ export function SubcontractOrderList() {
   }
 
   const handleNextPage = () => {
-    if (scos.length === limit) {
+    if (skip + limit < scos.length) {
       setSkip(skip + limit)
     }
   }
@@ -91,15 +164,25 @@ export function SubcontractOrderList() {
           )}
         </div>
         <button
-
           onClick={() => navigate('/subcontract-orders/new')}
           style={primaryButtonStyle}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
         >
-          + New Subcontract Order
+          + Create Subcontract Order
         </button>
       </header>
+
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${scos.length} subcontract order(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={SCO_FILTERS} />
 
       <div style={dashboardSectionStyle}>
         {scos.length === 0 ? (
@@ -110,18 +193,18 @@ export function SubcontractOrderList() {
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>SCO Number</th>
-                    <th style={directoryThStyle}>Supplier</th>
-                    <th style={directoryThStyle}>Product</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'right' }}>Qty Ordered</th>
-                    <th style={directoryThStyle}>Order Date</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
+                    <SortableTh label="SCO Number" columnKey="sco_number" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Supplier" columnKey="supplier_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Product" columnKey="item_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Qty Ordered" columnKey="quantity_ordered" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                    <SortableTh label="Order Date" columnKey="order_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
+                    <SortableTh label="Approval" columnKey="approval_status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scos.map((sco: SubcontractOrder) => {
+                  {sortedScos.map((sco: SubcontractOrder) => {
                     const statusColors = getStatusColors(sco.status)
                     return (
                       <tr key={sco.sco_number} style={directoryTbodyRowStyle}>
@@ -175,13 +258,18 @@ export function SubcontractOrderList() {
               </button>
 
               <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + scos.length} of results
+                Showing {scos.length === 0 ? 0 : skip + 1} to{' '}
+                {Math.min(skip + limit, scos.length)} of {scos.length}
               </span>
 
               <button
                 onClick={handleNextPage}
-                disabled={scos.length < limit}
-                style={{ ...secondaryButtonStyle, opacity: scos.length < limit ? 0.5 : 1, cursor: scos.length < limit ? 'not-allowed' : 'pointer' }}
+                disabled={skip + limit >= scos.length}
+                style={{
+                  ...secondaryButtonStyle,
+                  opacity: skip + limit >= scos.length ? 0.5 : 1,
+                  cursor: skip + limit >= scos.length ? 'not-allowed' : 'pointer',
+                }}
               >
                 Next →
               </button>

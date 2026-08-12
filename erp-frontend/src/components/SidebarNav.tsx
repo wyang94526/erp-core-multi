@@ -12,40 +12,82 @@ type NavItem = {
 type NavCategory = {
   id: string
   label: string
+  /** Role IDs that may see this category (Admin always allowed via hasAnyRole). */
+  roles: string[]
   items: NavItem[]
 }
 
+const ALL_ROLES = [
+  'ROLE-ADMIN',
+  'ROLE-SALES-REP',
+  'ROLE-SALES-MGR',
+  'ROLE-PURCH-AGENT',
+  'ROLE-PURCH-MGR',
+  'ROLE-SCO-SUP',
+  'ROLE-FIN-APPR',
+  'ROLE-MANAGER',
+]
+
 const NAV_CATEGORIES: NavCategory[] = [
   {
-    id: 'sales-purchasing',
-    label: '📦 Sales & Purchasing',
+    id: 'home',
+    label: '🏠 Home',
+    roles: ALL_ROLES,
+    items: [{ label: 'Dashboard', to: '/', end: true }],
+  },
+  {
+    id: 'sales-procurement',
+    label: '📦 Sales & Procurement',
+    roles: [
+      'ROLE-SALES-REP',
+      'ROLE-SALES-MGR',
+      'ROLE-PURCH-AGENT',
+      'ROLE-PURCH-MGR',
+      'ROLE-ADMIN',
+    ],
     items: [
-      { label: 'Sales Orders', to: '/', end: true, permission: 'sales_order:view' },
+      { label: 'Sales Orders', to: '/sales-orders', permission: 'sales_order:view' },
       { label: 'Purchase Orders', to: '/purchase-orders', permission: 'po:view' },
+    ],
+  },
+  {
+    id: 'manufacturing',
+    label: '🏭 Manufacturing',
+    roles: [
+      'ROLE-SCO-SUP',
+      'ROLE-PURCH-AGENT',
+      'ROLE-PURCH-MGR',
+      'ROLE-FIN-APPR',
+      'ROLE-ADMIN',
+    ],
+    items: [
       { label: 'Subcontract Orders', to: '/subcontract-orders', permission: 'subcontract:view' },
     ],
   },
   {
-    id: 'entities-catalog',
-    label: '🤝 Entities & Catalog',
-    items: [
-      { label: 'Customers', to: '/customers' },
-      { label: 'Vendors', to: '/vendors' },
-      { label: 'Items', to: '/items' },
-    ],
-  },
-  {
     id: 'inventory',
-    label: '🏭 Inventory',
+    label: '📋 Inventory',
+    roles: ['ROLE-SCO-SUP', 'ROLE-PURCH-AGENT', 'ROLE-MANAGER', 'ROLE-ADMIN'],
     items: [
+      { label: 'Items', to: '/items' },
       { label: 'Stock On-Hand & ATP', to: '/inventory', end: true },
       { label: 'Stock Movements', to: '/inventory/movements' },
       { label: 'Warehouses & Bins', to: '/inventory/warehouses' },
     ],
   },
   {
+    id: 'master-data',
+    label: '🤝 Master Data',
+    roles: ['ROLE-ADMIN', 'ROLE-MANAGER'],
+    items: [
+      { label: 'Customers', to: '/customers' },
+      { label: 'Vendors', to: '/vendors' },
+    ],
+  },
+  {
     id: 'finance-accounting',
     label: '💰 Finance & Accounting',
+    roles: ['ROLE-FIN-APPR', 'ROLE-MANAGER', 'ROLE-ADMIN'],
     items: [
       { label: 'Chart of Accounts', to: '/chart-of-accounts', permission: 'journal:view' },
       { label: 'Accounts Receivable', to: '/ar-invoices', permission: 'ar_invoice:view' },
@@ -57,6 +99,7 @@ const NAV_CATEGORIES: NavCategory[] = [
   {
     id: 'admin',
     label: '⚙️ Administration',
+    roles: ['ROLE-ADMIN'],
     items: [
       { label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
     ],
@@ -65,7 +108,10 @@ const NAV_CATEGORIES: NavCategory[] = [
 
 function isItemActive(pathname: string, item: NavItem): boolean {
   if (item.to === '/') {
-    return pathname === '/' || pathname.startsWith('/orders')
+    return pathname === '/'
+  }
+  if (item.to === '/sales-orders') {
+    return pathname === '/sales-orders' || pathname.startsWith('/orders')
   }
   if (item.end) {
     return pathname === item.to
@@ -89,7 +135,7 @@ type SidebarNavProps = {
 
 export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const location = useLocation()
-  const { hasPermission, loading } = useAuth()
+  const { hasPermission, hasAnyRole, loading } = useAuth()
   const activeCategoryId = findActiveCategoryId(location.pathname)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -111,12 +157,16 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
     setOpenCategories((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const visibleCategories = NAV_CATEGORIES.map((category) => ({
-    ...category,
-    items: category.items.filter(
-      (item) => !item.permission || loading || hasPermission(item.permission),
-    ),
-  })).filter((category) => category.items.length > 0)
+  const visibleCategories = NAV_CATEGORIES.filter(
+    (category) => loading || hasAnyRole(category.roles),
+  )
+    .map((category) => ({
+      ...category,
+      items: category.items.filter(
+        (item) => !item.permission || loading || hasPermission(item.permission),
+      ),
+    }))
+    .filter((category) => category.items.length > 0)
 
   return (
     <aside

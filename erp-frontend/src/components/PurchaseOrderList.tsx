@@ -8,6 +8,41 @@ import { useNavigate } from 'react-router-dom'
 import { purchaseOrderService, vendorService } from '../api/services'
 import type { PurchaseOrder, Supplier } from '../types'
 import { useMemo, useState } from 'react'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const PO_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'open', label: 'Open' },
+      { value: 'Draft', label: 'Draft' },
+      { value: 'Submitted', label: 'Submitted' },
+      { value: 'Approved', label: 'Approved' },
+      { value: 'Void', label: 'Void' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+]
 
 export function PurchaseOrderList() {
   const navigate = useNavigate()
@@ -15,6 +50,11 @@ export function PurchaseOrderList() {
   const [skip, setSkip] = useState(0)
   const [searchFilter, setSearchFilter] = useState('')
   const limit = 10
+  const listLimit = 100
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(PO_FILTERS)
+  const approvalFilter = values.approval === 'ALL' ? null : values.approval
+  const statusParam = values.status === 'ALL' ? null : values.status
 
   const {
     data: purchaseOrders = [],
@@ -22,8 +62,8 @@ export function PurchaseOrderList() {
     isError,
     error,
   } = useQuery({
-    queryKey: ['purchaseOrders', skip, limit],
-    queryFn: () => purchaseOrderService.listPurchaseOrders(skip, limit),
+    queryKey: ['purchaseOrders', 'list', listLimit],
+    queryFn: () => purchaseOrderService.listPurchaseOrders(0, listLimit),
   })
 
   const { data: suppliers = [] } = useQuery({
@@ -41,8 +81,17 @@ export function PurchaseOrderList() {
 
   const filteredOrders = useMemo(() => {
     const q = searchFilter.trim().toLowerCase()
-    if (!q) return purchaseOrders
     return purchaseOrders.filter((po) => {
+      if (approvalFilter) {
+        const approval = (po.approval_status || 'DRAFT').toUpperCase()
+        if (approval !== approvalFilter.toUpperCase()) return false
+      }
+      if (statusParam === 'open') {
+        if (po.status === 'Void' || po.status === 'Approved') return false
+      } else if (statusParam && statusParam !== 'open') {
+        if (po.status.toLowerCase() !== statusParam.toLowerCase()) return false
+      }
+      if (!q) return true
       const supplierName =
         po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
       return (
@@ -52,14 +101,30 @@ export function PurchaseOrderList() {
         (po.approval_status || '').toLowerCase().includes(q)
       )
     })
-  }, [purchaseOrders, searchFilter, supplierNameById])
+  }, [purchaseOrders, searchFilter, supplierNameById, approvalFilter, statusParam])
+
+  const pageRows = filteredOrders.slice(skip, skip + limit)
+
+  const { items: sortedOrders, requestSort, sortConfig } = useSortableData(pageRows, {
+    columnTypes: {
+      order_date: 'date',
+      expected_delivery_date: 'date',
+      grand_total: 'number',
+    },
+    getValue: (po, key) => {
+      if (key === 'supplier_name') {
+        return po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
+      }
+      return (po as unknown as Record<string, unknown>)[key]
+    },
+  })
 
   const handlePreviousPage = () => {
     if (skip >= limit) setSkip(skip - limit)
   }
 
   const handleNextPage = () => {
-    if (purchaseOrders.length === limit) setSkip(skip + limit)
+    if (skip + limit < filteredOrders.length) setSkip(skip + limit)
   }
 
   const handleDelete = async (poNumber: string) => {
@@ -115,6 +180,17 @@ export function PurchaseOrderList() {
         </button>
       </header>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredOrders.length} purchase order(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={PO_FILTERS} />
+
       <div style={dashboardSectionStyle}>
         <div style={dashboardHeaderStyle}>
           <input
@@ -135,18 +211,18 @@ export function PurchaseOrderList() {
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>PO Number</th>
-                    <th style={directoryThStyle}>Supplier / Vendor</th>
-                    <th style={directoryThStyle}>Order Date</th>
-                    <th style={directoryThStyle}>Expected Delivery</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'right' }}>Total Amount</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Approval</th>
+                    <SortableTh label="PO Number" columnKey="po_number" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Supplier / Vendor" columnKey="supplier_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Order Date" columnKey="order_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Expected Delivery" columnKey="expected_delivery_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Total Amount" columnKey="grand_total" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                    <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
+                    <SortableTh label="Approval" columnKey="approval_status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((po: PurchaseOrder) => {
+                  {sortedOrders.map((po: PurchaseOrder) => {
                     const statusColors = getStatusColors(po.status)
                     const supplierName =
                       po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
@@ -241,16 +317,17 @@ export function PurchaseOrderList() {
               </button>
 
               <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + purchaseOrders.length} of results
+                Showing {filteredOrders.length === 0 ? 0 : skip + 1} to{' '}
+                {Math.min(skip + limit, filteredOrders.length)} of {filteredOrders.length}
               </span>
 
               <button
                 onClick={handleNextPage}
-                disabled={purchaseOrders.length < limit}
+                disabled={skip + limit >= filteredOrders.length}
                 style={{
                   ...secondaryButtonStyle,
-                  opacity: purchaseOrders.length < limit ? 0.5 : 1,
-                  cursor: purchaseOrders.length < limit ? 'not-allowed' : 'pointer',
+                  opacity: skip + limit >= filteredOrders.length ? 0.5 : 1,
+                  cursor: skip + limit >= filteredOrders.length ? 'not-allowed' : 'pointer',
                 }}
               >
                 Next →

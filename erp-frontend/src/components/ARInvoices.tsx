@@ -1,7 +1,50 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { arInvoiceService } from '../api/services'
 import type { ARInvoice } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const AR_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'Unpaid', label: 'Unpaid' },
+      { value: 'Partial', label: 'Partial' },
+      { value: 'Paid', label: 'Paid' },
+    ],
+  },
+  {
+    key: 'due',
+    label: 'Due',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'upcoming', label: 'Upcoming' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+]
 
 function ARInvoices() {
   const [invoices, setInvoices] = useState<ARInvoice[]>([])
@@ -9,6 +52,8 @@ function ARInvoices() {
   const [error, setError] = useState<string | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(AR_FILTERS)
 
   const loadInvoices = async () => {
     setLoading(true)
@@ -26,6 +71,32 @@ function ARInvoices() {
   useEffect(() => {
     loadInvoices()
   }, [])
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
+      if (values.status !== 'ALL' && inv.status !== values.status) return false
+      if (values.approval !== 'ALL') {
+        const approval = (inv.approval_status || 'DRAFT').toUpperCase()
+        if (approval !== values.approval.toUpperCase()) return false
+      }
+      if (values.due === 'overdue') {
+        if (!(inv.due_date && inv.due_date < today && inv.status !== 'Paid')) return false
+      }
+      if (values.due === 'upcoming') {
+        if (!(inv.due_date && inv.due_date >= today && inv.status !== 'Paid')) return false
+      }
+      return true
+    })
+  }, [invoices, values.status, values.approval, values.due, today])
+
+  const { items: sortedInvoices, requestSort, sortConfig } = useSortableData(filteredInvoices, {
+    columnTypes: {
+      amount: 'number',
+      due_date: 'date',
+    },
+  })
 
   const handleReceivePayment = async (invoiceId: string) => {
     setPayingId(invoiceId)
@@ -56,30 +127,41 @@ function ARInvoices() {
         </div>
       </div>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredInvoices.length} invoice(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={AR_FILTERS} />
+
       <div style={dashboardSectionStyle}>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading AR invoices...</div>
         ) : error ? (
           <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
-        ) : invoices.length === 0 ? (
+        ) : filteredInvoices.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No AR invoices found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Invoice ID</th>
-                  <th style={directoryThStyle}>Sales Order ID</th>
-                  <th style={directoryThStyle}>Customer ID</th>
-                  <th style={directoryThStyle}>Amount</th>
-                  <th style={directoryThStyle}>Due Date</th>
-                  <th style={directoryThStyle}>Status</th>
-                  <th style={directoryThStyle}>Approval</th>
+                  <SortableTh label="Invoice ID" columnKey="invoice_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Sales Order ID" columnKey="sales_order_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Customer ID" columnKey="customer_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Amount" columnKey="amount" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Due Date" columnKey="due_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Approval" columnKey="approval_status" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <th style={directoryThStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((inv) => {
+                {sortedInvoices.map((inv) => {
                   const colors = getStatusColors(inv.status)
                   return (
                     <tr key={inv.invoice_id} style={directoryTbodyRowStyle}>

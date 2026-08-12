@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom'
 import { itemService } from '../api/services'
 import type { Item } from '../types'
 import { useState } from 'react'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
 
 export function ItemList() {
   const navigate = useNavigate()
@@ -23,6 +25,12 @@ export function ItemList() {
   } = useQuery({
     queryKey: ['items', skip, limit],
     queryFn: () => itemService.listItems(skip, limit),
+  })
+
+  const { items: sortedItems, requestSort, sortConfig } = useSortableData(items, {
+    columnTypes: {
+      unit_price: 'number',
+    },
   })
 
   const handlePreviousPage = () => {
@@ -84,16 +92,16 @@ export function ItemList() {
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>Item ID</th>
-                    <th style={directoryThStyle}>Customer Part Number</th>
-                    <th style={directoryThStyle}>Description</th>
-                    <th style={directoryThStyle}>UOM</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'right' }}>Unit Price</th>
+                    <SortableTh label="Item ID" columnKey="item_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Customer Part Number" columnKey="customer_part_number" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Description" columnKey="description" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="UOM" columnKey="uom" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Unit Price" columnKey="unit_price" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item: Item) => (
+                  {sortedItems.map((item: Item) => (
                     <tr key={item.item_id} style={directoryTbodyRowStyle}>
                       <td style={directoryTdStyle}>{item.item_id}</td>
                       <td style={directoryTdStyle}>{item.customer_part_number}</td>

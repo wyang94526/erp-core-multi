@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 12
     # Shared demo password used when seeding / migrating existing users
     default_user_password: str = "Password123!"
+    # AI assistant (optional — heuristic tool router used when unset)
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"
+    ai_chroma_path: str = "backend/data/chroma"
+    ai_knowledge_path: str = "backend/app/ai/knowledge"
 
     @property
     def database_url(self) -> str:

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
+import AiAssistant from './components/AiAssistant'
 import SidebarNav from './components/SidebarNav'
 import UserMenu from './components/UserMenu'
 import './App.css'
@@ -27,6 +28,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MOBILE_BREAKPOINT : true,
   )
+  const [aiOpen, setAiOpen] = useState(false)
 
   useEffect(() => {
     setSidebarOpen(!isMobile)
@@ -67,6 +69,14 @@ function App() {
           </button>
           <h1 className="app-topbar-title">Grand-Tek Technology USA</h1>
           <div className="app-topbar-actions">
+            <button
+              type="button"
+              className={`ai-launcher${aiOpen ? ' active' : ''}`}
+              onClick={() => setAiOpen((v) => !v)}
+              aria-expanded={aiOpen}
+            >
+              AI Assistant
+            </button>
             <UserMenu />
           </div>
         </header>
@@ -74,6 +84,8 @@ function App() {
           <Outlet />
         </main>
       </div>
+
+      <AiAssistant open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   )
 }

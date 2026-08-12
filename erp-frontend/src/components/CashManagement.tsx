@@ -1,13 +1,72 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { cashTransactionService } from '../api/services'
 import type { CashTransaction } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const CASH_FILTERS: FilterField[] = [
+  {
+    key: 'type',
+    label: 'Type',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'Check Deposit', label: 'Check Deposit (In)' },
+      { value: 'Check Issue', label: 'Check Issue (Out)' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'date',
+    label: 'Date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'this_month', label: 'This Month' },
+      { value: 'ytd', label: 'YTD' },
+    ],
+  },
+]
+
+function matchesCashDate(dateStr: string | null, filter: string): boolean {
+  if (filter === 'all') return true
+  if (!dateStr) return false
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return false
+  const now = new Date()
+  if (filter === 'this_month') {
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+  }
+  if (filter === 'ytd') {
+    return d.getFullYear() === now.getFullYear() && d <= now
+  }
+  return true
+}
 
 function CashManagement() {
   const [transactions, setTransactions] = useState<CashTransaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(CASH_FILTERS)
 
   const loadTransactions = async () => {
     setLoading(true)
@@ -25,6 +84,35 @@ function CashManagement() {
   useEffect(() => {
     loadTransactions()
   }, [])
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      if (values.type !== 'ALL' && tx.type !== values.type) return false
+      if (values.approval !== 'ALL') {
+        const approval = (tx.approval_status || 'DRAFT').toUpperCase()
+        if (approval !== values.approval.toUpperCase()) return false
+      }
+      if (!matchesCashDate(tx.transaction_date, values.date)) return false
+      return true
+    })
+  }, [transactions, values.type, values.approval, values.date])
+
+  const cashSummary = useMemo(() => {
+    const inflow = filteredTransactions
+      .filter((t) => t.type === 'Check Deposit')
+      .reduce((s, t) => s + Number(t.amount || 0), 0)
+    const outflow = filteredTransactions
+      .filter((t) => t.type === 'Check Issue')
+      .reduce((s, t) => s + Number(t.amount || 0), 0)
+    return { inflow, outflow, net: inflow - outflow }
+  }, [filteredTransactions])
+
+  const { items: sortedTransactions, requestSort, sortConfig } = useSortableData(filteredTransactions, {
+    columnTypes: {
+      transaction_date: 'date',
+      amount: 'number',
+    },
+  })
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -44,30 +132,41 @@ function CashManagement() {
         </div>
       </div>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredTransactions.length} txn(s) · In ${formatCurrency(cashSummary.inflow)} · Out ${formatCurrency(cashSummary.outflow)} · Net ${formatCurrency(cashSummary.net)}`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={CASH_FILTERS} />
+
       <div style={dashboardSectionStyle}>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading cash transactions...</div>
         ) : error ? (
           <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
-        ) : transactions.length === 0 ? (
+        ) : filteredTransactions.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No cash transactions found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Transaction ID</th>
-                  <th style={directoryThStyle}>Date</th>
-                  <th style={directoryThStyle}>Type</th>
-                  <th style={directoryThStyle}>Reference ID</th>
-                  <th style={directoryThStyle}>Bank Account</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Amount</th>
-                  <th style={directoryThStyle}>Approval</th>
+                  <SortableTh label="Transaction ID" columnKey="transaction_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Date" columnKey="transaction_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Type" columnKey="type" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Reference ID" columnKey="reference_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Bank Account" columnKey="bank_account_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Amount" columnKey="amount" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="Approval" columnKey="approval_status" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <th style={directoryThStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((tx) => {
+                {sortedTransactions.map((tx) => {
                   const isDeposit = tx.type === 'Check Deposit'
                   const amountColor = isDeposit ? '#2e7d32' : '#c62828'
                   const sign = isDeposit ? '+' : '-'

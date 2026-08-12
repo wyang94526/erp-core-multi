@@ -864,6 +864,41 @@ export const authService = {
   },
 };
 
+export type AiPendingAction = {
+  action_id: string;
+  action_type: string;
+  summary: string;
+  payload?: Record<string, unknown> | null;
+};
+
+export type AiChatResponse = {
+  conversation_id: string;
+  reply: string;
+  pending_action?: AiPendingAction | null;
+};
+
+export type AiConfirmResponse = {
+  reply: string;
+  result?: Record<string, unknown> | null;
+};
+
+export const aiService = {
+  chat(data: {
+    message: string;
+    conversation_id?: string | null;
+    page_context?: Record<string, string | null | undefined>;
+  }): Promise<AiChatResponse> {
+    return apiClient.post<AiChatResponse>('/api/v1/ai/chat', data);
+  },
+
+  confirm(data: {
+    action_id: string;
+    conversation_id?: string | null;
+  }): Promise<AiConfirmResponse> {
+    return apiClient.post<AiConfirmResponse>('/api/v1/ai/confirm', data);
+  },
+};
+
 export const approvalService = {
   me(): Promise<CurrentUser> {
     return authService.me();

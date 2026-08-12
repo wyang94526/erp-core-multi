@@ -1,7 +1,50 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { apBillService } from '../api/services'
 import type { APBill } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const AP_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'Unpaid', label: 'Unpaid' },
+      { value: 'Partial', label: 'Partial' },
+      { value: 'Paid', label: 'Paid' },
+    ],
+  },
+  {
+    key: 'due',
+    label: 'Due',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'upcoming', label: 'Upcoming' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+]
 
 function APBills() {
   const [bills, setBills] = useState<APBill[]>([])
@@ -9,6 +52,8 @@ function APBills() {
   const [error, setError] = useState<string | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(AP_FILTERS)
 
   const loadBills = async () => {
     setLoading(true)
@@ -26,6 +71,32 @@ function APBills() {
   useEffect(() => {
     loadBills()
   }, [])
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const filteredBills = useMemo(() => {
+    return bills.filter((bill) => {
+      if (values.status !== 'ALL' && bill.status !== values.status) return false
+      if (values.approval !== 'ALL') {
+        const approval = (bill.approval_status || 'DRAFT').toUpperCase()
+        if (approval !== values.approval.toUpperCase()) return false
+      }
+      if (values.due === 'overdue') {
+        if (!(bill.due_date && bill.due_date < today && bill.status !== 'Paid')) return false
+      }
+      if (values.due === 'upcoming') {
+        if (!(bill.due_date && bill.due_date >= today && bill.status !== 'Paid')) return false
+      }
+      return true
+    })
+  }, [bills, values.status, values.approval, values.due, today])
+
+  const { items: sortedBills, requestSort, sortConfig } = useSortableData(filteredBills, {
+    columnTypes: {
+      amount: 'number',
+      due_date: 'date',
+    },
+  })
 
   const handleMakePayment = async (billId: string) => {
     setPayingId(billId)
@@ -56,30 +127,41 @@ function APBills() {
         </div>
       </div>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredBills.length} bill(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={AP_FILTERS} />
+
       <div style={dashboardSectionStyle}>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading AP bills...</div>
         ) : error ? (
           <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
-        ) : bills.length === 0 ? (
+        ) : filteredBills.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No AP bills found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Bill ID</th>
-                  <th style={directoryThStyle}>Purchase Order ID</th>
-                  <th style={directoryThStyle}>Vendor ID</th>
-                  <th style={directoryThStyle}>Amount</th>
-                  <th style={directoryThStyle}>Due Date</th>
-                  <th style={directoryThStyle}>Status</th>
-                  <th style={directoryThStyle}>Approval</th>
+                  <SortableTh label="Bill ID" columnKey="bill_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Purchase Order ID" columnKey="purchase_order_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Vendor ID" columnKey="vendor_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Amount" columnKey="amount" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Due Date" columnKey="due_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Approval" columnKey="approval_status" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <th style={directoryThStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {bills.map((bill) => {
+                {sortedBills.map((bill) => {
                   const colors = getStatusColors(bill.status)
                   return (
                     <tr key={bill.bill_id} style={directoryTbodyRowStyle}>

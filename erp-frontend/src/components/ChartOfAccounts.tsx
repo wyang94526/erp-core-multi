@@ -5,6 +5,8 @@
 import { useEffect, useState } from 'react'
 import { chartOfAccountsService } from '../api/services'
 import type { AccountType, ChartOfAccount } from '../types'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
 
 const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']
 
@@ -39,6 +41,12 @@ function ChartOfAccounts() {
   useEffect(() => {
     loadAccounts()
   }, [])
+
+  const { items: sortedAccounts, requestSort, sortConfig } = useSortableData(accounts, {
+    columnTypes: {
+      created_at: 'date',
+    },
+  })
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -163,15 +171,15 @@ function ChartOfAccounts() {
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Code</th>
-                  <th style={directoryThStyle}>Name</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'center' }}>Type</th>
-                  <th style={directoryThStyle}>Created</th>
+                  <SortableTh label="Code" columnKey="account_code" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Name" columnKey="account_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Type" columnKey="account_type" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
+                  <SortableTh label="Created" columnKey="created_at" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((account) => {
+                {sortedAccounts.map((account) => {
                   const colors = getTypeColors(account.account_type)
                   return (
                     <tr key={account.id} style={directoryTbodyRowStyle}>

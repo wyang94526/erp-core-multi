@@ -7,11 +7,44 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { inventoryService } from '../api/services'
 import type { InventoryStockItem, StockStatus } from '../types'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const INVENTORY_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'In Stock', label: 'In Stock' },
+      { value: 'Low Stock', label: 'Low Stock' },
+      { value: 'Out of Stock', label: 'Out of Stock' },
+    ],
+  },
+  {
+    key: 'view',
+    label: 'View',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All SKUs' },
+      { value: 'alerts', label: 'Reorder alerts' },
+      { value: 'allocated', label: 'Pending shipment' },
+    ],
+  },
+]
 
 export function InventoryOverview() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [actionItemId, setActionItemId] = useState<string | null>(null)
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(INVENTORY_FILTERS)
 
   const {
     data: stock = [],
@@ -23,11 +56,40 @@ export function InventoryOverview() {
     queryFn: () => inventoryService.listStock(),
   })
 
+  const filteredStock = useMemo(() => {
+    return stock.filter((s) => {
+      if (values.status !== 'ALL' && s.status !== values.status) return false
+      if (values.view === 'alerts') {
+        return s.status === 'Low Stock' || s.status === 'Out of Stock'
+      }
+      if (values.view === 'allocated') {
+        return Number(s.allocated_quantity) > 0
+      }
+      return true
+    })
+  }, [stock, values.status, values.view])
+
   const alertCounts = useMemo(() => {
     const low = stock.filter((s) => s.status === 'Low Stock').length
     const out = stock.filter((s) => s.status === 'Out of Stock').length
     return { low, out, reorder: low + out }
   }, [stock])
+
+  const { items: sortedStock, requestSort, sortConfig } = useSortableData(filteredStock, {
+    columnTypes: {
+      on_hand_quantity: 'number',
+      allocated_quantity: 'number',
+      on_order_quantity: 'number',
+      available_to_promise: 'number',
+      reorder_point: 'number',
+    },
+    getValue: (row, key) => {
+      if (key === 'warehouse') {
+        return `${row.primary_warehouse_code} / ${row.primary_bin_code}`
+      }
+      return (row as unknown as Record<string, unknown>)[key]
+    },
+  })
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['inventoryStock'] })
 
@@ -136,6 +198,15 @@ export function InventoryOverview() {
         </div>
       </header>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredStock.length} SKU(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
       <div style={alertRowStyle}>
         <div style={{ ...alertCardStyle, borderColor: '#ffc107' }}>
           <div style={alertLabelStyle}>Low Stock</div>
@@ -151,27 +222,29 @@ export function InventoryOverview() {
         </div>
       </div>
 
+      <ListFilterBar fields={INVENTORY_FILTERS} />
+
       <div style={dashboardSectionStyle}>
-        {stock.length === 0 ? (
+        {filteredStock.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No inventory records found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Product</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>On-Hand</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Allocated</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>On-Order</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>ATP</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Reorder Pt</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
-                  <th style={directoryThStyle}>Warehouse / Bin</th>
+                  <SortableTh label="Product" columnKey="item_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="On-Hand" columnKey="on_hand_quantity" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="Allocated" columnKey="allocated_quantity" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="On-Order" columnKey="on_order_quantity" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="ATP" columnKey="available_to_promise" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="Reorder Pt" columnKey="reorder_point" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
+                  <SortableTh label="Warehouse / Bin" columnKey="warehouse" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {stock.map((item) => {
+                {sortedStock.map((item) => {
                   const colors = getStatusColors(item.status)
                   const busy = actionItemId === item.item_id
                   return (

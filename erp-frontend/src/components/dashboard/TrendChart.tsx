@@ -1,0 +1,75 @@
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import type { MonthlyTrendPoint } from '../../types/dashboard'
+import { formatCurrency } from '../../hooks/useDashboardData'
+import { sectionStyle, sectionTitleStyle } from './dashboardStyles'
+
+type TrendChartProps = {
+  data: MonthlyTrendPoint[]
+  title?: string
+}
+
+export default function TrendChart({
+  data,
+  title = 'Monthly Sales vs Purchasing',
+}: TrendChartProps) {
+  return (
+    <div style={sectionStyle}>
+      <h3 style={sectionTitleStyle}>{title}</h3>
+      <div style={{ width: '100%', height: 280 }}>
+        <ResponsiveContainer>
+          <LineChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis dataKey="label" tick={{ fill: 'var(--text)', fontSize: 12 }} />
+            <YAxis
+              tick={{ fill: 'var(--text)', fontSize: 12 }}
+              tickFormatter={(v) =>
+                new Intl.NumberFormat('en-US', {
+                  notation: 'compact',
+                  style: 'currency',
+                  currency: 'USD',
+                  maximumFractionDigits: 1,
+                }).format(Number(v) || 0)
+              }
+            />
+            <Tooltip
+              formatter={(value) => formatCurrency(Number(value) || 0)}
+              contentStyle={{
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+              }}
+            />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="salesTotal"
+              name="Sales"
+              stroke="#1976d2"
+              strokeWidth={2.5}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="purchasingTotal"
+              name="Purchasing"
+              stroke="#00897b"
+              strokeWidth={2.5}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}

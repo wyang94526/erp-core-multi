@@ -7,10 +7,34 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { inventoryService } from '../api/services'
 import type { StockMovementType } from '../types'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
+
+const MOVEMENT_FILTERS: FilterField[] = [
+  {
+    key: 'type',
+    label: 'Type',
+    allValue: 'ALL',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'Receipt', label: 'Receipt' },
+      { value: 'Issue', label: 'Issue' },
+      { value: 'Adjustment', label: 'Adjustment' },
+      { value: 'Transfer', label: 'Transfer' },
+    ],
+  },
+]
 
 export function StockMovements() {
   const [searchParams, setSearchParams] = useSearchParams()
   const productFilter = searchParams.get('product') || undefined
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(MOVEMENT_FILTERS)
 
   const {
     data: movements = [],
@@ -22,10 +46,28 @@ export function StockMovements() {
     queryFn: () => inventoryService.listMovements(productFilter),
   })
 
+  const filteredMovements = useMemo(() => {
+    if (values.type === 'ALL') return movements
+    return movements.filter((m) => m.movement_type === values.type)
+  }, [movements, values.type])
+
   const titleSuffix = useMemo(
     () => (productFilter ? ` · ${productFilter}` : ''),
     [productFilter],
   )
+
+  const { items: sortedMovements, requestSort, sortConfig } = useSortableData(filteredMovements, {
+    columnTypes: {
+      movement_date: 'date',
+      quantity: 'number',
+    },
+    getValue: (row, key) => {
+      if (key === 'warehouse') {
+        return `${row.warehouse_code || row.warehouse_id} / ${row.bin_code || row.bin_id}`
+      }
+      return (row as unknown as Record<string, unknown>)[key]
+    },
+  })
 
   if (isLoading) {
     return (
@@ -68,26 +110,37 @@ export function StockMovements() {
         )}
       </header>
 
+      {fromDashboard ? (
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredMovements.length} movement(s) match current filters`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
+      ) : null}
+
+      <ListFilterBar fields={MOVEMENT_FILTERS} />
+
       <div style={dashboardSectionStyle}>
-        {movements.length === 0 ? (
+        {filteredMovements.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No stock movements found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Movement ID</th>
-                  <th style={directoryThStyle}>Date</th>
-                  <th style={directoryThStyle}>Product</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'center' }}>Type</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Qty</th>
-                  <th style={directoryThStyle}>Warehouse / Bin</th>
-                  <th style={directoryThStyle}>Reference</th>
-                  <th style={directoryThStyle}>Notes</th>
+                  <SortableTh label="Movement ID" columnKey="movement_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Date" columnKey="movement_date" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Product" columnKey="item_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Type" columnKey="movement_type" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
+                  <SortableTh label="Qty" columnKey="quantity" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
+                  <SortableTh label="Warehouse / Bin" columnKey="warehouse" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Reference" columnKey="reference" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Notes" columnKey="notes" sortConfig={sortConfig} onRequestSort={requestSort} />
                 </tr>
               </thead>
               <tbody>
-                {movements.map((m) => {
+                {sortedMovements.map((m) => {
                   const colors = getMovementColors(m.movement_type)
                   return (
                     <tr key={m.movement_id} style={directoryTbodyRowStyle}>
@@ -211,13 +264,6 @@ const directoryTableStyle: React.CSSProperties = {
 const directoryTheadRowStyle: React.CSSProperties = {
   borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
-}
-
-const directoryThStyle: React.CSSProperties = {
-  padding: '12px 10px',
-  textAlign: 'left',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {

@@ -357,7 +357,7 @@ export function SalesOrderForm() {
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
           <p>Error loading sales order</p>
-          <button onClick={() => navigate('/')} style={secondaryButtonStyle}>
+          <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
             Back to Orders
           </button>
         </div>
@@ -833,7 +833,7 @@ export function SalesOrderForm() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/sales-orders')}
             style={secondaryButtonStyle}
           >
             Cancel

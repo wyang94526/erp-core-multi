@@ -36,6 +36,7 @@ import InventoryOverview from './components/InventoryOverview'
 import StockMovements from './components/StockMovements'
 import WarehousesBins from './components/WarehousesBins'
 import AdminRbacPage from './components/AdminRbacPage'
+import Dashboard from './components/Dashboard'
 
 /** Legacy /products/:id → /items/:id */
 function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
@@ -71,6 +72,10 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
+        element: <Dashboard />,
+      },
+      {
+        path: 'sales-orders',
         element: <SalesOrderList />,
       },
       {

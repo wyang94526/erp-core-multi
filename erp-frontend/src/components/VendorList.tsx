@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom'
 import { vendorService } from '../api/services'
 import type { Supplier } from '../types'
 import { useState } from 'react'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
 
 export function VendorList() {
   const navigate = useNavigate()
@@ -24,6 +26,8 @@ export function VendorList() {
     queryKey: ['vendors', skip, limit],
     queryFn: () => vendorService.listVendors(skip, limit),
   })
+
+  const { items: sortedVendors, requestSort, sortConfig } = useSortableData(vendors)
 
   const handlePreviousPage = () => {
     if (skip >= limit) {
@@ -89,16 +93,16 @@ export function VendorList() {
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
-                    <th style={directoryThStyle}>Vendor ID</th>
-                    <th style={directoryThStyle}>Company Name</th>
-                    <th style={directoryThStyle}>Vendor Number Ext</th>
-                    <th style={directoryThStyle}>Payment Terms</th>
-                    <th style={{ ...directoryThStyle, textAlign: 'center' }}>Status</th>
+                    <SortableTh label="Vendor ID" columnKey="supplier_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Company Name" columnKey="company_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Vendor Number Ext" columnKey="vendor_number_ext" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Payment Terms" columnKey="payment_terms" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {vendors.map((vendor: Supplier) => {
+                  {sortedVendors.map((vendor: Supplier) => {
                     const statusColors = getStatusColors(vendor.status)
                     return (
                       <tr key={vendor.supplier_id} style={directoryTbodyRowStyle}>
