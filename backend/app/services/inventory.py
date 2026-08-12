@@ -108,6 +108,47 @@ def _resolve_stock_location(
     return _primary_stock_row(rows)
 
 
+def issue_stock(
+    db: Session,
+    item_id: str,
+    quantity: int,
+    reference: str,
+    notes: str | None = None,
+    warehouse_id: str | None = None,
+    bin_id: str | None = None,
+) -> InventoryStockItemRead:
+    """Deduct on-hand quantity and write an Issue stock movement."""
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Issue quantity must be positive")
+
+    stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
+    if quantity > stock.on_hand_quantity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient on-hand quantity for item {item_id}",
+        )
+
+    stock.on_hand_quantity -= quantity
+    if stock.allocated_quantity >= quantity:
+        stock.allocated_quantity -= quantity
+
+    movement = StockMovement(
+        movement_id=f"MOV-{uuid4().hex[:10].upper()}",
+        item_id=item_id,
+        movement_type="Issue",
+        quantity=-quantity,
+        warehouse_id=stock.warehouse_id,
+        bin_id=stock.bin_id,
+        reference=reference,
+        notes=notes or f"Stock issue for {reference}",
+        movement_date=date.today(),
+    )
+    db.add(movement)
+    sync_item_on_hand(db, item_id)
+    db.flush()
+    return next(item for item in list_stock_overview(db) if item.item_id == item_id)
+
+
 def adjust_stock(
     db: Session,
     item_id: str,

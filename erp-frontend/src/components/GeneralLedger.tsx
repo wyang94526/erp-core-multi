@@ -1,18 +1,26 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { journalEntryService } from '../api/services'
 import type { JournalEntry } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { useSortableData } from '../hooks/useSortableData'
+import SortableTh from './SortableTh'
 
 interface FlatPostingRow {
   entryId: string
   date: string
   journalId: string
   description: string
-  accountId: string
+  accountCode: string
+  accountName: string
+  accountLabel: string
   debit: number
   credit: number
   period: string | null
   approvalStatus: string
+}
+
+function shortId(id: string) {
+  return id.split('-')[0].toUpperCase()
 }
 
 function GeneralLedger() {
@@ -52,26 +60,68 @@ function GeneralLedger() {
     return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString()
   }
 
-  const shortId = (id: string) => id.split('-')[0].toUpperCase()
-
-  // Flatten journal entries + their ledger postings into individual rows
-  // for the double-entry accounting table.
-  const rows: FlatPostingRow[] = entries.flatMap((entry) =>
-    entry.postings.map((posting) => ({
-      entryId: entry.id,
-      date: entry.created_at,
-      journalId: shortId(entry.id),
-      description: entry.description,
-      accountId: shortId(posting.account_id),
-      debit: posting.debit,
-      credit: posting.credit,
-      period: entry.period,
-      approvalStatus: entry.approval_status || 'DRAFT',
-    }))
+  const rows: FlatPostingRow[] = useMemo(
+    () =>
+      entries.flatMap((entry) =>
+        entry.postings.map((posting) => {
+          const accountCode = posting.account_code || '—'
+          const accountName = posting.account_name || '—'
+          return {
+            entryId: entry.id,
+            date: entry.created_at,
+            journalId: shortId(entry.id),
+            description: entry.description,
+            accountCode,
+            accountName,
+            accountLabel: `${accountCode} ${accountName}`.trim(),
+            debit: Number(posting.debit) || 0,
+            credit: Number(posting.credit) || 0,
+            period: entry.period,
+            approvalStatus: entry.approval_status || 'DRAFT',
+          }
+        }),
+      ),
+    [entries],
   )
 
-  // Unique journal entries for approval selection (not flattened posting rows)
-  const uniqueEntries = entries
+  const {
+    items: sortedEntries,
+    requestSort: requestEntrySort,
+    sortConfig: entrySortConfig,
+  } = useSortableData(entries, {
+    columnTypes: {
+      created_at: 'date',
+      id: 'string',
+      description: 'string',
+      period: 'string',
+      posting_status: 'string',
+      approval_status: 'string',
+    },
+    getValue: (entry, key) => {
+      if (key === 'id') return shortId(entry.id)
+      if (key === 'approval_status') return entry.approval_status || 'DRAFT'
+      return (entry as unknown as Record<string, unknown>)[key]
+    },
+  })
+
+  const {
+    items: sortedRows,
+    requestSort: requestPostingSort,
+    sortConfig: postingSortConfig,
+  } = useSortableData(rows, {
+    columnTypes: {
+      date: 'date',
+      journalId: 'string',
+      description: 'string',
+      accountCode: 'string',
+      accountName: 'string',
+      accountLabel: 'string',
+      debit: 'number',
+      credit: 'number',
+      period: 'string',
+      approvalStatus: 'string',
+    },
+  })
 
   return (
     <div style={containerStyle}>
@@ -91,24 +141,54 @@ function GeneralLedger() {
           <div style={emptyStateWrapperStyle}>Loading journal entries...</div>
         ) : error ? (
           <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
-        ) : uniqueEntries.length === 0 ? (
+        ) : sortedEntries.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No journal entries found.</div>
         ) : (
           <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Date</th>
-                  <th style={directoryThStyle}>Journal ID</th>
-                  <th style={directoryThStyle}>Description</th>
-                  <th style={directoryThStyle}>Period</th>
-                  <th style={directoryThStyle}>Posting</th>
-                  <th style={directoryThStyle}>Approval</th>
+                  <SortableTh
+                    label="Date"
+                    columnKey="created_at"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
+                    label="Journal ID"
+                    columnKey="id"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
+                    label="Description"
+                    columnKey="description"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
+                    label="Period"
+                    columnKey="period"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
+                    label="Posting"
+                    columnKey="posting_status"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
+                    label="Approval"
+                    columnKey="approval_status"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
                   <th style={directoryThStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {uniqueEntries.map((entry) => (
+                {sortedEntries.map((entry) => (
                   <tr key={entry.id} style={directoryTbodyRowStyle}>
                     <td style={directoryTdStyle}>{formatDate(entry.created_at)}</td>
                     <td style={directoryTdStyle}>{shortId(entry.id)}</td>
@@ -143,30 +223,81 @@ function GeneralLedger() {
         )}
 
         <h3 style={sectionTitleStyle}>Posting Detail</h3>
-        {loading ? null : rows.length === 0 ? (
+        {loading ? null : sortedRows.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No postings found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
               <thead>
                 <tr style={directoryTheadRowStyle}>
-                  <th style={directoryThStyle}>Date</th>
-                  <th style={directoryThStyle}>Journal ID</th>
-                  <th style={directoryThStyle}>Description</th>
-                  <th style={directoryThStyle}>Account</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Debit</th>
-                  <th style={{ ...directoryThStyle, textAlign: 'right' }}>Credit</th>
-                  <th style={directoryThStyle}>Period</th>
-                  <th style={directoryThStyle}>Approval</th>
+                  <SortableTh
+                    label="Date"
+                    columnKey="date"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Journal ID"
+                    columnKey="journalId"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Description"
+                    columnKey="description"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Account Code"
+                    columnKey="accountCode"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Account"
+                    columnKey="accountName"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Debit"
+                    columnKey="debit"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Credit"
+                    columnKey="credit"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Period"
+                    columnKey="period"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
+                  <SortableTh
+                    label="Approval"
+                    columnKey="approvalStatus"
+                    sortConfig={postingSortConfig}
+                    onRequestSort={requestPostingSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${row.entryId}-${idx}`} style={directoryTbodyRowStyle}>
+                {sortedRows.map((row, idx) => (
+                  <tr key={`${row.entryId}-${row.accountCode}-${idx}`} style={directoryTbodyRowStyle}>
                     <td style={directoryTdStyle}>{formatDate(row.date)}</td>
                     <td style={directoryTdStyle}>{row.journalId}</td>
                     <td style={directoryTdStyle}>{row.description}</td>
-                    <td style={directoryTdStyle}>{row.accountId}</td>
+                    <td style={{ ...directoryTdStyle, fontFamily: 'monospace', fontWeight: 600 }}>
+                      {row.accountCode}
+                    </td>
+                    <td style={directoryTdStyle}>{row.accountName}</td>
                     <td style={{ ...directoryTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
                       {formatCurrency(row.debit)}
                     </td>

@@ -801,3 +801,121 @@ class StockMovement(Base):
     bin_location = relationship("BinLocation")
 
 
+
+class ItemFulfillment(Base):
+    __tablename__ = "item_fulfillments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fulfillment_number = Column(String(50), unique=True, nullable=False)
+    sales_order_id = Column(String(50), ForeignKey("salesorders.sales_order_id"), nullable=False)
+    customer_id = Column(String(50), ForeignKey("customers.customer_id"), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'DRAFT'"))
+    shipped_date = Column(Date, nullable=True)
+    carrier = Column(String(100), nullable=True)
+    tracking_number = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('DRAFT', 'PICKED', 'PACKED', 'SHIPPED')",
+            name="chk_item_fulfillment_status",
+        ),
+    )
+
+    sales_order = relationship("SalesOrder")
+    customer = relationship("Customer")
+    lines = relationship(
+        "ItemFulfillmentLine",
+        back_populates="fulfillment",
+        cascade="all, delete-orphan",
+    )
+
+
+class ItemFulfillmentLine(Base):
+    __tablename__ = "item_fulfillment_lines"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fulfillment_id = Column(
+        Integer, ForeignKey("item_fulfillments.id", ondelete="CASCADE"), nullable=False
+    )
+    sales_order_line_id = Column(
+        BigInteger, ForeignKey("salesorderitems.so_item_id"), nullable=False
+    )
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    quantity_fulfilled = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("quantity_fulfilled > 0", name="chk_fulfillment_qty_pos"),
+    )
+
+    fulfillment = relationship("ItemFulfillment", back_populates="lines")
+    sales_order_line = relationship("SalesOrderItem")
+    item = relationship("Item")
+
+
+class SalesInvoice(Base):
+    __tablename__ = "sales_invoices"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_number = Column(String(50), unique=True, nullable=False)
+    sales_order_id = Column(String(50), ForeignKey("salesorders.sales_order_id"), nullable=False)
+    fulfillment_id = Column(Integer, ForeignKey("item_fulfillments.id"), nullable=True)
+    customer_id = Column(String(50), ForeignKey("customers.customer_id"), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'DRAFT'"))
+    issue_date = Column(Date, nullable=False)
+    due_date = Column(Date, nullable=False)
+    payment_terms = Column(String(50), nullable=True)
+    subtotal = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    tax_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    total_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    outstanding_balance = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    ar_invoice_id = Column(String(50), ForeignKey("ar_invoices.invoice_id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('DRAFT', 'APPROVED', 'PAID', 'VOID')",
+            name="chk_sales_invoice_status",
+        ),
+    )
+
+    sales_order = relationship("SalesOrder")
+    fulfillment = relationship("ItemFulfillment")
+    customer = relationship("Customer")
+    ar_invoice = relationship("ARInvoice")
+    lines = relationship(
+        "SalesInvoiceLine",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+
+
+class SalesInvoiceLine(Base):
+    __tablename__ = "sales_invoice_lines"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_id = Column(
+        Integer, ForeignKey("sales_invoices.id", ondelete="CASCADE"), nullable=False
+    )
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    description = Column(String(255), nullable=True)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(12, 4), nullable=False)
+    line_subtotal = Column(Numeric(12, 2), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="chk_sales_invoice_line_qty_pos"),
+    )
+
+    invoice = relationship("SalesInvoice", back_populates="lines")
+    item = relationship("Item")

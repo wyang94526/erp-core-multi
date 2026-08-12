@@ -28,6 +28,8 @@ import type {
   InventoryStockItem,
   StockMovement,
   Warehouse,
+  ItemFulfillment,
+  SalesInvoiceDoc,
   BinLocation,
   VendorItemMapping,
   SubcontractBOM,
@@ -432,6 +434,83 @@ export const salesOrderService = {
     return apiClient.patch<SalesOrder>(`/api/v1/sales-orders/${orderId}`, {
       status: 'CANCELLED',
     });
+  },
+};
+
+// ==========================================
+// ITEM FULFILLMENT SERVICES
+// ==========================================
+
+export const fulfillmentService = {
+  list(skip = 0, limit = 100): Promise<ItemFulfillment[]> {
+    return apiClient.get<ItemFulfillment[]>('/api/v1/fulfillments', {
+      params: { skip, limit },
+    });
+  },
+
+  get(id: number): Promise<ItemFulfillment> {
+    return apiClient.get<ItemFulfillment>(`/api/v1/fulfillments/${id}`);
+  },
+
+  create(data: {
+    sales_order_id: string;
+    carrier?: string | null;
+    tracking_number?: string | null;
+    status?: string;
+    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>;
+  }): Promise<ItemFulfillment> {
+    return apiClient.post<ItemFulfillment>('/api/v1/fulfillments', data);
+  },
+
+  updateStatus(
+    id: number,
+    data: {
+      status: string;
+      shipped_date?: string | null;
+      carrier?: string | null;
+      tracking_number?: string | null;
+    },
+  ): Promise<ItemFulfillment> {
+    return apiClient.patch<ItemFulfillment>(`/api/v1/fulfillments/${id}/status`, data);
+  },
+};
+
+// ==========================================
+// SALES INVOICE (O2C) SERVICES
+// ==========================================
+
+export const salesInvoiceService = {
+  list(skip = 0, limit = 100): Promise<SalesInvoiceDoc[]> {
+    return apiClient.get<SalesInvoiceDoc[]>('/api/v1/sales-invoices', {
+      params: { skip, limit },
+    });
+  },
+
+  get(id: number): Promise<SalesInvoiceDoc> {
+    return apiClient.get<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}`);
+  },
+
+  create(data: {
+    sales_order_id: string;
+    fulfillment_id?: number | null;
+    issue_date?: string | null;
+    payment_terms?: string | null;
+    lines?: Array<{
+      item_id: string;
+      description?: string | null;
+      quantity: number;
+      unit_price: number;
+    }> | null;
+  }): Promise<SalesInvoiceDoc> {
+    return apiClient.post<SalesInvoiceDoc>('/api/v1/sales-invoices', data);
+  },
+
+  approve(id: number): Promise<SalesInvoiceDoc> {
+    return apiClient.post<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}/approve`);
+  },
+
+  void(id: number): Promise<SalesInvoiceDoc> {
+    return apiClient.post<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}/void`);
   },
 };
 

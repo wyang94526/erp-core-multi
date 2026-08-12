@@ -49,6 +49,8 @@ const NAV_CATEGORIES: NavCategory[] = [
     ],
     items: [
       { label: 'Sales Orders', to: '/sales-orders', permission: 'sales_order:view' },
+      { label: 'Item Fulfillments', to: '/fulfillments', permission: 'sales_order:view' },
+      { label: 'Sales Invoices', to: '/sales-invoices', permission: 'sales_order:view' },
       { label: 'Purchase Orders', to: '/purchase-orders', permission: 'po:view' },
     ],
   },
@@ -113,7 +115,11 @@ function isItemActive(pathname: string, item: NavItem): boolean {
     return pathname === '/'
   }
   if (item.to === '/sales-orders') {
-    return pathname === '/sales-orders' || pathname.startsWith('/orders')
+    return (
+      pathname === '/sales-orders' ||
+      pathname.startsWith('/sales-orders/') ||
+      pathname.startsWith('/orders')
+    )
   }
   if (item.end) {
     return pathname === item.to

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -161,6 +161,18 @@ class LedgerPostingRead(ORMModel):
     debit: Decimal
     credit: Decimal
     currency: str
+    account_code: str | None = None
+    account_name: str | None = None
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def enrich_account_fields(cls, values: Any, handler):
+        account = getattr(values, "account", None) if not isinstance(values, dict) else None
+        model = handler(values)
+        if account is not None:
+            model.account_code = getattr(account, "account_code", None)
+            model.account_name = getattr(account, "account_name", None)
+        return model
 
 class LedgerPostingCreate(BaseModel):
     entry_id: UUID
@@ -1140,3 +1152,96 @@ class ComponentIssueLogRead(ORMModel):
     quantity_issued: Decimal
     issued_at: datetime | None = None
     notes: str | None = None
+
+
+# ==========================================
+# ORDER-TO-CASH: FULFILLMENTS & SALES INVOICES
+# ==========================================
+
+class ItemFulfillmentLineCreate(BaseModel):
+    sales_order_line_id: int
+    quantity_fulfilled: int = Field(gt=0)
+
+
+class ItemFulfillmentCreate(BaseModel):
+    sales_order_id: str = Field(min_length=1, max_length=50)
+    carrier: str | None = Field(default=None, max_length=100)
+    tracking_number: str | None = Field(default=None, max_length=100)
+    status: str = Field(default='DRAFT', max_length=20)
+    lines: list[ItemFulfillmentLineCreate] = Field(min_length=1)
+
+
+class ItemFulfillmentStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+    shipped_date: date | None = None
+    carrier: str | None = Field(default=None, max_length=100)
+    tracking_number: str | None = Field(default=None, max_length=100)
+
+
+class ItemFulfillmentLineRead(BaseModel):
+    id: int
+    fulfillment_id: int
+    sales_order_line_id: int
+    item_id: str
+    quantity_fulfilled: int
+
+
+class ItemFulfillmentRead(BaseModel):
+    id: int
+    fulfillment_number: str
+    sales_order_id: str
+    customer_id: str
+    customer_name: str | None = None
+    status: str
+    shipped_date: date | None = None
+    carrier: str | None = None
+    tracking_number: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    lines: list[ItemFulfillmentLineRead] = Field(default_factory=list)
+
+
+class SalesInvoiceLineCreate(BaseModel):
+    item_id: str
+    description: str | None = None
+    quantity: int = Field(gt=0)
+    unit_price: Decimal
+
+
+class SalesInvoiceCreate(BaseModel):
+    sales_order_id: str = Field(min_length=1, max_length=50)
+    fulfillment_id: int | None = None
+    issue_date: date | None = None
+    payment_terms: str | None = Field(default=None, max_length=50)
+    lines: list[SalesInvoiceLineCreate] | None = None
+
+
+class SalesInvoiceLineRead(BaseModel):
+    id: int
+    invoice_id: int
+    item_id: str
+    description: str | None = None
+    quantity: int
+    unit_price: Decimal
+    line_subtotal: Decimal
+
+
+class SalesInvoiceRead(BaseModel):
+    id: int
+    invoice_number: str
+    sales_order_id: str
+    fulfillment_id: int | None = None
+    customer_id: str
+    customer_name: str | None = None
+    status: str
+    issue_date: date
+    due_date: date
+    payment_terms: str | None = None
+    subtotal: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    outstanding_balance: Decimal
+    ar_invoice_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    lines: list[SalesInvoiceLineRead] = Field(default_factory=list)

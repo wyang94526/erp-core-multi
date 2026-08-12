@@ -13,6 +13,10 @@ import ResetPasswordPage from './components/ResetPasswordPage'
 import SalesOrderList from './components/SalesOrderList'
 import SalesOrderDetail from './components/SalesOrderDetail'
 import SalesOrderForm from './components/SalesOrderForm'
+import ItemFulfillmentList from './components/ItemFulfillmentList'
+import ItemFulfillmentForm from './components/ItemFulfillmentForm'
+import SalesInvoiceList from './components/SalesInvoiceList'
+import SalesInvoiceForm from './components/SalesInvoiceForm'
 import CustomerList from './components/CustomerList'
 import CustomerForm from './components/CustomerForm'
 import PurchaseOrderList from './components/PurchaseOrderList'
@@ -79,6 +83,26 @@ export const router = createBrowserRouter([
         element: <SalesOrderList />,
       },
       {
+        path: 'sales-orders/:id',
+        element: <SalesOrderDetail />,
+      },
+      {
+        path: 'sales-orders/:id/fulfill',
+        element: <ItemFulfillmentForm />,
+      },
+      {
+        path: 'sales-orders/:id/invoice',
+        element: <SalesInvoiceForm />,
+      },
+      {
+        path: 'fulfillments',
+        element: <ItemFulfillmentList />,
+      },
+      {
+        path: 'sales-invoices',
+        element: <SalesInvoiceList />,
+      },
+      {
         path: 'purchase-orders',
         element: <PurchaseOrderList />,
       },
@@ -97,6 +121,14 @@ export const router = createBrowserRouter([
       {
         path: 'orders/:id',
         element: <SalesOrderDetail />,
+      },
+      {
+        path: 'orders/:id/fulfill',
+        element: <ItemFulfillmentForm />,
+      },
+      {
+        path: 'orders/:id/invoice',
+        element: <SalesInvoiceForm />,
       },
       {
         path: 'orders/:id/edit',

@@ -12,10 +12,13 @@ from app.services.accounting import validate_journal_balance, validate_posting_r
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
 
 
+_POSTING_LOAD = selectinload(JournalEntry.postings).selectinload(LedgerPosting.account)
+
+
 def _load_entry(db: Session, entry_id: UUID) -> JournalEntry | None:
     return (
         db.query(JournalEntry)
-        .options(selectinload(JournalEntry.postings))
+        .options(_POSTING_LOAD)
         .filter(JournalEntry.id == entry_id)
         .first()
     )
@@ -27,7 +30,7 @@ def list_journal_entries(
 ) -> list[JournalEntry]:
     return (
         db.query(JournalEntry)
-        .options(selectinload(JournalEntry.postings))
+        .options(_POSTING_LOAD)
         .order_by(JournalEntry.created_at.desc())
         .offset(skip)
         .limit(limit)

@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import LedgerPosting
@@ -24,7 +24,13 @@ def _reload_entry_postings(db: Session, entry_id: UUID) -> list[LedgerPosting]:
 def list_ledger_postings(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 ) -> list[LedgerPosting]:
-    return db.query(LedgerPosting).offset(skip).limit(limit).all()
+    return (
+        db.query(LedgerPosting)
+        .options(joinedload(LedgerPosting.account))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.post("", response_model=LedgerPostingRead, status_code=status.HTTP_201_CREATED)
@@ -48,7 +54,12 @@ def create_ledger_posting(payload: LedgerPostingCreate, db: Session = Depends(ge
 
 @router.get("/{posting_id}", response_model=LedgerPostingRead)
 def get_ledger_posting(posting_id: UUID, db: Session = Depends(get_db)) -> LedgerPosting:
-    posting = db.get(LedgerPosting, posting_id)
+    posting = (
+        db.query(LedgerPosting)
+        .options(joinedload(LedgerPosting.account))
+        .filter(LedgerPosting.id == posting_id)
+        .first()
+    )
     if not posting:
         raise HTTPException(status_code=404, detail="Ledger posting not found")
     return posting

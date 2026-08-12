@@ -141,8 +141,8 @@ def _je_amount(doc: JournalEntry) -> Decimal:
 
 
 def _on_so_approved(db: Session, doc: SalesOrder) -> None:
+    # Invoice creation is deferred to the Sales Invoice workflow after fulfillment.
     doc.status = "APPROVED"
-    finance.create_ar_invoice_for_sales_order(db, doc)
 
 
 def _on_po_approved(db: Session, doc: PurchaseOrder) -> None:

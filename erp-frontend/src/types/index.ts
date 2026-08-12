@@ -419,6 +419,64 @@ export interface ARInvoice {
   created_at: string | null;
 }
 
+export type FulfillmentStatus = 'DRAFT' | 'PICKED' | 'PACKED' | 'SHIPPED' | string;
+
+export interface ItemFulfillmentLine {
+  id: number;
+  fulfillment_id: number;
+  sales_order_line_id: number;
+  item_id: string;
+  quantity_fulfilled: number;
+}
+
+export interface ItemFulfillment {
+  id: number;
+  fulfillment_number: string;
+  sales_order_id: string;
+  customer_id: string;
+  customer_name?: string | null;
+  status: FulfillmentStatus;
+  shipped_date?: string | null;
+  carrier?: string | null;
+  tracking_number?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  lines: ItemFulfillmentLine[];
+}
+
+export type SalesInvoiceStatus = 'DRAFT' | 'APPROVED' | 'PAID' | 'VOID' | string;
+
+export interface SalesInvoiceLine {
+  id: number;
+  invoice_id: number;
+  item_id: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  line_subtotal: number;
+}
+
+export interface SalesInvoiceDoc {
+  id: number;
+  invoice_number: string;
+  sales_order_id: string;
+  fulfillment_id?: number | null;
+  customer_id: string;
+  customer_name?: string | null;
+  status: SalesInvoiceStatus;
+  issue_date: string;
+  due_date: string;
+  payment_terms?: string | null;
+  subtotal: number;
+  tax_amount: number;
+  total_amount: number;
+  outstanding_balance: number;
+  ar_invoice_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  lines: SalesInvoiceLine[];
+}
+
 export interface APBill {
   bill_id: string;
   purchase_order_id: string;
@@ -449,6 +507,8 @@ export interface LedgerPosting {
   debit: number;
   credit: number;
   currency: string;
+  account_code?: string | null;
+  account_name?: string | null;
 }
 
 export interface JournalEntry {

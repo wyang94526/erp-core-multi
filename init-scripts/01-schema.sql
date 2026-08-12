@@ -487,4 +487,77 @@ CREATE TABLE StockMovements (
     )
 );
 
+-- ========================================================
+-- 8. ORDER-TO-CASH: ITEM FULFILLMENTS & SALES INVOICES
+-- ========================================================
+
+DROP TABLE IF EXISTS sales_invoice_lines CASCADE;
+DROP TABLE IF EXISTS sales_invoices CASCADE;
+DROP TABLE IF EXISTS item_fulfillment_lines CASCADE;
+DROP TABLE IF EXISTS item_fulfillments CASCADE;
+
+CREATE TABLE item_fulfillments (
+    id SERIAL PRIMARY KEY,
+    fulfillment_number VARCHAR(50) NOT NULL UNIQUE,
+    sales_order_id VARCHAR(50) NOT NULL REFERENCES SalesOrders(sales_order_id),
+    customer_id VARCHAR(50) NOT NULL REFERENCES Customers(customer_id),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+    shipped_date DATE,
+    carrier VARCHAR(100),
+    tracking_number VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_item_fulfillment_status CHECK (
+        status IN ('DRAFT', 'PICKED', 'PACKED', 'SHIPPED')
+    )
+);
+CREATE INDEX ix_item_fulfillments_sales_order_id ON item_fulfillments(sales_order_id);
+
+CREATE TABLE item_fulfillment_lines (
+    id SERIAL PRIMARY KEY,
+    fulfillment_id INT NOT NULL REFERENCES item_fulfillments(id) ON DELETE CASCADE,
+    sales_order_line_id BIGINT NOT NULL REFERENCES SalesOrderItems(so_item_id),
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    quantity_fulfilled INT NOT NULL,
+
+    CONSTRAINT chk_fulfillment_qty_pos CHECK (quantity_fulfilled > 0)
+);
+
+CREATE TABLE sales_invoices (
+    id SERIAL PRIMARY KEY,
+    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+    sales_order_id VARCHAR(50) NOT NULL REFERENCES SalesOrders(sales_order_id),
+    fulfillment_id INT REFERENCES item_fulfillments(id),
+    customer_id VARCHAR(50) NOT NULL REFERENCES Customers(customer_id),
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+    issue_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    payment_terms VARCHAR(50),
+    subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    outstanding_balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    ar_invoice_id VARCHAR(50) REFERENCES ar_invoices(invoice_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_sales_invoice_status CHECK (
+        status IN ('DRAFT', 'APPROVED', 'PAID', 'VOID')
+    )
+);
+CREATE INDEX ix_sales_invoices_sales_order_id ON sales_invoices(sales_order_id);
+
+CREATE TABLE sales_invoice_lines (
+    id SERIAL PRIMARY KEY,
+    invoice_id INT NOT NULL REFERENCES sales_invoices(id) ON DELETE CASCADE,
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    description VARCHAR(255),
+    quantity INT NOT NULL,
+    unit_price NUMERIC(12, 4) NOT NULL,
+    line_subtotal NUMERIC(12, 2) NOT NULL,
+
+    CONSTRAINT chk_sales_invoice_line_qty_pos CHECK (quantity > 0)
+);
+
 

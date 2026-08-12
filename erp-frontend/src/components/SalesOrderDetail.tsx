@@ -5,7 +5,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
-import { salesOrderService } from '../api/services'
+import { fulfillmentService, salesOrderService } from '../api/services'
 import { ApprovalPanel } from './ApprovalPanel'
 
 export function SalesOrderDetail() {
@@ -32,6 +32,11 @@ export function SalesOrderDetail() {
   } = useQuery({
     queryKey: ['salesOrders', id],
     queryFn: () => salesOrderService.getSalesOrder(id),
+  })
+
+  const { data: fulfillments = [] } = useQuery({
+    queryKey: ['fulfillments'],
+    queryFn: () => fulfillmentService.list(0, 200),
   })
 
   if (isLoading) {
@@ -72,6 +77,11 @@ export function SalesOrderDetail() {
   }
 
   const statusColors = getStatusColors(order.status)
+  const isApproved = (order.approval_status || '').toUpperCase() === 'APPROVED'
+  const orderFulfillments = fulfillments.filter((f) => f.sales_order_id === order.sales_order_id)
+  const hasShippedFulfillment = orderFulfillments.some((f) => f.status === 'SHIPPED')
+  const canFulfillItems = isApproved && order.status !== 'CANCELLED'
+  const canCreateInvoice = isApproved && hasShippedFulfillment
 
   return (
     <div style={containerStyle}>
@@ -246,7 +256,41 @@ export function SalesOrderDetail() {
       </div>
 
       {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: '12px' }}>
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => navigate(`/sales-orders/${id}/fulfill`)}
+          style={{
+            ...primaryButtonStyle,
+            backgroundColor: canFulfillItems ? '#2e7d32' : '#9e9e9e',
+            cursor: canFulfillItems ? 'pointer' : 'not-allowed',
+          }}
+          disabled={!canFulfillItems}
+          title={
+            canFulfillItems
+              ? 'Create an item fulfillment for this order'
+              : 'Order must be approved before fulfillment'
+          }
+        >
+          Fulfill Items
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/sales-orders/${id}/invoice`)}
+          style={{
+            ...primaryButtonStyle,
+            backgroundColor: canCreateInvoice ? '#6a1b9a' : '#9e9e9e',
+            cursor: canCreateInvoice ? 'pointer' : 'not-allowed',
+          }}
+          disabled={!canCreateInvoice}
+          title={
+            canCreateInvoice
+              ? 'Create a sales invoice from shipped fulfillments'
+              : 'Ship a fulfillment before invoicing'
+          }
+        >
+          Create Invoice
+        </button>
         <button
           onClick={() => navigate(`/orders/${id}/edit`)}
           style={primaryButtonStyle}
@@ -259,6 +303,27 @@ export function SalesOrderDetail() {
           Back to Orders
         </button>
       </div>
+      {orderFulfillments.length > 0 ? (
+        <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text)' }}>
+          {orderFulfillments.length} fulfillment(s)
+          {hasShippedFulfillment ? ' · ready to invoice' : ' · awaiting shipment'} —{' '}
+          <button
+            type="button"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#1565c0',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              padding: 0,
+            }}
+            onClick={() => navigate('/fulfillments')}
+          >
+            View fulfillments
+          </button>
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -274,6 +339,8 @@ function getStatusColors(status: string): { bg: string; text: string } {
     PENDING: { bg: '#fffde7', text: '#f9a825' },
     PROCESSING: { bg: '#e3f2fd', text: '#1565c0' },
     APPROVED: { bg: '#e8f5e9', text: '#2e7d32' },
+    FULFILLED: { bg: '#fff3e0', text: '#e65100' },
+    INVOICED: { bg: '#e3f2fd', text: '#1565c0' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },

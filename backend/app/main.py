@@ -13,6 +13,7 @@ from app.routers import (
     cash_transactions,
     customer_locations,
     customers,
+    fulfillments,
     health,
     inventory,
     items,
@@ -21,6 +22,7 @@ from app.routers import (
     product_bom,
     products,
     purchase_orders,
+    sales_invoices,
     sales_orders,
     subcontract_boms,
     subcontract_orders,
@@ -60,6 +62,8 @@ app.include_router(products.router, prefix="/api/v1")
 app.include_router(items.router, prefix="/api/v1")
 app.include_router(accounts.router, prefix="/api/v1")
 app.include_router(sales_orders.router, prefix="/api/v1")
+app.include_router(fulfillments.router, prefix="/api/v1")
+app.include_router(sales_invoices.router, prefix="/api/v1")
 app.include_router(journal_entries.router, prefix="/api/v1")
 app.include_router(ledger_postings.router, prefix="/api/v1")
 app.include_router(audit_logs.router, prefix="/api/v1")
