@@ -8,7 +8,9 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { subcontractOrderService } from '../api/services'
+import { FileDown, Loader2 } from 'lucide-react'
+import { itemService, subcontractOrderService, vendorService } from '../api/services'
+import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { ApprovalPanel } from './ApprovalPanel'
 import type { CalculatedComponentLine } from '../types'
 
@@ -35,6 +37,8 @@ export function SubcontractOrderDetail() {
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   if (!id) {
     return (
@@ -156,6 +160,53 @@ export function SubcontractOrderDetail() {
   const isCancellable = sco.status !== 'COMPLETED' && sco.status !== 'CANCELLED'
   const isApproved = (sco.approval_status || 'DRAFT').toUpperCase() === 'APPROVED'
 
+  const kitLines: CalculatedComponentLine[] =
+    kitBreakdown?.components?.length
+      ? kitBreakdown.components
+      : (sco.components || []).map((c) => ({
+          component_item_id: c.component_item_id,
+          description: null,
+          quantity_per: 0,
+          scrap_factor: 0,
+          yield_loss_percentage: 0,
+          quantity_required: Number(c.quantity_required),
+          quantity_issued: Number(c.quantity_issued),
+          quantity_remaining: Math.max(
+            Number(c.quantity_required) - Number(c.quantity_issued),
+            0,
+          ),
+          on_hand_quantity: 0,
+          primary_vendor_id: null,
+          primary_vendor_sku: null,
+          unit_cost: null,
+        }))
+
+  const handleExportVendorPdf = async () => {
+    setExportError(null)
+    setExportingPdf(true)
+    try {
+      const [supplier, item] = await Promise.all([
+        sco.supplier_id
+          ? vendorService.getVendor(sco.supplier_id).catch(() => null)
+          : Promise.resolve(null),
+        sco.item_id
+          ? itemService.getItem(sco.item_id).catch(() => null)
+          : Promise.resolve(null),
+      ])
+
+      generateSubcontractVendorPdf({
+        sco,
+        supplierName: supplier?.company_name ?? null,
+        productName: item?.description ?? null,
+        components: kitLines,
+      })
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Failed to export vendor PDF')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   const handleIssueLineChange = (componentProductId: string, value: string) => {
     setIssueLines((prev) => ({ ...prev, [componentProductId]: value }))
   }
@@ -233,6 +284,47 @@ export function SubcontractOrderDetail() {
         }}
       />
 
+      {isApproved && (
+        <div style={exportBarStyle}>
+          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Vendor purchase attachment
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Download a printable PDF for the approved subcontract order.
+            </div>
+            {exportError && (
+              <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
+                {exportError}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleExportVendorPdf}
+            disabled={exportingPdf}
+            style={{
+              ...exportButtonStyle,
+              opacity: exportingPdf ? 0.75 : 1,
+              cursor: exportingPdf ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {exportingPdf ? (
+              <>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                Preparing PDF…
+              </>
+            ) : (
+              <>
+                <FileDown size={16} />
+                Export Vendor PDF
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Order Header Information */}
       <div style={cardStyle}>
         <h3 style={sectionHeadingStyle}>Order Data</h3>
@@ -299,26 +391,7 @@ export function SubcontractOrderDetail() {
           compared to warehouse issues to the subcontractor.
         </p>
         {(() => {
-          const lines: CalculatedComponentLine[] =
-            kitBreakdown?.components?.length
-              ? kitBreakdown.components
-              : (sco.components || []).map((c) => ({
-                  component_item_id: c.component_item_id,
-                  description: null,
-                  quantity_per: 0,
-                  scrap_factor: 0,
-                  yield_loss_percentage: 0,
-                  quantity_required: Number(c.quantity_required),
-                  quantity_issued: Number(c.quantity_issued),
-                  quantity_remaining: Math.max(
-                    Number(c.quantity_required) - Number(c.quantity_issued),
-                    0
-                  ),
-                  on_hand_quantity: 0,
-                  primary_vendor_id: null,
-                  primary_vendor_sku: null,
-                  unit_cost: null,
-                }))
+          const lines: CalculatedComponentLine[] = kitLines
 
           if (lines.length === 0) {
             return (
@@ -844,6 +917,36 @@ const primaryButtonStyle: React.CSSProperties = {
   fontWeight: 'bold',
   transition: 'background-color 0.2s',
   fontFamily: 'inherit',
+}
+
+const exportBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  padding: '16px 18px',
+  marginBottom: 16,
+  borderRadius: 10,
+  border: '1px solid rgba(147, 51, 234, 0.28)',
+  background:
+    'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
+  boxShadow: 'var(--shadow)',
+}
+
+const exportButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '11px 18px',
+  backgroundColor: '#9333ea',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
 }
 
 const secondaryButtonStyle: React.CSSProperties = {

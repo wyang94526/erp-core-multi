@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { FileDown, Loader2 } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item } from '../types';
+import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
 import { POSummaryCard } from './POSummaryCard';
@@ -64,6 +66,8 @@ export function PurchaseOrderForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
   const [isExisting, setIsExisting] = useState(!isNew);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const {
     state,
@@ -321,6 +325,44 @@ export function PurchaseOrderForm() {
     }
   };
 
+  const isApproved =
+    (state.approval_status || '').toUpperCase() === 'APPROVED' ||
+    state.status === 'Approved';
+
+  const handleExportVendorPdf = async () => {
+    setExportError(null);
+    setExportingPdf(true);
+    try {
+      let poForPdf = state;
+      if (!(poForPdf.supplier_name || '').trim() && poForPdf.supplier_id) {
+        try {
+          const supplier = await vendorService.getVendor(poForPdf.supplier_id);
+          poForPdf = {
+            ...poForPdf,
+            supplier_name: supplier.company_name,
+          };
+        } catch {
+          // Keep ID-only supplier info if lookup fails.
+        }
+      }
+
+      const itemDescriptions = Object.fromEntries(
+        products
+          .filter((p) => p.item_id)
+          .map((p) => [p.item_id, p.description || p.customer_part_number || '']),
+      );
+
+      generatePurchaseOrderVendorPdf({
+        po: poForPdf,
+        itemDescriptions,
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Failed to export vendor PDF');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={containerStyle}>
@@ -406,6 +448,47 @@ export function PurchaseOrderForm() {
               currentApprovalStep={state.current_approval_step}
               onStatusChange={handleApprovalChange}
             />
+          )}
+
+          {isExisting && isApproved && (
+            <div style={exportBarStyle}>
+              <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+                  Vendor purchase attachment
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text)' }}>
+                  Download a printable PDF for the approved purchase order.
+                </div>
+                {exportError && (
+                  <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
+                    {exportError}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleExportVendorPdf}
+                disabled={exportingPdf}
+                style={{
+                  ...exportButtonStyle,
+                  opacity: exportingPdf ? 0.75 : 1,
+                  cursor: exportingPdf ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {exportingPdf ? (
+                  <>
+                    <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                    Preparing PDF…
+                  </>
+                ) : (
+                  <>
+                    <FileDown size={16} />
+                    Export Vendor PDF
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           <div style={documentAreaStyle}>
@@ -558,6 +641,36 @@ const notesCardStyle: React.CSSProperties = {
   padding: '16px 20px',
   marginTop: '16px',
   boxShadow: 'var(--shadow)',
+};
+
+const exportBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  padding: '16px 18px',
+  marginBottom: 16,
+  borderRadius: 10,
+  border: '1px solid rgba(147, 51, 234, 0.28)',
+  background:
+    'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
+  boxShadow: 'var(--shadow)',
+};
+
+const exportButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '11px 18px',
+  backgroundColor: '#9333ea',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
 };
 
 const notesLabelStyle: React.CSSProperties = {
