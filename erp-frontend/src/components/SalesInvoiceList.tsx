@@ -96,7 +96,7 @@ export function SalesInvoiceList() {
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
         <div>
-          <h2 style={pageTitleStyle}>Sales Invoices</h2>
+          <h2 style={pageTitleStyle}>Sales Invoices (Customer Invoicing)</h2>
           <p style={pageSubStyle}>
             Bill fulfilled sales orders; approval posts AR / revenue to the general ledger
           </p>
@@ -151,7 +151,7 @@ export function SalesInvoiceList() {
                       <td style={tdStyle}>{money(inv.outstanding_balance)}</td>
                       <td style={tdStyle}>
                         {inv.ar_invoice_id ? (
-                          <Link to="/ar-invoices" style={linkStyle} title="Open Accounts Receivable">
+                          <Link to="/accounts-receivable" style={linkStyle} title="Open AR Aging & Collections">
                             {inv.ar_invoice_id}
                           </Link>
                         ) : (
@@ -268,7 +268,7 @@ export function SalesInvoiceList() {
                 </button>
               ) : null}
               {selected.ar_invoice_id ? (
-                <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/ar-invoices')}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/accounts-receivable')}>
                   Open AR Invoices
                 </button>
               ) : null}

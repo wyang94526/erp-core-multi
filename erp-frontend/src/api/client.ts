@@ -9,13 +9,13 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?
 export const AUTH_TOKEN_KEY = 'erp.authToken';
 
 export interface FetchOptions extends RequestInit {
-  params?: Record<string, string | number | boolean>;
+  params?: Record<string, string | number | boolean | null | undefined>;
 }
 
 /**
  * Builds a URL with query parameters
  */
-function buildUrl(endpoint: string, params?: Record<string, string | number | boolean>): string {
+function buildUrl(endpoint: string, params?: Record<string, string | number | boolean | null | undefined>): string {
   const path = `${API_BASE_URL}${endpoint}`;
 
   if (!params || Object.keys(params).length === 0) {
@@ -24,9 +24,13 @@ function buildUrl(endpoint: string, params?: Record<string, string | number | bo
 
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
-    search.append(key, String(value));
+    if (value === undefined || value === null) return;
+    const text = String(value);
+    if (text === '' || text === 'undefined' || text === 'null') return;
+    search.append(key, text);
   });
-  return `${path}?${search.toString()}`;
+  const qs = search.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 /**

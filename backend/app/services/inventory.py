@@ -149,6 +149,68 @@ def issue_stock(
     return next(item for item in list_stock_overview(db) if item.item_id == item_id)
 
 
+def receive_stock(
+    db: Session,
+    item_id: str,
+    quantity: int,
+    reference: str,
+    notes: str | None = None,
+    warehouse_id: str | None = None,
+    bin_id: str | None = None,
+) -> InventoryStockItemRead:
+    """Increase on-hand quantity and write a Receipt stock movement."""
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Receipt quantity must be positive")
+
+    try:
+        stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
+    except HTTPException:
+        # Create stock at the first active warehouse/bin when none exists yet.
+        warehouse = (
+            db.query(Warehouse).filter(Warehouse.is_active.is_(True)).order_by(Warehouse.code).first()
+        )
+        if not warehouse:
+            raise HTTPException(status_code=400, detail="No warehouse available for stock receipt")
+        bin_row = (
+            db.query(BinLocation)
+            .filter(BinLocation.warehouse_id == warehouse.warehouse_id, BinLocation.is_active.is_(True))
+            .order_by(BinLocation.bin_code)
+            .first()
+        )
+        if not bin_row:
+            raise HTTPException(status_code=400, detail="No bin available for stock receipt")
+        stock = InventoryStock(
+            stock_id=f"STK-{uuid4().hex[:10].upper()}",
+            item_id=item_id,
+            warehouse_id=warehouse.warehouse_id,
+            bin_id=bin_row.bin_id,
+            on_hand_quantity=0,
+            allocated_quantity=0,
+            on_order_quantity=0,
+            reorder_point=0,
+            is_primary=True,
+        )
+        db.add(stock)
+        db.flush()
+
+    stock.on_hand_quantity += quantity
+    movement = StockMovement(
+        movement_id=f"MOV-{uuid4().hex[:10].upper()}",
+        item_id=item_id,
+        movement_type="Receipt",
+        quantity=quantity,
+        warehouse_id=stock.warehouse_id,
+        bin_id=stock.bin_id,
+        reference=reference,
+        notes=notes or f"Stock receipt for {reference}",
+        movement_date=date.today(),
+    )
+    db.add(movement)
+    sync_item_on_hand(db, item_id)
+    db.flush()
+    return next(item for item in list_stock_overview(db) if item.item_id == item_id)
+
+
 def adjust_stock(
     db: Session,
     item_id: str,

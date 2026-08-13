@@ -44,7 +44,7 @@ export default function FinanceDashboard({
       party: inv.customer_id,
       amount: inv.amount,
       status: inv.approval_status || 'PENDING_APPROVAL',
-      to: '/ar-invoices',
+      to: '/accounts-receivable',
     })),
     ...data.pendingApApprovals.map((bill) => ({
       id: bill.bill_id,
@@ -52,7 +52,7 @@ export default function FinanceDashboard({
       party: bill.vendor_id,
       amount: bill.amount,
       status: bill.approval_status || 'PENDING_APPROVAL',
-      to: '/ap-bills',
+      to: '/accounts-payable',
     })),
   ].slice(0, 8)
 

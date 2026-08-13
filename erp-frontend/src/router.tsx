@@ -3,7 +3,7 @@
  * Defines all routes for the ERP application using React Router v8
  */
 
-import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useLocation, useParams } from 'react-router-dom'
 import App from './App'
 import RequireAuth from './components/RequireAuth'
 import LoginPage from './components/LoginPage'
@@ -34,6 +34,8 @@ import SubcontractOrderDetail from './components/SubcontractOrderDetail'
 import ChartOfAccounts from './components/ChartOfAccounts'
 import ARInvoices from './components/ARInvoices'
 import APBills from './components/APBills'
+import SupplierInvoiceList from './components/SupplierInvoiceList'
+import SupplierInvoiceForm from './components/SupplierInvoiceForm'
 import CashManagement from './components/CashManagement'
 import GeneralLedger from './components/GeneralLedger'
 import InventoryOverview from './components/InventoryOverview'
@@ -47,6 +49,12 @@ function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
   const { id } = useParams<{ id: string }>()
   const to = edit ? `/items/${id}/edit` : `/items/${id}`
   return <Navigate to={to} replace />
+}
+
+/** Preserve query string when renaming frontend paths */
+function RedirectPreserveSearch({ to }: { to: string }) {
+  const location = useLocation()
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />
 }
 
 export const router = createBrowserRouter([
@@ -211,12 +219,20 @@ export const router = createBrowserRouter([
         element: <ChartOfAccounts />,
       },
       {
-        path: 'ar-invoices',
+        path: 'accounts-receivable',
         element: <ARInvoices />,
       },
       {
-        path: 'ap-bills',
+        path: 'accounts-payable',
         element: <APBills />,
+      },
+      {
+        path: 'supplier-invoices',
+        element: <SupplierInvoiceList />,
+      },
+      {
+        path: 'supplier-invoices/new',
+        element: <SupplierInvoiceForm />,
       },
       {
         path: 'cash-management',
@@ -225,6 +241,23 @@ export const router = createBrowserRouter([
       {
         path: 'general-ledger',
         element: <GeneralLedger />,
+      },
+      // Legacy finance path redirects (preserve filters / deep links)
+      {
+        path: 'ar-invoices',
+        element: <RedirectPreserveSearch to="/accounts-receivable" />,
+      },
+      {
+        path: 'ap-bills',
+        element: <RedirectPreserveSearch to="/accounts-payable" />,
+      },
+      {
+        path: 'vendor-invoices',
+        element: <RedirectPreserveSearch to="/supplier-invoices" />,
+      },
+      {
+        path: 'vendor-invoices/new',
+        element: <RedirectPreserveSearch to="/supplier-invoices/new" />,
       },
       {
         path: 'admin/rbac',

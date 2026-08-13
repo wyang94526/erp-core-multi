@@ -122,7 +122,7 @@ function ARInvoices() {
     <div style={containerStyle}>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>Accounts Receivable</h1>
+          <h1 style={pageTitleStyle}>AR Aging & Collections</h1>
           <p style={pageSubStyle}>
             Open customer receivables. Approved Sales Invoices post here (invoice id matches INV-YYYY-NNNN when created from O2C).
           </p>

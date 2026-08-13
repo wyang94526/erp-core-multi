@@ -561,3 +561,93 @@ CREATE TABLE sales_invoice_lines (
 );
 
 
+
+-- ========================================================
+-- 9. PROCURE-TO-PAY: GOODS RECEIPTS & SUPPLIER INVOICES
+-- ========================================================
+
+ALTER TABLE purchaseorders ADD COLUMN IF NOT EXISTS billing_status VARCHAR(30) NOT NULL DEFAULT 'UNBILLED';
+ALTER TABLE subcontractorders ADD COLUMN IF NOT EXISTS billing_status VARCHAR(30) NOT NULL DEFAULT 'UNBILLED';
+ALTER TABLE subcontractorders ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0;
+
+ALTER TABLE ap_bills ALTER COLUMN purchase_order_id DROP NOT NULL;
+ALTER TABLE ap_bills ADD COLUMN IF NOT EXISTS supplier_invoice_id INT;
+ALTER TABLE ap_bills ADD COLUMN IF NOT EXISTS source_type VARCHAR(30);
+ALTER TABLE ap_bills ADD COLUMN IF NOT EXISTS source_order_id VARCHAR(50);
+
+DROP TABLE IF EXISTS supplier_invoice_lines CASCADE;
+DROP TABLE IF EXISTS supplier_invoices CASCADE;
+DROP TABLE IF EXISTS goods_receipt_lines CASCADE;
+DROP TABLE IF EXISTS goods_receipts CASCADE;
+
+CREATE TABLE goods_receipts (
+    id SERIAL PRIMARY KEY,
+    receipt_number VARCHAR(50) NOT NULL UNIQUE,
+    source_type VARCHAR(30) NOT NULL,
+    source_order_id VARCHAR(50) NOT NULL,
+    vendor_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+    receipt_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED',
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_goods_receipt_source_type CHECK (source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')),
+    CONSTRAINT chk_goods_receipt_status CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED'))
+);
+CREATE INDEX ix_goods_receipts_source ON goods_receipts(source_type, source_order_id);
+
+CREATE TABLE goods_receipt_lines (
+    id SERIAL PRIMARY KEY,
+    receipt_id INT NOT NULL REFERENCES goods_receipts(id) ON DELETE CASCADE,
+    source_line_id BIGINT,
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    description VARCHAR(255),
+    quantity_received NUMERIC(12, 4) NOT NULL,
+    unit_cost NUMERIC(12, 4) NOT NULL,
+    line_amount NUMERIC(12, 2) NOT NULL,
+    CONSTRAINT chk_gr_line_qty_pos CHECK (quantity_received > 0)
+);
+
+CREATE TABLE supplier_invoices (
+    id SERIAL PRIMARY KEY,
+    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+    vendor_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+    source_type VARCHAR(30) NOT NULL,
+    source_order_id VARCHAR(50) NOT NULL,
+    vendor_invoice_number VARCHAR(100),
+    invoice_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    freight_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    outstanding_balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    ap_bill_id VARCHAR(50) REFERENCES ap_bills(bill_id),
+    match_warnings TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_supplier_invoice_source_type CHECK (source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')),
+    CONSTRAINT chk_supplier_invoice_status CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'CANCELLED'))
+);
+CREATE INDEX ix_supplier_invoices_source ON supplier_invoices(source_type, source_order_id);
+
+CREATE TABLE supplier_invoice_lines (
+    id SERIAL PRIMARY KEY,
+    invoice_id INT NOT NULL REFERENCES supplier_invoices(id) ON DELETE CASCADE,
+    source_line_id BIGINT,
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    description VARCHAR(255),
+    quantity_billed NUMERIC(12, 4) NOT NULL,
+    unit_price NUMERIC(12, 4) NOT NULL,
+    line_subtotal NUMERIC(12, 2) NOT NULL,
+    goods_receipt_line_id INT REFERENCES goods_receipt_lines(id),
+    CONSTRAINT chk_si_line_qty_pos CHECK (quantity_billed > 0)
+);
+
+DO $$ BEGIN
+  ALTER TABLE ap_bills
+    ADD CONSTRAINT fk_ap_bills_supplier_invoice_id
+    FOREIGN KEY (supplier_invoice_id) REFERENCES supplier_invoices(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

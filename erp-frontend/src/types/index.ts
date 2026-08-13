@@ -280,7 +280,7 @@ export interface Supplier {
 export type Vendor = Supplier;
 
 export interface PurchaseOrderItem {
-  id: string; // React-friendly unique row id
+  id: string; // React-friendly unique row id (maps to backend item_id)
   sku: string;
   quantity: number;
   unit_price: number;
@@ -300,6 +300,7 @@ export interface PurchaseOrder {
   status: 'Draft' | 'Submitted' | 'Approved' | 'Void';
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  billing_status?: string;
   items: PurchaseOrderItem[];
   shipping_fee: number;
   discount_type: 'percentage' | 'fixed';
@@ -375,9 +376,11 @@ export interface SubcontractOrder {
   supplier_id: string;
   item_id: string;
   quantity_ordered: number;
+  unit_price?: number;
   status: SubcontractOrderStatus | string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  billing_status?: string;
   order_date: string;
   expected_return_date: string | null;
   notes: string | null;
@@ -479,14 +482,63 @@ export interface SalesInvoiceDoc {
 
 export interface APBill {
   bill_id: string;
-  purchase_order_id: string;
+  purchase_order_id: string | null;
   vendor_id: string;
+  supplier_invoice_id?: number | null;
+  source_type?: string | null;
+  source_order_id?: string | null;
   amount: number;
   status: 'Unpaid' | 'Partial' | 'Paid' | string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
   due_date: string; // ISO date
   created_at: string | null;
+}
+
+export type VendorInvoiceSourceType = 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | string;
+export type VendorInvoiceStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'PAID'
+  | 'CANCELLED'
+  | string;
+
+export interface SupplierInvoiceLine {
+  id: number;
+  invoice_id: number;
+  source_line_id?: number | null;
+  item_id: string;
+  description?: string | null;
+  quantity_billed: number;
+  unit_price: number;
+  line_subtotal: number;
+  goods_receipt_line_id?: number | null;
+}
+
+export interface SupplierInvoice {
+  id: number;
+  invoice_number: string;
+  vendor_id: string;
+  vendor_name?: string | null;
+  source_type: VendorInvoiceSourceType;
+  source_order_id: string;
+  vendor_invoice_number?: string | null;
+  invoice_date: string;
+  due_date: string;
+  status: VendorInvoiceStatus;
+  subtotal: number;
+  tax_amount: number;
+  freight_amount: number;
+  total_amount: number;
+  outstanding_balance: number;
+  currency: string;
+  ap_bill_id?: string | null;
+  match_warnings?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  lines: SupplierInvoiceLine[];
+  payment_transaction_id?: string | null;
 }
 
 export interface CashTransaction {

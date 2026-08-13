@@ -23,6 +23,7 @@ class AiPageContext(BaseModel):
     route: str | None = None
     sales_order_id: str | None = None
     purchase_order_id: str | None = None
+    subcontract_order_id: str | None = None
     item_id: str | None = None
     entity_id: str | None = None
     entity_type: str | None = None
@@ -119,5 +120,10 @@ def confirm_action(
         reply = (
             f"Draft sales order **{result.get('sales_order_id')}** created "
             f"(status {result.get('status')}, total {result.get('total_amount')})."
+        )
+    elif action.action_type == "create_draft_purchase_order" and result:
+        reply = (
+            f"Draft purchase order **{result.get('po_number')}** created "
+            f"(status {result.get('status')}, total {result.get('grand_total')})."
         )
     return {"reply": reply, "result": result}

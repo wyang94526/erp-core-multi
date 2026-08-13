@@ -36,11 +36,11 @@ export function getMetricDestination(key: MetricDrillKey): string {
     case 'pending_shipment':
       return '/inventory?view=allocated&from=dashboard&metric=pending_shipment'
     case 'ar_outstanding':
-      return '/ar-invoices?status=Unpaid&from=dashboard&metric=ar_outstanding'
+      return '/accounts-receivable?status=Unpaid&from=dashboard&metric=ar_outstanding'
     case 'overdue_invoices':
-      return '/ar-invoices?due=overdue&from=dashboard&metric=overdue_invoices'
+      return '/accounts-receivable?due=overdue&from=dashboard&metric=overdue_invoices'
     case 'ap_outstanding':
-      return '/ap-bills?status=Unpaid&from=dashboard&metric=ap_outstanding'
+      return '/accounts-payable?status=Unpaid&from=dashboard&metric=ap_outstanding'
     case 'cash_flow':
       return '/cash-management?from=dashboard&metric=cash_flow'
     case 'monthly_margin':

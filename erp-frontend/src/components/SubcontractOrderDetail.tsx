@@ -34,6 +34,7 @@ export function SubcontractOrderDetail() {
     quantity_received: '',
     receipt_date: new Date().toISOString().split('T')[0],
     notes: '',
+    unit_cost: '',
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -94,6 +95,7 @@ export function SubcontractOrderDetail() {
       quantity_received: number
       receipt_date?: string
       notes?: string
+      unit_cost?: number
     }) => subcontractOrderService.receiveGoods(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
@@ -104,6 +106,7 @@ export function SubcontractOrderDetail() {
         quantity_received: '',
         receipt_date: new Date().toISOString().split('T')[0],
         notes: '',
+        unit_cost: '',
       })
     },
     onError: (err: any) => {
@@ -258,6 +261,7 @@ export function SubcontractOrderDetail() {
       quantity_received: Number(receiveForm.quantity_received),
       receipt_date: receiveForm.receipt_date || undefined,
       notes: receiveForm.notes || undefined,
+      unit_cost: receiveForm.unit_cost ? Number(receiveForm.unit_cost) : undefined,
     })
   }
 
@@ -321,6 +325,31 @@ export function SubcontractOrderDetail() {
                 Export Vendor PDF
               </>
             )}
+          </button>
+        </div>
+      )}
+
+      {isApproved && (
+        <div style={{ ...exportBarStyle, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Procure-to-Pay
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              After receiving finished goods (GRNI posted), create a supplier invoice / bill.
+              {sco.billing_status ? ` Billing: ${sco.billing_status}` : ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              navigate(
+                `/supplier-invoices/new?source_type=SUBCONTRACT_ORDER&source_order_id=${encodeURIComponent(sco.sco_number)}`,
+              )
+            }
+            style={{ ...exportButtonStyle, backgroundColor: '#6a1b9a' }}
+          >
+            Create Bill / Supplier Invoice
           </button>
         </div>
       )}
@@ -651,6 +680,18 @@ export function SubcontractOrderDetail() {
                   value={receiveForm.receipt_date}
                   onChange={(e) => setReceiveForm((prev) => ({ ...prev, receipt_date: e.target.value }))}
                   style={inputStyle}
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle}>Unit Cost (GRNI accrual)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={receiveForm.unit_cost}
+                  onChange={(e) => setReceiveForm((prev) => ({ ...prev, unit_cost: e.target.value }))}
+                  style={inputStyle}
+                  placeholder={String(sco.unit_price ?? 0)}
                 />
               </div>
               <div style={{ ...fieldGroupStyle, gridColumn: '1 / -1' }}>

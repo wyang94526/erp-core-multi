@@ -3,7 +3,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import PurchaseOrder, PurchaseOrderItem, Supplier
-from app.schemas import PurchaseOrderCreate, PurchaseOrderRead, PurchaseOrderUpdate
+from app.schemas import (
+    GoodsReceiptCreate,
+    GoodsReceiptRead,
+    PurchaseOrderCreate,
+    PurchaseOrderRead,
+    PurchaseOrderUpdate,
+)
+from app.services import p2p
+
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 
@@ -90,6 +98,22 @@ def update_purchase_order(
 
     db.commit()
     return _load_po(db, po.po_number)
+
+
+@router.post("/{po_number}/receive", response_model=GoodsReceiptRead, status_code=status.HTTP_201_CREATED)
+def receive_purchase_order_goods(
+    po_number: str, payload: GoodsReceiptCreate, db: Session = Depends(get_db)
+):
+    """Record PO goods receipt: inventory + GRNI accrual (Dr Inventory / Cr GRNI)."""
+    result = p2p.receive_purchase_order(
+        db,
+        po_number=po_number,
+        lines=[line.model_dump() for line in payload.lines],
+        receipt_date=payload.receipt_date,
+        notes=payload.notes,
+    )
+    db.commit()
+    return result
 
 
 @router.delete("/{po_number}", status_code=status.HTTP_204_NO_CONTENT)

@@ -15,5 +15,8 @@ Users sign in with email/password and receive a JWT. Role-based navigation and
 permission codes gate actions (e.g. `sales_order:view`, `sales_order:create`).
 
 ## AI Assistant
-The embedded assistant can look up live sales orders and inventory, search this
-documentation, and propose draft sales orders that require user confirmation before save.
+The embedded assistant can look up live sales orders, purchase orders, subcontract orders, and inventory,
+search this documentation, and propose draft sales, purchase, or subcontract orders that require
+user confirmation before save. Clone examples:
+- "create PO like PO-XXXX with x 100"
+- "create Subcontract Order like SCO-XXXX with x 2"

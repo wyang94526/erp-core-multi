@@ -30,6 +30,7 @@ import type {
   Warehouse,
   ItemFulfillment,
   SalesInvoiceDoc,
+  SupplierInvoice,
   BinLocation,
   VendorItemMapping,
   SubcontractBOM,
@@ -515,6 +516,68 @@ export const salesInvoiceService = {
 };
 
 // ==========================================
+// VENDOR / SUPPLIER INVOICE (P2P) SERVICES
+// ==========================================
+
+export const vendorInvoiceService = {
+  list(params: {
+    skip?: number;
+    limit?: number;
+    source_type?: string;
+    status?: string;
+    vendor_id?: string;
+    source_order_id?: string;
+  } = {}): Promise<SupplierInvoice[]> {
+    const query: Record<string, string | number> = {
+      skip: params.skip ?? 0,
+      limit: params.limit ?? 100,
+    };
+    if (params.source_type) query.source_type = params.source_type;
+    if (params.status) query.status = params.status;
+    if (params.vendor_id) query.vendor_id = params.vendor_id;
+    if (params.source_order_id) query.source_order_id = params.source_order_id;
+    return apiClient.get<SupplierInvoice[]>('/api/v1/vendor-invoices', {
+      params: query,
+    });
+  },
+
+  get(id: number): Promise<SupplierInvoice> {
+    return apiClient.get<SupplierInvoice>(`/api/v1/vendor-invoices/${id}`);
+  },
+
+  create(data: {
+    source_type: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER';
+    source_order_id: string;
+    vendor_invoice_number?: string | null;
+    invoice_date?: string | null;
+    due_date?: string | null;
+    tax_amount?: number | null;
+    freight_amount?: number | null;
+    currency?: string;
+    lines?: Array<{
+      source_line_id?: number | null;
+      item_id?: string | null;
+      description?: string | null;
+      quantity_billed: number;
+      unit_price: number;
+    }> | null;
+  }): Promise<SupplierInvoice> {
+    return apiClient.post<SupplierInvoice>('/api/v1/vendor-invoices', data);
+  },
+
+  approve(id: number): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/approve`);
+  },
+
+  pay(
+    id: number,
+    data: { amount?: number | null; bank_account_id?: string | null } = {},
+  ): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/pay`, data);
+  },
+};
+
+// ==========================================
 // VENDOR / SUPPLIER SERVICES
 // ==========================================
 
@@ -661,6 +724,21 @@ export const purchaseOrderService = {
 
   async deletePurchaseOrder(poNumber: string): Promise<void> {
     return apiClient.delete<void>(`/api/v1/purchase-orders/${poNumber}`);
+  },
+
+  async receiveGoods(
+    poNumber: string,
+    data: {
+      receipt_date?: string | null;
+      notes?: string | null;
+      lines: Array<{
+        source_line_id: number;
+        quantity_received: number;
+        unit_cost?: number | null;
+      }>;
+    },
+  ) {
+    return apiClient.post(`/api/v1/purchase-orders/${poNumber}/receive`, data);
   },
 };
 
@@ -813,6 +891,7 @@ export const subcontractOrderService = {
       quantity_received: number;
       receipt_date?: string;
       notes?: string;
+      unit_cost?: number;
     }
   ): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>(

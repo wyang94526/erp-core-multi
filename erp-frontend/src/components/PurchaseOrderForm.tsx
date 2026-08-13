@@ -68,6 +68,8 @@ export function PurchaseOrderForm() {
   const [isExisting, setIsExisting] = useState(!isNew);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [receivingGoods, setReceivingGoods] = useState(false);
+  const [p2pError, setP2pError] = useState<string | null>(null);
 
   const {
     state,
@@ -363,6 +365,26 @@ export function PurchaseOrderForm() {
     }
   };
 
+  const handleReceiveAllGoods = async () => {
+    if (!state.po_number || !state.items.length) return;
+    setP2pError(null);
+    setReceivingGoods(true);
+    try {
+      await purchaseOrderService.receiveGoods(state.po_number, {
+        lines: state.items.map((item) => ({
+          source_line_id: Number(item.id),
+          quantity_received: item.quantity,
+          unit_cost: item.unit_price,
+        })),
+      });
+      setSuccessMessage('Goods received — inventory and GRNI accrual posted.');
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : 'Failed to receive goods');
+    } finally {
+      setReceivingGoods(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={containerStyle}>
@@ -488,6 +510,50 @@ export function PurchaseOrderForm() {
                   </>
                 )}
               </button>
+            </div>
+          )}
+
+          {isExisting && isApproved && (
+            <div style={{ ...exportBarStyle, marginTop: 12 }}>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+                  Procure-to-Pay
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text)' }}>
+                  Receive goods (posts GRNI), then create a supplier invoice / bill.
+                  {state.billing_status ? ` Billing: ${state.billing_status}` : ''}
+                </div>
+                {p2pError && (
+                  <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
+                    {p2pError}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleReceiveAllGoods}
+                  disabled={receivingGoods}
+                  style={{
+                    ...exportButtonStyle,
+                    backgroundColor: '#2e7d32',
+                    opacity: receivingGoods ? 0.75 : 1,
+                  }}
+                >
+                  {receivingGoods ? 'Receiving…' : 'Receive Goods'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/supplier-invoices/new?source_type=PURCHASE_ORDER&source_order_id=${encodeURIComponent(state.po_number)}`,
+                    )
+                  }
+                  style={{ ...exportButtonStyle, backgroundColor: '#6a1b9a' }}
+                >
+                  Create Bill / Supplier Invoice
+                </button>
+              </div>
             </div>
           )}
 

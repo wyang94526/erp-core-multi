@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -14,7 +14,16 @@ from sqlalchemy.orm import Session
 from app.ai.context import get_ai_context
 from app.ai.pending_actions import create_pending_action
 from app.deps.auth import user_is_admin, user_permission_codes
-from app.models import Customer, CustomerLocation, Item, SalesOrder, User
+from app.models import (
+    Customer,
+    CustomerLocation,
+    Item,
+    PurchaseOrder,
+    SalesOrder,
+    SubcontractOrder,
+    Supplier,
+    User,
+)
 from app.services.inventory import list_stock_overview
 
 
@@ -121,6 +130,451 @@ def get_inventory_levels(item_sku: str = "") -> str:
         for r in overview[:40]
     ]
     return _json({"count": len(rows), "stock": rows})
+
+
+@tool
+def get_purchase_orders(vendor_id: str = "", status: str = "", limit: int = 20) -> str:
+    """List purchase orders, optionally filtered by vendor/supplier_id and/or status (Draft, Submitted, Approved, Void)."""
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "po:view")
+    if denied:
+        return denied
+
+    q = ctx.db.query(PurchaseOrder)
+    if vendor_id.strip():
+        q = q.filter(PurchaseOrder.supplier_id == vendor_id.strip())
+    if status.strip():
+        # Accept DRAFT/Approved style from users
+        st = status.strip()
+        q = q.filter(PurchaseOrder.status.ilike(st))
+    orders = q.order_by(PurchaseOrder.created_at.desc()).limit(max(1, min(limit, 50))).all()
+    rows = [
+        {
+            "po_number": o.po_number,
+            "supplier_id": o.supplier_id,
+            "status": o.status,
+            "approval_status": o.approval_status,
+            "billing_status": getattr(o, "billing_status", None),
+            "grand_total": o.grand_total,
+            "order_date": o.order_date,
+            "payment_terms": o.payment_terms,
+        }
+        for o in orders
+    ]
+    return _json({"count": len(rows), "orders": rows})
+
+
+@tool
+def get_purchase_order_detail(po_number: str) -> str:
+    """Get one purchase order by PO number, including line items."""
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "po:view")
+    if denied:
+        return denied
+
+    from sqlalchemy.orm import joinedload
+
+    order = (
+        ctx.db.query(PurchaseOrder)
+        .options(joinedload(PurchaseOrder.items))
+        .filter(PurchaseOrder.po_number == po_number.strip())
+        .first()
+    )
+    if not order:
+        return _json({"error": f"Purchase order '{po_number}' not found"})
+    return _json(
+        {
+            "po_number": order.po_number,
+            "supplier_id": order.supplier_id,
+            "status": order.status,
+            "approval_status": order.approval_status,
+            "billing_status": getattr(order, "billing_status", None),
+            "order_date": order.order_date,
+            "payment_terms": order.payment_terms,
+            "shipping_fee": order.shipping_fee,
+            "subtotal": order.subtotal,
+            "total_tax": order.total_tax,
+            "grand_total": order.grand_total,
+            "notes": order.notes,
+            "items": [
+                {
+                    "item_id": i.item_id,
+                    "sku": i.sku,
+                    "quantity": i.quantity,
+                    "unit_price": i.unit_price,
+                    "tax_rate": i.tax_rate,
+                    "line_subtotal": i.line_subtotal,
+                    "line_tax": i.line_tax,
+                    "line_total": i.line_total,
+                }
+                for i in (order.items or [])
+            ],
+        }
+    )
+
+
+@tool
+def propose_draft_purchase_order(
+    supplier_id: str = "",
+    items_json: str = "",
+    po_number: str = "",
+    template_po_number: str = "",
+    quantity_multiplier: float = 1.0,
+    payment_terms: str = "",
+) -> str:
+    """Propose creating a DRAFT purchase order. Does NOT write until the user confirms in the UI.
+
+    Provide either:
+    - template_po_number: clone an existing PO (optional quantity_multiplier, e.g. 100 for "x 100"), or
+    - supplier_id + items_json JSON array like [{"sku":"PROD-1001G","quantity":2,"unit_price":10.5}]
+
+    When cloning, supplier/terms/lines come from the template; quantities are multiplied by quantity_multiplier.
+    """
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "po:create")
+    if denied:
+        return denied
+
+    from sqlalchemy.orm import joinedload
+
+    mult = Decimal(str(quantity_multiplier or 1))
+    if mult <= 0:
+        return _json({"error": "quantity_multiplier must be positive"})
+
+    line_items: list[dict[str, Any]] = []
+    vendor_id = supplier_id.strip()
+    terms = payment_terms.strip() or "Net 30"
+    shipping_fee = Decimal("0.00")
+    discount_type = "percentage"
+    discount_value = Decimal("0")
+    notes = "Created via AI assistant"
+
+    template_id = template_po_number.strip()
+    if template_id:
+        template = (
+            ctx.db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(PurchaseOrder.po_number == template_id)
+            .first()
+        )
+        if not template:
+            return _json({"error": f"Template purchase order '{template_id}' not found"})
+        vendor_id = template.supplier_id
+        terms = template.payment_terms or terms
+        shipping_fee = Decimal(str(template.shipping_fee or 0))
+        discount_type = template.discount_type or "percentage"
+        discount_value = Decimal(str(template.discount_value or 0))
+        notes = f"Cloned from {template_id} via AI (qty × {mult})"
+        if not template.items:
+            return _json({"error": f"Template '{template_id}' has no line items"})
+        for row in template.items:
+            qty = (Decimal(str(row.quantity)) * mult).quantize(Decimal("0.0001"))
+            if qty <= 0:
+                return _json({"error": f"Invalid scaled quantity for SKU {row.sku}"})
+            unit_price = Decimal(str(row.unit_price or 0))
+            tax_rate = Decimal(str(row.tax_rate or 0))
+            line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))
+            line_tax = (line_subtotal * tax_rate / Decimal("100")).quantize(Decimal("0.01"))
+            line_total = (line_subtotal + line_tax).quantize(Decimal("0.01"))
+            line_items.append(
+                {
+                    "sku": row.sku,
+                    "quantity": str(qty),
+                    "unit_price": str(unit_price),
+                    "tax_rate": str(tax_rate),
+                    "line_subtotal": str(line_subtotal),
+                    "line_tax": str(line_tax),
+                    "line_total": str(line_total),
+                }
+            )
+    else:
+        if not vendor_id:
+            return _json({"error": "supplier_id is required when not cloning a template PO"})
+        supplier = ctx.db.get(Supplier, vendor_id)
+        if not supplier:
+            return _json({"error": f"Supplier/vendor '{vendor_id}' not found"})
+        try:
+            raw_items = json.loads(items_json) if items_json.strip() else []
+        except json.JSONDecodeError:
+            return _json({"error": "items_json must be valid JSON array"})
+        if not isinstance(raw_items, list) or not raw_items:
+            return _json({"error": "items_json must be a non-empty array"})
+
+        for idx, row in enumerate(raw_items, start=1):
+            sku = str(row.get("sku") or row.get("item_id") or "").strip()
+            qty = Decimal(str(row.get("quantity") or 0))
+            if not sku or qty <= 0:
+                return _json({"error": f"Invalid line {idx}: need sku/item_id and positive quantity"})
+            catalog = ctx.db.get(Item, sku)
+            if not catalog:
+                return _json({"error": f"Item '{sku}' not found"})
+            unit_price = Decimal(
+                str(
+                    row.get("unit_price")
+                    if row.get("unit_price") is not None
+                    else (catalog.unit_price or 0)
+                )
+            )
+            tax_rate = Decimal(str(row.get("tax_rate") or 0))
+            line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))
+            line_tax = (line_subtotal * tax_rate / Decimal("100")).quantize(Decimal("0.01"))
+            line_total = (line_subtotal + line_tax).quantize(Decimal("0.01"))
+            line_items.append(
+                {
+                    "sku": sku,
+                    "quantity": str(qty),
+                    "unit_price": str(unit_price),
+                    "tax_rate": str(tax_rate),
+                    "line_subtotal": str(line_subtotal),
+                    "line_tax": str(line_tax),
+                    "line_total": str(line_total),
+                }
+            )
+
+    subtotal = sum((Decimal(li["line_subtotal"]) for li in line_items), Decimal("0"))
+    total_tax = sum((Decimal(li["line_tax"]) for li in line_items), Decimal("0"))
+    # Apply header discount like UI (percentage of subtotal or fixed)
+    if discount_type == "fixed":
+        discount_amount = discount_value.quantize(Decimal("0.01"))
+    else:
+        discount_amount = (subtotal * discount_value / Decimal("100")).quantize(Decimal("0.01"))
+    # Scale shipping with multiplier when cloning
+    if template_id and mult != 1:
+        shipping_fee = (shipping_fee * mult).quantize(Decimal("0.01"))
+    grand_total = (subtotal + total_tax + shipping_fee - discount_amount).quantize(Decimal("0.01"))
+    if grand_total < 0:
+        grand_total = Decimal("0.00")
+
+    new_po = po_number.strip() or f"PO-AI-{uuid4().hex[:8].upper()}"
+    if ctx.db.get(PurchaseOrder, new_po):
+        return _json({"error": f"PO number '{new_po}' already exists"})
+
+    payload = {
+        "po_number": new_po,
+        "supplier_id": vendor_id,
+        "order_date": date.today().isoformat(),
+        "payment_terms": terms,
+        "status": "Draft",
+        "shipping_fee": str(shipping_fee),
+        "discount_type": discount_type,
+        "discount_value": str(discount_value),
+        "subtotal": str(subtotal),
+        "total_tax": str(total_tax),
+        "discount_amount": str(discount_amount),
+        "grand_total": str(grand_total),
+        "notes": notes,
+        "items": line_items,
+    }
+    summary = (
+        f"Create draft purchase order {new_po} for vendor {vendor_id} "
+        f"({len(line_items)} line(s), total ${grand_total})"
+    )
+    if template_id:
+        summary += f" cloned from {template_id} ×{mult}"
+
+    action = create_pending_action(
+        user_id=str(ctx.user.id),
+        action_type="create_draft_purchase_order",
+        summary=summary,
+        payload=payload,
+    )
+    return _json(
+        {
+            "pending_confirmation": True,
+            "action_id": action.action_id,
+            "action_type": action.action_type,
+            "summary": summary,
+            "payload": payload,
+        }
+    )
+
+
+@tool
+def get_subcontract_orders(vendor_id: str = "", status: str = "", limit: int = 20) -> str:
+    """List subcontract orders, optionally filtered by vendor/supplier_id and/or status."""
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "subcontract:view")
+    if denied:
+        return denied
+
+    q = ctx.db.query(SubcontractOrder)
+    if vendor_id.strip():
+        q = q.filter(SubcontractOrder.supplier_id == vendor_id.strip())
+    if status.strip():
+        q = q.filter(SubcontractOrder.status.ilike(status.strip()))
+    orders = q.order_by(SubcontractOrder.created_at.desc()).limit(max(1, min(limit, 50))).all()
+    rows = [
+        {
+            "sco_number": o.sco_number,
+            "supplier_id": o.supplier_id,
+            "item_id": o.item_id,
+            "quantity_ordered": o.quantity_ordered,
+            "unit_price": o.unit_price,
+            "status": o.status,
+            "approval_status": o.approval_status,
+            "billing_status": getattr(o, "billing_status", None),
+            "order_date": o.order_date,
+            "expected_return_date": o.expected_return_date,
+        }
+        for o in orders
+    ]
+    return _json({"count": len(rows), "orders": rows})
+
+
+@tool
+def get_subcontract_order_detail(sco_number: str) -> str:
+    """Get one subcontract order by SCO number, including component kit lines."""
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "subcontract:view")
+    if denied:
+        return denied
+
+    from sqlalchemy.orm import joinedload
+
+    order = (
+        ctx.db.query(SubcontractOrder)
+        .options(joinedload(SubcontractOrder.components))
+        .filter(SubcontractOrder.sco_number == sco_number.strip())
+        .first()
+    )
+    if not order:
+        return _json({"error": f"Subcontract order '{sco_number}' not found"})
+    return _json(
+        {
+            "sco_number": order.sco_number,
+            "supplier_id": order.supplier_id,
+            "item_id": order.item_id,
+            "quantity_ordered": order.quantity_ordered,
+            "unit_price": order.unit_price,
+            "status": order.status,
+            "approval_status": order.approval_status,
+            "billing_status": getattr(order, "billing_status", None),
+            "order_date": order.order_date,
+            "expected_return_date": order.expected_return_date,
+            "notes": order.notes,
+            "components": [
+                {
+                    "component_item_id": c.component_item_id,
+                    "quantity_required": c.quantity_required,
+                    "quantity_issued": c.quantity_issued,
+                }
+                for c in (order.components or [])
+            ],
+        }
+    )
+
+
+@tool
+def propose_draft_subcontract_order(
+    supplier_id: str = "",
+    item_id: str = "",
+    quantity_ordered: int = 0,
+    sco_number: str = "",
+    template_sco_number: str = "",
+    quantity_multiplier: float = 1.0,
+    unit_price: float = -1.0,
+    notes: str = "",
+) -> str:
+    """Propose creating a subcontract order (starts PLANNED / approval DRAFT). Does NOT write until UI confirm.
+
+    Provide either:
+    - template_sco_number: clone an existing SCO (optional quantity_multiplier, e.g. 2 for "x 2"), or
+    - supplier_id + item_id + quantity_ordered (assembly must have a Material BOM / subcontract kit).
+
+    When cloning, supplier/item/unit_price come from the template; quantity_ordered is multiplied.
+    Component kit lines are rebuilt from BOM on create (scaled to the new quantity).
+    """
+    ctx = get_ai_context()
+    denied = _require_perm(ctx.user, "subcontract:create")
+    if denied:
+        return denied
+
+    mult = Decimal(str(quantity_multiplier or 1))
+    if mult <= 0:
+        return _json({"error": "quantity_multiplier must be positive"})
+
+    vendor_id = supplier_id.strip()
+    assembly_id = item_id.strip()
+    qty = int(quantity_ordered or 0)
+    price = Decimal(str(unit_price)) if unit_price is not None and unit_price >= 0 else None
+    note_text = notes.strip() or "Created via AI assistant"
+    template_id = template_sco_number.strip()
+
+    if template_id:
+        template = ctx.db.get(SubcontractOrder, template_id)
+        if not template:
+            return _json({"error": f"Template subcontract order '{template_id}' not found"})
+        vendor_id = template.supplier_id
+        assembly_id = template.item_id
+        raw_qty = Decimal(str(template.quantity_ordered or 0)) * mult
+        qty = int(raw_qty.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if qty <= 0:
+            return _json({"error": "Scaled quantity must be at least 1"})
+        price = Decimal(str(template.unit_price or 0))
+        note_text = f"Cloned from {template_id} via AI (qty × {mult})"
+    else:
+        if not vendor_id:
+            return _json({"error": "supplier_id is required when not cloning a template SCO"})
+        if not assembly_id:
+            return _json({"error": "item_id is required when not cloning a template SCO"})
+        if qty <= 0:
+            return _json({"error": "quantity_ordered must be a positive integer"})
+        if price is None:
+            price = Decimal("0")
+
+    supplier = ctx.db.get(Supplier, vendor_id)
+    if not supplier:
+        return _json({"error": f"Supplier/vendor '{vendor_id}' not found"})
+    product = ctx.db.get(Item, assembly_id)
+    if not product:
+        return _json({"error": f"Item '{assembly_id}' not found"})
+
+    from app.services.catalog import material_bom_lines
+
+    bom_lines = material_bom_lines(ctx.db, assembly_id)
+    if not bom_lines:
+        return _json(
+            {
+                "error": f"Item '{assembly_id}' has no Material BOM / subcontract kit; "
+                "cannot create a subcontract order"
+            }
+        )
+
+    new_sco = sco_number.strip() or f"SCO-AI-{uuid4().hex[:8].upper()}"
+    if ctx.db.get(SubcontractOrder, new_sco):
+        return _json({"error": f"SCO number '{new_sco}' already exists"})
+
+    payload = {
+        "sco_number": new_sco,
+        "supplier_id": vendor_id,
+        "item_id": assembly_id,
+        "quantity_ordered": qty,
+        "unit_price": str(price),
+        "order_date": date.today().isoformat(),
+        "notes": note_text,
+    }
+    summary = (
+        f"Create subcontract order {new_sco} for vendor {vendor_id} "
+        f"(item {assembly_id}, qty {qty}, unit ${price})"
+    )
+    if template_id:
+        summary += f" cloned from {template_id} ×{mult}"
+
+    action = create_pending_action(
+        user_id=str(ctx.user.id),
+        action_type="create_draft_subcontract_order",
+        summary=summary,
+        payload=payload,
+    )
+    return _json(
+        {
+            "pending_confirmation": True,
+            "action_id": action.action_id,
+            "action_type": action.action_type,
+            "summary": summary,
+            "payload": payload,
+        }
+    )
 
 
 @tool
@@ -257,13 +711,52 @@ def execute_confirmed_action(db: Session, user: User, action_type: str, payload:
             "total_amount": order.total_amount,
             "customer_id": order.customer_id,
         }
+    if action_type == "create_draft_purchase_order":
+        denied = _require_perm(user, "po:create")
+        if denied:
+            raise PermissionError(denied)
+        from app.routers.purchase_orders import create_purchase_order
+        from app.schemas import PurchaseOrderCreate
+
+        create_payload = PurchaseOrderCreate.model_validate(payload)
+        order = create_purchase_order(create_payload, db)
+        return {
+            "po_number": order.po_number,
+            "status": order.status,
+            "grand_total": order.grand_total,
+            "supplier_id": order.supplier_id,
+        }
+    if action_type == "create_draft_subcontract_order":
+        denied = _require_perm(user, "subcontract:create")
+        if denied:
+            raise PermissionError(denied)
+        from app.routers.subcontract_orders import create_subcontract_order
+        from app.schemas import SubcontractOrderCreate
+
+        create_payload = SubcontractOrderCreate.model_validate(payload)
+        order = create_subcontract_order(create_payload, db)
+        return {
+            "sco_number": order.sco_number,
+            "status": order.status,
+            "approval_status": order.approval_status,
+            "supplier_id": order.supplier_id,
+            "item_id": order.item_id,
+            "quantity_ordered": order.quantity_ordered,
+            "unit_price": order.unit_price,
+        }
     raise ValueError(f"Unsupported action type: {action_type}")
 
 
 ERP_TOOLS = [
     get_sales_orders,
     get_sales_order_detail,
+    get_purchase_orders,
+    get_purchase_order_detail,
+    get_subcontract_orders,
+    get_subcontract_order_detail,
     get_inventory_levels,
     search_erp_knowledge,
     propose_draft_sales_order,
+    propose_draft_purchase_order,
+    propose_draft_subcontract_order,
 ]

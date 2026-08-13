@@ -146,8 +146,8 @@ def _on_so_approved(db: Session, doc: SalesOrder) -> None:
 
 
 def _on_po_approved(db: Session, doc: PurchaseOrder) -> None:
+    # AP recognition is deferred to the Supplier Invoice workflow after goods receipt.
     doc.status = "Approved"
-    finance.create_ap_bill_for_purchase_order(db, doc)
 
 
 def _on_je_approved(db: Session, doc: JournalEntry) -> None:

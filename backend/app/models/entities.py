@@ -500,9 +500,11 @@ class SubcontractOrder(Base):
     item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
 
     quantity_ordered = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
     status = Column(String(30), nullable=False, default='PLANNED')
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
 
     order_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
     expected_return_date = Column(Date)
@@ -615,12 +617,15 @@ class ARInvoice(Base):
 
 
 class APBill(Base):
-    """Accounts Payable Bill - auto-generated when a Purchase Order is Approved."""
+    """Accounts Payable Bill - mirrored from approved Supplier Invoices (or legacy PO approve)."""
     __tablename__ = 'ap_bills'
 
     bill_id = Column(String(50), primary_key=True)
-    purchase_order_id = Column(String(50), ForeignKey('purchaseorders.po_number'), nullable=False)
+    purchase_order_id = Column(String(50), ForeignKey('purchaseorders.po_number'), nullable=True)
     vendor_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
+    supplier_invoice_id = Column(Integer, ForeignKey('supplier_invoices.id'), nullable=True)
+    source_type = Column(String(30), nullable=True)
+    source_order_id = Column(String(50), nullable=True)
 
     amount = Column(Numeric(12, 2), nullable=False)
     status = Column(String(20), nullable=False, default='Unpaid')  # Unpaid, Partial, Paid
@@ -636,6 +641,7 @@ class APBill(Base):
     # Relationships
     purchase_order = relationship("PurchaseOrder")
     vendor = relationship("Supplier")
+    supplier_invoice = relationship("SupplierInvoice", foreign_keys=[supplier_invoice_id])
 
 
 class PurchaseOrder(Base):
@@ -651,6 +657,7 @@ class PurchaseOrder(Base):
     status = Column(String(20), nullable=False, default='Draft')  # Draft, Submitted, Approved, Void
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
 
     shipping_fee = Column(Numeric(12, 2), nullable=False, default=0)
     discount_type = Column(String(20), nullable=False, default='percentage')  # percentage or fixed
@@ -919,3 +926,135 @@ class SalesInvoiceLine(Base):
 
     invoice = relationship("SalesInvoice", back_populates="lines")
     item = relationship("Item")
+
+
+# ========================================================
+# PROCURE-TO-PAY: GOODS RECEIPTS & SUPPLIER INVOICES
+# ========================================================
+
+
+class GoodsReceipt(Base):
+    __tablename__ = "goods_receipts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    receipt_number = Column(String(50), unique=True, nullable=False)
+    source_type = Column(String(30), nullable=False)
+    source_order_id = Column(String(50), nullable=False)
+    vendor_id = Column(String(50), ForeignKey("suppliers.supplier_id"), nullable=False)
+    receipt_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'POSTED'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')",
+            name="chk_goods_receipt_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'POSTED', 'CANCELLED')",
+            name="chk_goods_receipt_status",
+        ),
+    )
+
+    vendor = relationship("Supplier")
+    lines = relationship(
+        "GoodsReceiptLine",
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+    )
+
+
+class GoodsReceiptLine(Base):
+    __tablename__ = "goods_receipt_lines"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    receipt_id = Column(
+        Integer, ForeignKey("goods_receipts.id", ondelete="CASCADE"), nullable=False
+    )
+    source_line_id = Column(BigInteger, nullable=True)
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    description = Column(String(255), nullable=True)
+    quantity_received = Column(Numeric(12, 4), nullable=False)
+    unit_cost = Column(Numeric(12, 4), nullable=False)
+    line_amount = Column(Numeric(12, 2), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("quantity_received > 0", name="chk_gr_line_qty_pos"),
+    )
+
+    receipt = relationship("GoodsReceipt", back_populates="lines")
+    item = relationship("Item")
+
+
+class SupplierInvoice(Base):
+    __tablename__ = "supplier_invoices"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_number = Column(String(50), unique=True, nullable=False)
+    vendor_id = Column(String(50), ForeignKey("suppliers.supplier_id"), nullable=False)
+    source_type = Column(String(30), nullable=False)
+    source_order_id = Column(String(50), nullable=False)
+    vendor_invoice_number = Column(String(100), nullable=True)
+    invoice_date = Column(Date, nullable=False)
+    due_date = Column(Date, nullable=False)
+    status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
+    subtotal = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    tax_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    freight_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    total_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    outstanding_balance = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    ap_bill_id = Column(String(50), ForeignKey("ap_bills.bill_id"), nullable=True)
+    match_warnings = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')",
+            name="chk_supplier_invoice_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'CANCELLED')",
+            name="chk_supplier_invoice_status",
+        ),
+    )
+
+    vendor = relationship("Supplier")
+    ap_bill = relationship("APBill", foreign_keys=[ap_bill_id])
+    lines = relationship(
+        "SupplierInvoiceLine",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+
+
+class SupplierInvoiceLine(Base):
+    __tablename__ = "supplier_invoice_lines"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_id = Column(
+        Integer, ForeignKey("supplier_invoices.id", ondelete="CASCADE"), nullable=False
+    )
+    source_line_id = Column(BigInteger, nullable=True)
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    description = Column(String(255), nullable=True)
+    quantity_billed = Column(Numeric(12, 4), nullable=False)
+    unit_price = Column(Numeric(12, 4), nullable=False)
+    line_subtotal = Column(Numeric(12, 2), nullable=False)
+    goods_receipt_line_id = Column(
+        Integer, ForeignKey("goods_receipt_lines.id"), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint("quantity_billed > 0", name="chk_si_line_qty_pos"),
+    )
+
+    invoice = relationship("SupplierInvoice", back_populates="lines")
+    item = relationship("Item")
+    goods_receipt_line = relationship("GoodsReceiptLine")

@@ -868,7 +868,7 @@ function RevenueInteractivePanel({
             id: 'ar',
             label: 'View AR invoices',
             onClick: () => {
-              window.location.assign('/ar-invoices')
+              window.location.assign('/accounts-receivable')
             },
           },
         ]}
@@ -1317,7 +1317,7 @@ function CashFinanceInteractivePanel({
             id: 'open',
             label: r.kind === 'AR' ? 'Open AR' : 'Open AP',
             onClick: () =>
-              window.location.assign(r.kind === 'AR' ? '/ar-invoices' : '/ap-bills'),
+              window.location.assign(r.kind === 'AR' ? '/accounts-receivable' : '/accounts-payable'),
           },
         ]}
         renderExpanded={(r) => (

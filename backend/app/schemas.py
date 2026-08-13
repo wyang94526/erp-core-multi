@@ -571,6 +571,7 @@ class FinishedGoodsReceiptCreate(BaseModel):
     quantity_received: int = Field(gt=0)
     receipt_date: date | None = None
     notes: str | None = None
+    unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
 
 class FinishedGoodsReceiptRead(ORMModel):
     receipt_id: str
@@ -586,6 +587,7 @@ class SubcontractOrderCreate(BaseModel):
     supplier_id: str = Field(max_length=50)
     item_id: str = Field(max_length=50)
     quantity_ordered: int = Field(gt=0)
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=4)
     order_date: date | None = None
     expected_return_date: date | None = None
     notes: str | None = None
@@ -593,6 +595,7 @@ class SubcontractOrderCreate(BaseModel):
 class SubcontractOrderUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=50)
     quantity_ordered: int | None = Field(default=None, gt=0)
+    unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     status: str | None = Field(default=None, max_length=30)
     expected_return_date: date | None = None
     notes: str | None = None
@@ -602,9 +605,11 @@ class SubcontractOrderRead(ORMModel):
     supplier_id: str
     item_id: str
     quantity_ordered: int
+    unit_price: Decimal = Decimal("0")
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    billing_status: str = 'UNBILLED'
     order_date: date
     expected_return_date: date | None
     notes: str | None
@@ -696,6 +701,7 @@ class PurchaseOrderRead(ORMModel):
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    billing_status: str = 'UNBILLED'
 
     shipping_fee: Decimal
     discount_type: str
@@ -736,8 +742,11 @@ class ARInvoiceCreate(BaseModel):
 
 class APBillRead(ORMModel):
     bill_id: str
-    purchase_order_id: str
+    purchase_order_id: str | None = None
     vendor_id: str
+    supplier_invoice_id: int | None = None
+    source_type: str | None = None
+    source_order_id: str | None = None
     amount: Decimal
     status: str
     approval_status: str = 'DRAFT'
@@ -1245,3 +1254,106 @@ class SalesInvoiceRead(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     lines: list[SalesInvoiceLineRead] = Field(default_factory=list)
+
+
+# ==========================================
+# PROCURE-TO-PAY: GOODS RECEIPTS & SUPPLIER INVOICES
+# ==========================================
+
+
+class GoodsReceiptLineCreate(BaseModel):
+    source_line_id: int
+    quantity_received: Decimal = Field(gt=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+
+
+class GoodsReceiptCreate(BaseModel):
+    receipt_date: date | None = None
+    notes: str | None = None
+    lines: list[GoodsReceiptLineCreate] = Field(min_length=1)
+
+
+class GoodsReceiptLineRead(BaseModel):
+    id: int
+    receipt_id: int
+    source_line_id: int | None = None
+    item_id: str
+    description: str | None = None
+    quantity_received: Decimal
+    unit_cost: Decimal
+    line_amount: Decimal
+
+
+class GoodsReceiptRead(BaseModel):
+    id: int
+    receipt_number: str
+    source_type: str
+    source_order_id: str
+    vendor_id: str
+    receipt_date: date
+    status: str
+    notes: str | None = None
+    created_at: datetime | None = None
+    lines: list[GoodsReceiptLineRead] = Field(default_factory=list)
+
+
+class SupplierInvoiceLineCreate(BaseModel):
+    source_line_id: int | None = None
+    item_id: str | None = None
+    description: str | None = None
+    quantity_billed: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0, decimal_places=4)
+
+
+class SupplierInvoiceCreate(BaseModel):
+    source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER"]
+    source_order_id: str = Field(min_length=1, max_length=50)
+    vendor_invoice_number: str | None = Field(default=None, max_length=100)
+    invoice_date: date | None = None
+    due_date: date | None = None
+    tax_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    freight_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    lines: list[SupplierInvoiceLineCreate] | None = None
+
+
+class SupplierInvoiceLineRead(BaseModel):
+    id: int
+    invoice_id: int
+    source_line_id: int | None = None
+    item_id: str
+    description: str | None = None
+    quantity_billed: Decimal
+    unit_price: Decimal
+    line_subtotal: Decimal
+    goods_receipt_line_id: int | None = None
+
+
+class SupplierInvoiceRead(BaseModel):
+    id: int
+    invoice_number: str
+    vendor_id: str
+    vendor_name: str | None = None
+    source_type: str
+    source_order_id: str
+    vendor_invoice_number: str | None = None
+    invoice_date: date
+    due_date: date
+    status: str
+    subtotal: Decimal
+    tax_amount: Decimal
+    freight_amount: Decimal
+    total_amount: Decimal
+    outstanding_balance: Decimal
+    currency: str
+    ap_bill_id: str | None = None
+    match_warnings: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    lines: list[SupplierInvoiceLineRead] = Field(default_factory=list)
+    payment_transaction_id: str | None = None
+
+
+class SupplierInvoicePayRequest(BaseModel):
+    amount: Decimal | None = Field(default=None, gt=0, decimal_places=2)
+    bank_account_id: str | None = Field(default=None, max_length=50)

@@ -122,7 +122,7 @@ function APBills() {
     <div style={containerStyle}>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>Accounts Payable</h1>
+          <h1 style={pageTitleStyle}>AP Aging & Payments</h1>
           <p style={pageSubStyle}>Vendor bills generated from approved Purchase Orders</p>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import AiAssistant from './components/AiAssistant'
+import PageBreadcrumbs from './components/PageBreadcrumbs'
 import SidebarNav from './components/SidebarNav'
 import UserMenu from './components/UserMenu'
 import './App.css'
@@ -81,6 +82,7 @@ function App() {
           </div>
         </header>
         <main className="app-main">
+          <PageBreadcrumbs />
           <Outlet />
         </main>
       </div>

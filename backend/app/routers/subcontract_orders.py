@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models import (
     ComponentIssueLog,
     FinishedGoodsReceipt,
+    Item,
     MaterialIssue,
     MaterialIssueLine,
     ItemBOMComponent,
@@ -97,6 +98,7 @@ def create_subcontract_order(
         supplier_id=payload.supplier_id,
         item_id=payload.item_id,
         quantity_ordered=payload.quantity_ordered,
+        unit_price=payload.unit_price,
         status="PLANNED",
         expected_return_date=payload.expected_return_date,
         notes=payload.notes,
@@ -359,6 +361,19 @@ def receive_goods(
         receipt.receipt_date = payload.receipt_date
     db.add(receipt)
     db.flush()
+
+    # Accrue GRNI for subcontract service value (Dr Inventory / Cr GRNI).
+    from app.services import p2p
+
+    p2p.accrue_subcontract_receipt(
+        db,
+        sco=sco,
+        quantity_received=payload.quantity_received,
+        unit_cost=payload.unit_cost,
+        receipt_date=payload.receipt_date,
+        notes=payload.notes,
+        external_receipt_id=None,
+    )
 
     new_total_received = total_received_so_far + payload.quantity_received
     if new_total_received >= sco.quantity_ordered:

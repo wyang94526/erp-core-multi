@@ -2,143 +2,129 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { isUnassignedUser } from '../config/dashboardRoles'
-
-type NavItem = {
-  label: string
-  to: string
-  end?: boolean
-  permission?: string
-}
-
-type NavCategory = {
-  id: string
-  label: string
-  /** Role IDs that may see this category (Admin always allowed via hasAnyRole). */
-  roles: string[]
-  items: NavItem[]
-}
-
-const ALL_ROLES = [
-  'ROLE-ADMIN',
-  'ROLE-UNASSIGNED',
-  'ROLE-SALES-REP',
-  'ROLE-SALES-MGR',
-  'ROLE-PURCH-AGENT',
-  'ROLE-PURCH-MGR',
-  'ROLE-SCO-SUP',
-  'ROLE-FIN-APPR',
-  'ROLE-MANAGER',
-]
-
-const NAV_CATEGORIES: NavCategory[] = [
-  {
-    id: 'home',
-    label: '🏠 Home',
-    roles: ALL_ROLES,
-    items: [{ label: 'Dashboard', to: '/', end: true }],
-  },
-  {
-    id: 'sales-procurement',
-    label: '📦 Sales & Procurement',
-    roles: [
-      'ROLE-SALES-REP',
-      'ROLE-SALES-MGR',
-      'ROLE-PURCH-AGENT',
-      'ROLE-PURCH-MGR',
-      'ROLE-ADMIN',
-    ],
-    items: [
-      { label: 'Sales Orders', to: '/sales-orders', permission: 'sales_order:view' },
-      { label: 'Item Fulfillments', to: '/fulfillments', permission: 'sales_order:view' },
-      { label: 'Sales Invoices', to: '/sales-invoices', permission: 'sales_order:view' },
-      { label: 'Purchase Orders', to: '/purchase-orders', permission: 'po:view' },
-    ],
-  },
-  {
-    id: 'manufacturing',
-    label: '🏭 Manufacturing',
-    roles: [
-      'ROLE-SCO-SUP',
-      'ROLE-PURCH-AGENT',
-      'ROLE-PURCH-MGR',
-      'ROLE-FIN-APPR',
-      'ROLE-ADMIN',
-    ],
-    items: [
-      { label: 'Subcontract Orders', to: '/subcontract-orders', permission: 'subcontract:view' },
-    ],
-  },
-  {
-    id: 'inventory',
-    label: '📋 Inventory',
-    roles: ['ROLE-SCO-SUP', 'ROLE-PURCH-AGENT', 'ROLE-MANAGER', 'ROLE-ADMIN'],
-    items: [
-      { label: 'Items', to: '/items' },
-      { label: 'Stock On-Hand & ATP', to: '/inventory', end: true },
-      { label: 'Stock Movements', to: '/inventory/movements' },
-      { label: 'Warehouses & Bins', to: '/inventory/warehouses' },
-    ],
-  },
-  {
-    id: 'master-data',
-    label: '🤝 Master Data',
-    roles: ['ROLE-ADMIN', 'ROLE-MANAGER'],
-    items: [
-      { label: 'Customers', to: '/customers' },
-      { label: 'Vendors', to: '/vendors' },
-    ],
-  },
-  {
-    id: 'finance-accounting',
-    label: '💰 Finance & Accounting',
-    roles: ['ROLE-FIN-APPR', 'ROLE-MANAGER', 'ROLE-ADMIN'],
-    items: [
-      { label: 'Chart of Accounts', to: '/chart-of-accounts', permission: 'journal:view' },
-      { label: 'Accounts Receivable', to: '/ar-invoices', permission: 'ar_invoice:view' },
-      { label: 'Accounts Payable', to: '/ap-bills', permission: 'ap_bill:view' },
-      { label: 'Cash Management', to: '/cash-management', permission: 'cash:view' },
-      { label: 'General Ledger', to: '/general-ledger', permission: 'journal:view' },
-    ],
-  },
-  {
-    id: 'admin',
-    label: '⚙️ Administration',
-    roles: ['ROLE-ADMIN'],
-    items: [
-      { label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
-    ],
-  },
-]
-
-function isItemActive(pathname: string, item: NavItem): boolean {
-  if (item.to === '/') {
-    return pathname === '/'
-  }
-  if (item.to === '/sales-orders') {
-    return (
-      pathname === '/sales-orders' ||
-      pathname.startsWith('/sales-orders/') ||
-      pathname.startsWith('/orders')
-    )
-  }
-  if (item.end) {
-    return pathname === item.to
-  }
-  return pathname === item.to || pathname.startsWith(`${item.to}/`)
-}
-
-function findActiveCategoryId(pathname: string): string | null {
-  for (const category of NAV_CATEGORIES) {
-    if (category.items.some((item) => isItemActive(pathname, item))) {
-      return category.id
-    }
-  }
-  return null
-}
+import {
+  NAV_CATEGORIES,
+  findActiveCategoryId,
+  findActiveGroupId,
+  flattenNavLinks,
+  isNavLinkActive,
+  type NavCategory,
+  type NavEntry,
+  type NavGroup,
+  type NavLinkItem,
+} from '../config/sidebarNav'
 
 type SidebarNavProps = {
   collapsed: boolean
   onNavigate?: () => void
+}
+
+function filterEntries(
+  entries: NavEntry[],
+  opts: {
+    loading: boolean
+    hasPermission: (code: string) => boolean
+    homeLabel: string
+  },
+): NavEntry[] {
+  const { loading, hasPermission, homeLabel } = opts
+  const result: NavEntry[] = []
+
+  for (const entry of entries) {
+    if (entry.kind === 'link') {
+      const link: NavLinkItem =
+        entry.to === '/' ? { ...entry, label: homeLabel } : entry
+      if (!link.permission || loading || hasPermission(link.permission)) {
+        result.push(link)
+      }
+      continue
+    }
+
+    const items = entry.items.filter(
+      (item) => !item.permission || loading || hasPermission(item.permission),
+    )
+    if (items.length > 0) {
+      result.push({ ...entry, items })
+    }
+  }
+
+  return result
+}
+
+function NavLinkRow({
+  item,
+  pathname,
+  nested,
+  onNavigate,
+}: {
+  item: NavLinkItem
+  pathname: string
+  nested?: boolean
+  onNavigate?: () => void
+}) {
+  const active = isNavLinkActive(pathname, item)
+  return (
+    <li>
+      <NavLink
+        to={item.to}
+        end={item.end}
+        className={({ isActive }) =>
+          `app-nav-link${nested ? ' nested' : ''}${isActive || active ? ' active' : ''}`
+        }
+        onClick={onNavigate}
+      >
+        {item.label}
+      </NavLink>
+    </li>
+  )
+}
+
+function NavGroupBlock({
+  group,
+  pathname,
+  open,
+  onToggle,
+  onNavigate,
+}: {
+  group: NavGroup
+  pathname: string
+  open: boolean
+  onToggle: () => void
+  onNavigate?: () => void
+}) {
+  const hasActiveChild = group.items.some((item) => isNavLinkActive(pathname, item))
+
+  return (
+    <li className="app-nav-subgroup">
+      <button
+        type="button"
+        className={`app-nav-subgroup-header${hasActiveChild ? ' active' : ''}`}
+        onClick={(e) => {
+          onToggle()
+          ;(e.currentTarget as HTMLButtonElement).blur()
+        }}
+        aria-expanded={open}
+      >
+        <span>{group.label}</span>
+        <span className="app-nav-chevron" aria-hidden>
+          {open ? '▾' : '▸'}
+        </span>
+      </button>
+      {open && (
+        <ul className="app-nav-subgroup-items">
+          {group.items.map((item) => (
+            <NavLinkRow
+              key={item.to}
+              item={item}
+              pathname={pathname}
+              nested
+              onNavigate={onNavigate}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
 }
 
 export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
@@ -146,40 +132,79 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const { user, hasPermission, hasAnyRole, loading } = useAuth()
   const homeLabel = isUnassignedUser(user) ? 'Welcome' : 'Dashboard'
   const activeCategoryId = findActiveCategoryId(location.pathname)
+
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     for (const category of NAV_CATEGORIES) {
+      // Only the route-active category starts open — same for every section
       initial[category.id] = category.id === activeCategoryId
     }
     return initial
   })
 
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const category of NAV_CATEGORIES) {
+      const activeGroup = findActiveGroupId(location.pathname, category)
+      for (const entry of category.entries) {
+        if (entry.kind === 'group') {
+          initial[entry.id] = entry.id === activeGroup
+        }
+      }
+    }
+    return initial
+  })
+
+  // Keep only the active category open (accordion) so Finance doesn't stay expanded
+  // and visually emphasized after you leave finance pages.
   useEffect(() => {
     if (!activeCategoryId) return
-    setOpenCategories((prev) => {
-      if (prev[activeCategoryId]) return prev
-      return { ...prev, [activeCategoryId]: true }
+    setOpenCategories(() => {
+      const next: Record<string, boolean> = {}
+      for (const category of NAV_CATEGORIES) {
+        next[category.id] = category.id === activeCategoryId
+      }
+      return next
     })
-  }, [activeCategoryId])
+
+    const category = NAV_CATEGORIES.find((c) => c.id === activeCategoryId)
+    if (!category) return
+    const activeGroupId = findActiveGroupId(location.pathname, category)
+    setOpenGroups((prev) => {
+      const next = { ...prev }
+      for (const entry of category.entries) {
+        if (entry.kind === 'group') {
+          next[entry.id] = entry.id === activeGroupId
+        }
+      }
+      return next
+    })
+  }, [activeCategoryId, location.pathname])
 
   const toggleCategory = (id: string) => {
-    setOpenCategories((prev) => ({ ...prev, [id]: !prev[id] }))
+    setOpenCategories((prev) => {
+      const willOpen = !prev[id]
+      const next: Record<string, boolean> = {}
+      for (const category of NAV_CATEGORIES) {
+        // Accordion: at most one top-level section open
+        next[category.id] = willOpen ? category.id === id : false
+      }
+      return next
+    })
   }
 
-  const visibleCategories = NAV_CATEGORIES.filter(
+  const toggleGroup = (id: string) => {
+    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const visibleCategories: Array<NavCategory & { entries: NavEntry[] }> = NAV_CATEGORIES.filter(
     (category) => loading || hasAnyRole(category.roles),
   )
     .map((category) => ({
       ...category,
-      items: category.items
-        .map((item) =>
-          item.to === '/' ? { ...item, label: homeLabel } : item,
-        )
-        .filter(
-          (item) => !item.permission || loading || hasPermission(item.permission),
-        ),
+      entries: filterEntries(category.entries, { loading, hasPermission, homeLabel }),
     }))
-    .filter((category) => category.items.length > 0)
+    .filter((category) => flattenNavLinks(category.entries).length > 0)
 
   return (
     <aside
@@ -191,6 +216,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
         <nav className="app-sidebar-nav" aria-label="Main">
           {visibleCategories.map((category) => {
             const isOpen = Boolean(openCategories[category.id])
+            // Only route-match highlights the header — never "open" alone
             const isActiveCategory = category.id === activeCategoryId
 
             return (
@@ -198,7 +224,11 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
                 <button
                   type="button"
                   className={`app-nav-category-header${isActiveCategory ? ' active' : ''}`}
-                  onClick={() => toggleCategory(category.id)}
+                  onClick={(e) => {
+                    toggleCategory(category.id)
+                    // Avoid sticky focus styling that looks like a permanent highlight
+                    ;(e.currentTarget as HTMLButtonElement).blur()
+                  }}
                   aria-expanded={isOpen}
                 >
                   <span>{category.label}</span>
@@ -208,20 +238,25 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
                 </button>
                 {isOpen && (
                   <ul className="app-nav-items">
-                    {category.items.map((item) => (
-                      <li key={item.to}>
-                        <NavLink
-                          to={item.to}
-                          end={item.end}
-                          className={({ isActive }) =>
-                            `app-nav-link${isActive || isItemActive(location.pathname, item) ? ' active' : ''}`
-                          }
-                          onClick={onNavigate}
-                        >
-                          {item.label}
-                        </NavLink>
-                      </li>
-                    ))}
+                    {category.entries.map((entry) =>
+                      entry.kind === 'link' ? (
+                        <NavLinkRow
+                          key={entry.to}
+                          item={entry}
+                          pathname={location.pathname}
+                          onNavigate={onNavigate}
+                        />
+                      ) : (
+                        <NavGroupBlock
+                          key={entry.id}
+                          group={entry}
+                          pathname={location.pathname}
+                          open={Boolean(openGroups[entry.id])}
+                          onToggle={() => toggleGroup(entry.id)}
+                          onNavigate={onNavigate}
+                        />
+                      ),
+                    )}
                   </ul>
                 )}
               </div>
