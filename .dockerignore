@@ -1,0 +1,13 @@
+.git
+.gitignore
+**/.DS_Store
+venv
+**/.venv
+**/__pycache__
+**/*.pyc
+backend/data
+erp-frontend/node_modules
+erp-frontend/dist
+.env
+*.md
+init-scripts/*.rtf

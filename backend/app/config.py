@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,6 +21,12 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    environment: str = "development"
+    # Comma-separated origins. Empty = same-origin only (no extra CORS hosts).
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:4173,http://127.0.0.1:4173"
+    )
     # Auth — override JWT_SECRET in .env for any non-local deployment
     jwt_secret: str = "erp-dev-jwt-secret-change-me"
     jwt_algorithm: str = "HS256"
@@ -34,13 +41,29 @@ class Settings(BaseSettings):
     ai_knowledge_path: str = "backend/app/ai/knowledge"
 
     @property
+    def is_production(self) -> bool:
+        return self.environment.lower() in {"prod", "production"}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
     def database_url(self) -> str:
+        password = quote_plus(self.postgres_password)
         return (
-            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.is_production:
+        secret = (settings.jwt_secret or "").strip()
+        if not secret or secret == "erp-dev-jwt-secret-change-me":
+            raise ValueError(
+                "Set JWT_SECRET to a random value before running in production"
+            )
+    return settings
