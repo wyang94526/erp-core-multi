@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true,
+    // Vite 6+ blocks unknown Host headers (public OCI IP would 403).
+    allowedHosts: true,
     // Proxy API calls through Vite so the UI works via localhost OR LAN IP
     // without hardcoding http://localhost:8000 (which breaks on other hosts).
     proxy: {
