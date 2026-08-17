@@ -640,3 +640,18 @@ export interface AuditLog {
   user_id: string | null;
   changed_at: string;
 }
+
+export type DocumentType = string;
+
+export interface DocumentAttachment {
+  id: number;
+  document_type: DocumentType;
+  document_id: string;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  notes: string | null;
+  uploaded_by_user_id: string | null;
+  uploaded_by_name: string | null;
+  uploaded_at: string;
+}

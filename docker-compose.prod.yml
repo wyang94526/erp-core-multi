@@ -31,8 +31,10 @@ services:
       POSTGRES_PORT: "5432"
       ENVIRONMENT: production
       AI_CHROMA_PATH: /data/chroma
+      ATTACHMENTS_PATH: /data/attachments
     volumes:
       - chroma_data:/data/chroma
+      - attachments_data:/data/attachments
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,3 +54,4 @@ services:
 volumes:
   postgres_data:
   chroma_data:
+  attachments_data:

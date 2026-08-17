@@ -1357,3 +1357,16 @@ class SupplierInvoiceRead(BaseModel):
 class SupplierInvoicePayRequest(BaseModel):
     amount: Decimal | None = Field(default=None, gt=0, decimal_places=2)
     bank_account_id: str | None = Field(default=None, max_length=50)
+
+
+class DocumentAttachmentRead(ORMModel):
+    id: int
+    document_type: str
+    document_id: str
+    original_filename: str
+    content_type: str
+    file_size: int
+    notes: str | None = None
+    uploaded_by_user_id: str | None = None
+    uploaded_by_name: str | None = None
+    uploaded_at: datetime

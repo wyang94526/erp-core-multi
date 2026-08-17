@@ -5,6 +5,7 @@ import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
+import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
 import { POSummaryCard } from './POSummaryCard';
@@ -605,6 +606,11 @@ export function PurchaseOrderForm() {
                 />
               )}
             </div>
+
+            <DocumentAttachmentsPanel
+              documentType="PURCHASE_ORDER"
+              documentId={isExisting ? state.po_number : ''}
+            />
           </div>
         </>
       )}

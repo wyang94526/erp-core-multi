@@ -12,6 +12,7 @@ import { FileDown, Loader2 } from 'lucide-react'
 import { itemService, subcontractOrderService, vendorService } from '../api/services'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { ApprovalPanel } from './ApprovalPanel'
+import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 import type { CalculatedComponentLine } from '../types'
 
 export function SubcontractOrderDetail() {
@@ -293,7 +294,7 @@ export function SubcontractOrderDetail() {
           <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
           <div>
             <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-              Vendor purchase attachment
+              Print subcontract order
             </div>
             <div style={{ fontSize: 13, color: 'var(--text)' }}>
               Download a printable PDF for the approved subcontract order.
@@ -322,7 +323,7 @@ export function SubcontractOrderDetail() {
             ) : (
               <>
                 <FileDown size={16} />
-                Export Vendor PDF
+                Print PDF
               </>
             )}
           </button>
@@ -411,6 +412,8 @@ export function SubcontractOrderDetail() {
           </div>
         </div>
       </div>
+
+      <DocumentAttachmentsPanel documentType="SUBCONTRACT_ORDER" documentId={sco.sco_number} />
 
       {/* Required Components / Kit Breakdown */}
       <div style={cardStyle}>

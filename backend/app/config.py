@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     ai_chroma_path: str = "backend/data/chroma"
     ai_knowledge_path: str = "backend/app/ai/knowledge"
+    attachments_path: str = "backend/data/attachments"
+    attachments_max_bytes: int = 15 * 1024 * 1024
+
+    def attachments_root(self) -> Path:
+        path = Path(self.attachments_path)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
 
     @property
     def is_production(self) -> bool:

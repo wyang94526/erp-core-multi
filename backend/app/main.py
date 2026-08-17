@@ -30,6 +30,7 @@ from app.routers import (
     suppliers,
     users,
     vendor_invoices,
+    attachments,
 )
 
 
@@ -76,6 +77,7 @@ app.include_router(purchase_orders.router, prefix="/api/v1")
 app.include_router(ar_invoices.router, prefix="/api/v1")
 app.include_router(ap_bills.router, prefix="/api/v1")
 app.include_router(vendor_invoices.router, prefix="/api/v1")
+app.include_router(attachments.router, prefix="/api/v1")
 app.include_router(cash_transactions.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")

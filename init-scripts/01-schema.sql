@@ -651,3 +651,19 @@ DO $$ BEGIN
     FOREIGN KEY (supplier_invoice_id) REFERENCES supplier_invoices(id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+CREATE TABLE IF NOT EXISTS document_attachments (
+    id SERIAL PRIMARY KEY,
+    document_type VARCHAR(30) NOT NULL,
+    document_id VARCHAR(50) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    stored_filename VARCHAR(255) NOT NULL,
+    content_type VARCHAR(100) NOT NULL,
+    file_size INT NOT NULL,
+    notes TEXT,
+    uploaded_by_user_id UUID REFERENCES users(id),
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_document_attachment_file_size CHECK (file_size > 0)
+);
+CREATE INDEX IF NOT EXISTS ix_document_attachments_document
+    ON document_attachments(document_type, document_id);

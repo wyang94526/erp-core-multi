@@ -37,6 +37,8 @@ import type {
   SubcontractBOMLine,
   CalculateComponentsResponse,
   AuditLog,
+  DocumentAttachment,
+  DocumentType,
 } from '../types';
 
 /** Map backend Item.item_id wire format → frontend Item */
@@ -1424,6 +1426,46 @@ export const auditLogService = {
   },
 };
 
+export const attachmentService = {
+  async list(documentType: DocumentType, documentId: string): Promise<DocumentAttachment[]> {
+    return apiClient.get<DocumentAttachment[]>('/api/v1/attachments', {
+      params: { document_type: documentType, document_id: documentId },
+    });
+  },
+
+  async upload(
+    documentType: DocumentType,
+    documentId: string,
+    file: File,
+    notes?: string,
+  ): Promise<DocumentAttachment> {
+    const formData = new FormData();
+    formData.append('document_type', documentType);
+    formData.append('document_id', documentId);
+    formData.append('file', file);
+    if (notes) formData.append('notes', notes);
+    return apiClient.upload<DocumentAttachment>('/api/v1/attachments', formData);
+  },
+
+  async download(attachment: DocumentAttachment): Promise<void> {
+    return apiClient.download(
+      `/api/v1/attachments/${attachment.id}/download`,
+      attachment.original_filename,
+    );
+  },
+
+  async view(attachment: DocumentAttachment): Promise<void> {
+    return apiClient.openInViewer(
+      `/api/v1/attachments/${attachment.id}/download`,
+      attachment.original_filename,
+    );
+  },
+
+  async remove(attachmentId: number): Promise<void> {
+    await apiClient.delete(`/api/v1/attachments/${attachmentId}`);
+  },
+};
+
 // ==========================================
 // EXPORT ALL SERVICES
 // ==========================================
@@ -1448,6 +1490,7 @@ export const apiServices = {
   journalEntries: journalEntryService,
   inventory: inventoryService,
   auditLogs: auditLogService,
+  attachments: attachmentService,
 };
 
 export default apiServices;

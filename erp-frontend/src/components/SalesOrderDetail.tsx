@@ -3,15 +3,27 @@
  * Displays full details of a single sales order including customer info, status, and line items
  */
 
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
-import { fulfillmentService, salesOrderService } from '../api/services'
+import { FileDown, Loader2 } from 'lucide-react'
+import {
+  customerService,
+  fulfillmentService,
+  itemService,
+  locationService,
+  salesOrderService,
+} from '../api/services'
+import { generateSalesOrderPdf } from '../utils/generateSalesOrderPdf'
 import { ApprovalPanel } from './ApprovalPanel'
+import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 
 export function SalesOrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   if (!id) {
     return (
@@ -83,6 +95,44 @@ export function SalesOrderDetail() {
   const canFulfillItems = isApproved && order.status !== 'CANCELLED'
   const canCreateInvoice = isApproved && hasShippedFulfillment
 
+  const handlePrintPdf = async () => {
+    setExportError(null)
+    setExportingPdf(true)
+    try {
+      const uniqueItemIds = [...new Set((order.items || []).map((item) => item.item_id).filter(Boolean))]
+      const [customer, billTo, shipTo, catalogItems] = await Promise.all([
+        order.customer_id
+          ? customerService.getCustomer(order.customer_id).catch(() => null)
+          : Promise.resolve(null),
+        order.bill_to_location_id
+          ? locationService.getLocation(order.bill_to_location_id).catch(() => null)
+          : Promise.resolve(null),
+        order.ship_to_location_id
+          ? locationService.getLocation(order.ship_to_location_id).catch(() => null)
+          : Promise.resolve(null),
+        Promise.all(uniqueItemIds.map((itemId) => itemService.getItem(itemId).catch(() => null))),
+      ])
+
+      const itemDescriptions = Object.fromEntries(
+        catalogItems
+          .filter((item) => item != null)
+          .map((item) => [item.item_id, item.description || item.customer_part_number || '']),
+      )
+
+      generateSalesOrderPdf({
+        order,
+        customerName: customer?.company_name ?? null,
+        billTo,
+        shipTo,
+        itemDescriptions,
+      })
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Failed to print sales order PDF')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   return (
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
@@ -105,6 +155,47 @@ export function SalesOrderDetail() {
           queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
         }}
       />
+
+      {isApproved && (
+        <div style={exportBarStyle}>
+          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Print sales order
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Download a printable PDF for the approved sales order.
+            </div>
+            {exportError && (
+              <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
+                {exportError}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handlePrintPdf}
+            disabled={exportingPdf}
+            style={{
+              ...exportButtonStyle,
+              opacity: exportingPdf ? 0.75 : 1,
+              cursor: exportingPdf ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {exportingPdf ? (
+              <>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                Preparing PDF…
+              </>
+            ) : (
+              <>
+                <FileDown size={16} />
+                Print PDF
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Order Header Information */}
       <div style={cardStyle}>
@@ -254,6 +345,8 @@ export function SalesOrderDetail() {
           <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>No line items found.</p>
         )}
       </div>
+
+      <DocumentAttachmentsPanel documentType="SALES_ORDER" documentId={order.sales_order_id} />
 
       {/* Action Buttons */}
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -473,6 +566,36 @@ const secondaryButtonStyle: React.CSSProperties = {
 const emptyStateWrapperStyle: React.CSSProperties = {
   padding: '30px',
   textAlign: 'center',
+}
+
+const exportBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  padding: '16px 18px',
+  marginBottom: 16,
+  borderRadius: 10,
+  border: '1px solid rgba(147, 51, 234, 0.28)',
+  background:
+    'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
+  boxShadow: 'var(--shadow)',
+}
+
+const exportButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '11px 18px',
+  backgroundColor: '#9333ea',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
 }
 
 export default SalesOrderDetail

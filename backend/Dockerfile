@@ -13,7 +13,7 @@ COPY backend/ backend/
 COPY init-scripts/ init-scripts/
 COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh \
-    && mkdir -p /data/chroma
+    && mkdir -p /data/chroma /data/attachments
 
 ENV PYTHONUNBUFFERED=1 \
     AI_CHROMA_PATH=/data/chroma

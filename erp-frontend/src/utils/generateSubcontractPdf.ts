@@ -51,7 +51,7 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
   doc.setFontSize(11)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(90, 90, 90)
-  doc.text('Vendor Purchase Attachment', pageWidth - marginX, y, { align: 'right' })
+  doc.text('SUBCONTRACT ORDER', pageWidth - marginX, y, { align: 'right' })
   y += 22
 
   doc.setDrawColor(168, 85, 247)

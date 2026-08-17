@@ -1058,3 +1058,26 @@ class SupplierInvoiceLine(Base):
     invoice = relationship("SupplierInvoice", back_populates="lines")
     item = relationship("Item")
     goods_receipt_line = relationship("GoodsReceiptLine")
+
+
+class DocumentAttachment(Base):
+    """Supporting files (typically PDFs) attached to any ERP document."""
+
+    __tablename__ = "document_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    document_type = Column(String(30), nullable=False)
+    document_id = Column(String(50), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(255), nullable=False)
+    content_type = Column(String(100), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    notes = Column(Text, nullable=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("file_size > 0", name="chk_document_attachment_file_size"),
+    )
+
+    uploaded_by = relationship("User")

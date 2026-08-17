@@ -196,6 +196,122 @@ export const apiClient = {
       method: 'DELETE',
     });
   },
+
+  /**
+   * POST multipart form data (do not set JSON Content-Type).
+   */
+  async upload<T>(endpoint: string, formData: FormData): Promise<T> {
+    const url = buildUrl(endpoint);
+    const headers: Record<string, string> = {};
+    const token = getStoredAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+    } catch (err) {
+      const message =
+        err instanceof TypeError
+          ? 'Cannot reach the API. Check that the backend is running (port 8000).'
+          : err instanceof Error
+            ? err.message
+            : 'Network request failed';
+      throw new Error(message);
+    }
+
+    const contentType = response.headers.get('content-type');
+    let data: unknown;
+    if (contentType?.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      const error = new Error(
+        formatApiError(data, `HTTP ${response.status}: ${response.statusText}`),
+      );
+      throw error;
+    }
+    return data as T;
+  },
+
+  /**
+   * GET a file as a Blob (authenticated).
+   */
+  async fetchBlob(endpoint: string): Promise<Blob> {
+    const url = buildUrl(endpoint);
+    const headers: Record<string, string> = {};
+    const token = getStoredAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, { method: 'GET', headers });
+    } catch (err) {
+      const message =
+        err instanceof TypeError
+          ? 'Cannot reach the API. Check that the backend is running (port 8000).'
+          : err instanceof Error
+            ? err.message
+            : 'Network request failed';
+      throw new Error(message);
+    }
+
+    if (!response.ok) {
+      let data: unknown;
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        data = await response.json();
+      } else {
+        data = await response.text();
+      }
+      throw new Error(formatApiError(data, `HTTP ${response.status}: ${response.statusText}`));
+    }
+
+    const blob = await response.blob();
+    const type = response.headers.get('content-type') || blob.type;
+    return type && blob.type !== type ? new Blob([blob], { type }) : blob;
+  },
+
+  /**
+   * GET a file and trigger a browser download.
+   */
+  async download(endpoint: string, filename: string): Promise<void> {
+    const blob = await apiClient.fetchBlob(endpoint);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  },
+
+  /**
+   * Open a file in a new tab using the browser viewer (PDF/images).
+   */
+  async openInViewer(endpoint: string, filename: string): Promise<void> {
+    const tab = window.open('about:blank', '_blank');
+    try {
+      const blob = await apiClient.fetchBlob(endpoint);
+      const objectUrl = URL.createObjectURL(blob);
+      if (tab) {
+        tab.location.replace(objectUrl);
+        tab.document.title = filename;
+      } else {
+        window.open(objectUrl, '_blank', 'noopener');
+      }
+    } catch (err) {
+      tab?.close();
+      throw err;
+    }
+  },
 };
 
 export default apiClient;

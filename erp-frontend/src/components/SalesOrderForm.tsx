@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { salesOrderService, customerService, itemService, locationService } from '../api/services'
 import type { Customer, Item, Location } from '../types'
+import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 
 interface LineItem {
   line_number: number
@@ -810,6 +811,10 @@ export function SalesOrderForm() {
             </span>
           </div>
         </div>
+
+        {isEditMode && (
+          <DocumentAttachmentsPanel documentType="SALES_ORDER" documentId={formData.sales_order_id} />
+        )}
 
         {/* Submit Error */}
         {errors.submit && (
