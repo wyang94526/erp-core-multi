@@ -96,21 +96,52 @@ CREATE TABLE IF NOT EXISTS ledger_postings (
 -- ========================================================
 
 DROP TABLE IF EXISTS Suppliers CASCADE;
+DROP TABLE IF EXISTS work_centers CASCADE;
+CREATE TABLE work_centers (
+    work_center_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    warehouse_id VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO work_centers (work_center_id, name, is_active) VALUES
+    ('WC-OUTSIDE-01', 'Outside Processing', TRUE),
+    ('WC-PLATING-01', 'Plating / Finishing', TRUE);
+
 -- New: Suppliers / Vendors Table
 CREATE TABLE Suppliers (
     supplier_id VARCHAR(50) PRIMARY KEY,
     company_name VARCHAR(255) NOT NULL,
     contact_name VARCHAR(100),
-    contact_email VARCHAR(150),
+    contact_email VARCHAR(255),
     phone_number VARCHAR(50),
     address_line1 VARCHAR(255),
+    address_line2 VARCHAR(255),
     city VARCHAR(100),
     state VARCHAR(50),
     postal_code VARCHAR(20),
     country VARCHAR(50),
     vendor_number_ext VARCHAR(50),
     payment_terms VARCHAR(50) DEFAULT 'Net 30',
-    status VARCHAR(20) DEFAULT 'Active'
+    status VARCHAR(20) DEFAULT 'Active',
+    vendor_type VARCHAR(20) NOT NULL DEFAULT 'material',
+    tax_id VARCHAR(50),
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    ap_account_id UUID REFERENCES chart_of_accounts(id) ON DELETE SET NULL,
+    payment_method VARCHAR(20),
+    incoterms VARCHAR(10),
+    lead_time_days INTEGER NOT NULL DEFAULT 0,
+    work_center_id VARCHAR(50) REFERENCES work_centers(work_center_id) ON DELETE SET NULL,
+    consignment_stock_loc_id VARCHAR(50),
+    standard_scrap_rate DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+    iso_certified BOOLEAN NOT NULL DEFAULT FALSE,
+    qc_status VARCHAR(20) NOT NULL DEFAULT 'approved',
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_supplier_vendor_type CHECK (vendor_type IN ('material', 'subcontractor', 'both', 'service')),
+    CONSTRAINT chk_supplier_payment_method CHECK (payment_method IS NULL OR payment_method IN ('wire', 'ach', 'check', 'credit_card')),
+    CONSTRAINT chk_supplier_qc_status CHECK (qc_status IN ('approved', 'probation', 'blocked'))
 );
 
 DROP TABLE IF EXISTS customer_certifications CASCADE;
@@ -486,6 +517,14 @@ CREATE TABLE BinLocations (
 
     CONSTRAINT unique_bin_per_warehouse UNIQUE (warehouse_id, bin_code)
 );
+
+ALTER TABLE work_centers
+    ADD CONSTRAINT fk_work_centers_warehouse
+    FOREIGN KEY (warehouse_id) REFERENCES Warehouses(warehouse_id);
+
+ALTER TABLE Suppliers
+    ADD CONSTRAINT fk_suppliers_consignment_stock_loc
+    FOREIGN KEY (consignment_stock_loc_id) REFERENCES BinLocations(bin_id) ON DELETE SET NULL;
 
 -- 20. Inventory Stock — on-hand / allocated / on-order qty per product + bin
 --     items.on_hand_quantity remains the company-wide aggregate cache

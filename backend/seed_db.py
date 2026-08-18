@@ -280,6 +280,12 @@ def seed_data():
             "country": "Taiwan",
             "payment_terms": "Net 30",
             "status": "Active",
+            "vendor_type": "material",
+            "currency": "USD",
+            "payment_method": "wire",
+            "incoterms": "FOB",
+            "lead_time_days": 14,
+            "qc_status": "approved",
         },
         {
             "supplier_id": "SUP-SUBCON-01",
@@ -291,6 +297,14 @@ def seed_data():
             "country": "Taiwan",
             "payment_terms": "Net 30",
             "status": "Active",
+            "vendor_type": "subcontractor",
+            "currency": "USD",
+            "payment_method": "wire",
+            "lead_time_days": 7,
+            "work_center_id": "WC-OUTSIDE-01",
+            "standard_scrap_rate": "2.50",
+            "iso_certified": True,
+            "qc_status": "approved",
         },
     ]
     for supplier in suppliers:

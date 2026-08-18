@@ -754,12 +754,33 @@ class OrderDeliveryScheduleRead(ORMModel):
     tax_flag: str
     status: str
 
+VENDOR_TYPES = ('material', 'subcontractor', 'both', 'service')
+PAYMENT_METHODS = ('wire', 'ach', 'check', 'credit_card')
+QC_STATUSES = ('approved', 'probation', 'blocked')
+
+
+class WorkCenterCreate(BaseModel):
+    work_center_id: str = Field(max_length=50)
+    name: str = Field(min_length=1, max_length=150)
+    warehouse_id: str | None = Field(default=None, max_length=50)
+    is_active: bool = True
+
+
+class WorkCenterRead(ORMModel):
+    work_center_id: str
+    name: str
+    warehouse_id: str | None = None
+    is_active: bool = True
+    created_at: datetime | None = None
+
+
 class SupplierBase(BaseModel):
     company_name: str = Field(min_length=1, max_length=255)
     contact_name: str | None = Field(default=None, max_length=100)
     contact_email: EmailStr | None = None
     phone_number: str | None = Field(default=None, max_length=50)
     address_line1: str | None = Field(default=None, max_length=255)
+    address_line2: str | None = Field(default=None, max_length=255)
     city: str | None = Field(default=None, max_length=100)
     state: str | None = Field(default=None, max_length=50)
     postal_code: str | None = Field(default=None, max_length=20)
@@ -767,10 +788,86 @@ class SupplierBase(BaseModel):
     vendor_number_ext: str | None = Field(default=None, max_length=50)
     payment_terms: str | None = Field(default="Net 30", max_length=50)
     status: str | None = Field(default="Active", max_length=20)
+    vendor_type: Literal['material', 'subcontractor', 'both', 'service'] = 'material'
+    tax_id: str | None = Field(default=None, max_length=50)
+    currency: str = Field(default='USD', min_length=3, max_length=3)
+    ap_account_id: UUID | None = None
+    payment_method: Literal['wire', 'ach', 'check', 'credit_card'] | None = None
+    incoterms: str | None = Field(default=None, max_length=10)
+    lead_time_days: int = Field(default=0, ge=0)
+    work_center_id: str | None = Field(default=None, max_length=50)
+    consignment_stock_loc_id: str | None = Field(default=None, max_length=50)
+    standard_scrap_rate: Decimal = Field(default=Decimal('0.00'), ge=0, le=100, decimal_places=2)
+    iso_certified: bool = False
+    qc_status: Literal['approved', 'probation', 'blocked'] = 'approved'
+    notes: str | None = None
+
+    @field_validator(
+        'contact_name',
+        'contact_email',
+        'phone_number',
+        'address_line1',
+        'address_line2',
+        'city',
+        'state',
+        'postal_code',
+        'country',
+        'vendor_number_ext',
+        'payment_terms',
+        'tax_id',
+        'ap_account_id',
+        'payment_method',
+        'incoterms',
+        'work_center_id',
+        'consignment_stock_loc_id',
+        'notes',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_currency(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return 'USD'
+        return str(value).strip().upper()
+
+    @field_validator('vendor_type', mode='before')
+    @classmethod
+    def normalize_vendor_type(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return 'material'
+        return str(value).strip().lower()
+
+    @field_validator('payment_method', mode='before')
+    @classmethod
+    def normalize_payment_method(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().lower()
+
+    @field_validator('qc_status', mode='before')
+    @classmethod
+    def normalize_qc_status(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return 'approved'
+        return str(value).strip().lower()
+
+    @field_validator('incoterms', mode='before')
+    @classmethod
+    def normalize_incoterms(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().upper()
 
 
 class SupplierCreate(SupplierBase):
     supplier_id: str = Field(max_length=50)
+
 
 class SupplierUpdate(BaseModel):
     company_name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -778,6 +875,7 @@ class SupplierUpdate(BaseModel):
     contact_email: EmailStr | None = None
     phone_number: str | None = Field(default=None, max_length=50)
     address_line1: str | None = Field(default=None, max_length=255)
+    address_line2: str | None = Field(default=None, max_length=255)
     city: str | None = Field(default=None, max_length=100)
     state: str | None = Field(default=None, max_length=50)
     postal_code: str | None = Field(default=None, max_length=20)
@@ -785,12 +883,74 @@ class SupplierUpdate(BaseModel):
     vendor_number_ext: str | None = Field(default=None, max_length=50)
     payment_terms: str | None = Field(default=None, max_length=50)
     status: str | None = Field(default=None, max_length=20)
+    vendor_type: Literal['material', 'subcontractor', 'both', 'service'] | None = None
+    tax_id: str | None = Field(default=None, max_length=50)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    ap_account_id: UUID | None = None
+    payment_method: Literal['wire', 'ach', 'check', 'credit_card'] | None = None
+    incoterms: str | None = Field(default=None, max_length=10)
+    lead_time_days: int | None = Field(default=None, ge=0)
+    work_center_id: str | None = Field(default=None, max_length=50)
+    consignment_stock_loc_id: str | None = Field(default=None, max_length=50)
+    standard_scrap_rate: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=2)
+    iso_certified: bool | None = None
+    qc_status: Literal['approved', 'probation', 'blocked'] | None = None
+    notes: str | None = None
+
+    @field_validator(
+        'contact_name',
+        'contact_email',
+        'phone_number',
+        'address_line1',
+        'address_line2',
+        'city',
+        'state',
+        'postal_code',
+        'country',
+        'vendor_number_ext',
+        'payment_terms',
+        'tax_id',
+        'ap_account_id',
+        'payment_method',
+        'incoterms',
+        'work_center_id',
+        'consignment_stock_loc_id',
+        'notes',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_currency(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().upper()
+
+    @field_validator('vendor_type', 'payment_method', 'qc_status', mode='before')
+    @classmethod
+    def normalize_enums(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().lower()
+
+    @field_validator('incoterms', mode='before')
+    @classmethod
+    def normalize_incoterms(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().upper()
 
 
 class SupplierRead(SupplierBase):
     supplier_id: str
-
-    model_config = {"from_attributes": True} # Use `class Config: orm_mode = True` if using Pydantic V1
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 # ==========================================

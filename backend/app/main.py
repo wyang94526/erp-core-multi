@@ -31,6 +31,7 @@ from app.routers import (
     users,
     vendor_invoices,
     attachments,
+    work_centers,
 )
 
 
@@ -61,6 +62,7 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(customers.router, prefix="/api/v1")
 app.include_router(customer_locations.router, prefix="/api/v1") # <-- Added
 app.include_router(suppliers.router, prefix="/api/v1")          # <-- Added
+app.include_router(work_centers.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(items.router, prefix="/api/v1")
 app.include_router(accounts.router, prefix="/api/v1")

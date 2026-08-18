@@ -6,7 +6,7 @@
  * order quantity, so this form only needs to capture the header fields.
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { subcontractOrderService, vendorService, itemService, itemBomService } from '../api/services'
@@ -33,6 +33,15 @@ export function SubcontractOrderForm() {
     queryKey: ['vendors'],
     queryFn: () => vendorService.listVendors(0, 1000),
   })
+
+  const subcontractors = useMemo(
+    () =>
+      suppliers.filter((supplier: Supplier) => {
+        const type = (supplier.vendor_type || 'material').toLowerCase()
+        return type === 'subcontractor' || type === 'both'
+      }),
+    [suppliers],
+  )
 
   // Fetch products (finished goods that could be subcontracted)
   const { data: products = [] } = useQuery({
@@ -171,7 +180,7 @@ export function SubcontractOrderForm() {
                 }}
               >
                 <option value="">Select a supplier</option>
-                {suppliers.map((supplier: Supplier) => (
+                {subcontractors.map((supplier: Supplier) => (
                   <option key={supplier.supplier_id} value={supplier.supplier_id}>
                     {supplier.company_name} ({supplier.supplier_id})
                   </option>

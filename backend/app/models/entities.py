@@ -461,8 +461,17 @@ class OrderDeliverySchedule(Base):
     # Updated relationship target class
     location = relationship("CustomerLocation")
 
-    from sqlalchemy import Column, String
-# ... (keep your existing imports)
+class WorkCenter(Base):
+    """Manufacturing / outside-processing work center referenced by subcontractors."""
+
+    __tablename__ = 'work_centers'
+
+    work_center_id = Column(String(50), primary_key=True)
+    name = Column(String(150), nullable=False)
+    warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'), nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default=text('true'))
+    created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+
 
 class Supplier(Base):
     __tablename__ = 'suppliers'
@@ -470,9 +479,10 @@ class Supplier(Base):
     supplier_id = Column(String(50), primary_key=True)
     company_name = Column(String(255), nullable=False)
     contact_name = Column(String(100))
-    contact_email = Column(String(150))
+    contact_email = Column(String(255))
     phone_number = Column(String(50))
     address_line1 = Column(String(255))
+    address_line2 = Column(String(255), nullable=True)
     city = Column(String(100))
     state = Column(String(50))
     postal_code = Column(String(20))
@@ -480,6 +490,52 @@ class Supplier(Base):
     vendor_number_ext = Column(String(50))
     payment_terms = Column(String(50), default='Net 30')
     status = Column(String(20), default='Active')
+    vendor_type = Column(String(20), nullable=False, server_default=text("'material'"))
+    tax_id = Column(String(50), nullable=True)
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    ap_account_id = Column(UUID(as_uuid=True), ForeignKey('chart_of_accounts.id', ondelete='SET NULL'), nullable=True)
+    payment_method = Column(String(20), nullable=True)
+    incoterms = Column(String(10), nullable=True)
+    lead_time_days = Column(Integer, nullable=False, server_default=text('0'))
+    work_center_id = Column(
+        String(50),
+        ForeignKey('work_centers.work_center_id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    consignment_stock_loc_id = Column(
+        String(50),
+        ForeignKey('binlocations.bin_id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    standard_scrap_rate = Column(Numeric(5, 2), nullable=False, server_default=text('0.00'))
+    iso_certified = Column(Boolean, nullable=False, server_default=text('false'))
+    qc_status = Column(String(20), nullable=False, server_default=text("'approved'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text('NOW()'),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "vendor_type IN ('material', 'subcontractor', 'both', 'service')",
+            name='chk_supplier_vendor_type',
+        ),
+        CheckConstraint(
+            "payment_method IS NULL OR payment_method IN ('wire', 'ach', 'check', 'credit_card')",
+            name='chk_supplier_payment_method',
+        ),
+        CheckConstraint(
+            "qc_status IN ('approved', 'probation', 'blocked')",
+            name='chk_supplier_qc_status',
+        ),
+    )
+
+    ap_account = relationship("ChartOfAccount", foreign_keys=[ap_account_id])
+    work_center = relationship("WorkCenter", foreign_keys=[work_center_id])
+    consignment_location = relationship("BinLocation", foreign_keys=[consignment_stock_loc_id])
 
 
 # ========================================================

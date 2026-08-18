@@ -46,6 +46,7 @@ from app.models.entities import (
     Supplier,
     VendorItemMapping,
     Warehouse,
+    WorkCenter,
     WorkflowDefinition,
     WorkflowStep,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "Supplier",
     "VendorItemMapping",
     "Warehouse",
+    "WorkCenter",
     "WorkflowDefinition",
     "WorkflowStep",
 ]

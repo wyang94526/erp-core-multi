@@ -13,6 +13,7 @@ import type {
   Product,
   SalesOrder,
   Supplier,
+  SupplierWrite,
   PurchaseOrder,
   ProductBOMComponent,
   SubcontractOrder,
@@ -29,6 +30,7 @@ import type {
   InventoryStockItem,
   StockMovement,
   Warehouse,
+  WorkCenter,
   ItemFulfillment,
   SalesInvoiceDoc,
   SupplierInvoice,
@@ -603,9 +605,13 @@ export const vendorService = {
   /**
    * Fetch all vendors/suppliers with pagination
    */
-  async listVendors(skip: number = 0, limit: number = 100): Promise<Supplier[]> {
+  async listVendors(
+    skip: number = 0,
+    limit: number = 100,
+    filters?: { vendorType?: string },
+  ): Promise<Supplier[]> {
     return apiClient.get<Supplier[]>('/api/v1/suppliers/', {
-      params: { skip, limit },
+      params: { skip, limit, vendor_type: filters?.vendorType },
     });
   },
 
@@ -619,32 +625,15 @@ export const vendorService = {
   /**
    * Create a new vendor
    */
-  async createVendor(data: {
-    supplier_id: string;
-    company_name: string;
-    contact_name?: string;
-    contact_email?: string;
-    phone_number?: string;
-    address_line1?: string;
-    city?: string;
-    state?: string;
-    postal_code?: string;
-    country?: string;
-    vendor_number_ext?: string;
-    payment_terms?: string;
-    status?: string;
-  }): Promise<Supplier> {
+  async createVendor(data: SupplierWrite): Promise<Supplier> {
     return apiClient.post<Supplier>('/api/v1/suppliers/', data);
   },
 
   /**
-   * Update a vendor
+   * Full vendor update
    */
-  async updateVendor(
-    supplierId: string,
-    data: Partial<Supplier>
-  ): Promise<Supplier> {
-    return apiClient.patch<Supplier>(`/api/v1/suppliers/${supplierId}`, data);
+  async updateVendor(supplierId: string, data: Partial<SupplierWrite>): Promise<Supplier> {
+    return apiClient.put<Supplier>(`/api/v1/suppliers/${supplierId}`, data);
   },
 
   /**
@@ -652,6 +641,14 @@ export const vendorService = {
    */
   async deleteVendor(supplierId: string): Promise<void> {
     return apiClient.delete<void>(`/api/v1/suppliers/${supplierId}`);
+  },
+};
+
+export const workCenterService = {
+  async listWorkCenters(skip: number = 0, limit: number = 100): Promise<WorkCenter[]> {
+    return apiClient.get<WorkCenter[]>('/api/v1/work-centers', {
+      params: { skip, limit },
+    })
   },
 };
 

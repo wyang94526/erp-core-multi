@@ -346,6 +346,17 @@ export interface ApiError {
 // ==========================================
 // SUPPLIER & PURCHASE ORDER TYPES
 // ==========================================
+export type VendorType = 'material' | 'subcontractor' | 'both' | 'service'
+export type VendorPaymentMethod = 'wire' | 'ach' | 'check' | 'credit_card'
+export type VendorQcStatus = 'approved' | 'probation' | 'blocked'
+
+export interface WorkCenter {
+  work_center_id: string
+  name: string
+  warehouse_id?: string | null
+  is_active?: boolean
+}
+
 export interface Supplier {
   supplier_id: string;
   company_name: string;
@@ -353,6 +364,7 @@ export interface Supplier {
   contact_email?: string | null;
   phone_number?: string | null;
   address_line1?: string | null;
+  address_line2?: string | null;
   city?: string | null;
   state?: string | null;
   postal_code?: string | null;
@@ -360,6 +372,26 @@ export interface Supplier {
   vendor_number_ext?: string | null;
   payment_terms?: string | null;
   status?: 'Active' | 'Inactive' | string | null;
+  vendor_type?: VendorType | string;
+  tax_id?: string | null;
+  currency?: string;
+  ap_account_id?: string | null;
+  payment_method?: VendorPaymentMethod | string | null;
+  incoterms?: string | null;
+  lead_time_days?: number;
+  work_center_id?: string | null;
+  consignment_stock_loc_id?: string | null;
+  standard_scrap_rate?: number | string;
+  iso_certified?: boolean;
+  qc_status?: VendorQcStatus | string;
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type SupplierWrite = Omit<Supplier, 'created_at' | 'updated_at'> & {
+  supplier_id: string
+  company_name: string
 }
 
 // Alias for clearer domain naming in the UI ("Vendor" is used in Purchase Order contexts)

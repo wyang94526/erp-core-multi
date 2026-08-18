@@ -67,6 +67,16 @@ export function VendorList() {
     return isActive ? { bg: '#e8f5e9', text: '#2e7d32' } : { bg: '#ffebee', text: '#c62828' }
   }
 
+  const formatVendorType = (vendorType?: string | null) => {
+    const labels: Record<string, string> = {
+      material: 'Material',
+      subcontractor: 'Subcontractor',
+      both: 'Both',
+      service: 'Service',
+    }
+    return labels[vendorType || 'material'] || vendorType || 'Material'
+  }
+
   return (
     <div style={containerStyle}>
       <header style={pageHeaderStyle}>
@@ -95,6 +105,7 @@ export function VendorList() {
                   <tr style={directoryTheadRowStyle}>
                     <SortableTh label="Vendor ID" columnKey="supplier_id" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Company Name" columnKey="company_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Vendor Type" columnKey="vendor_type" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Vendor Number Ext" columnKey="vendor_number_ext" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Payment Terms" columnKey="payment_terms" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
@@ -108,6 +119,7 @@ export function VendorList() {
                       <tr key={vendor.supplier_id} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{vendor.supplier_id}</td>
                         <td style={directoryTdStyle}>{vendor.company_name}</td>
+                        <td style={directoryTdStyle}>{formatVendorType(vendor.vendor_type)}</td>
                         <td style={directoryTdStyle}>{vendor.vendor_number_ext || '-'}</td>
                         <td style={directoryTdStyle}>{vendor.payment_terms || '-'}</td>
                         <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
