@@ -16,24 +16,110 @@ export interface User {
 // ==========================================
 // CUSTOMER & LOCATION TYPES
 // ==========================================
-export interface Customer {
-  customer_id: string;
-  customer_number_ext: string | null;
-  company_name: string;
+export type LocationType = 'BILL_TO' | 'SHIP_TO' | 'BOTH'
+export type CustomerStatus = 'ACTIVE' | 'INACTIVE' | 'ON_HOLD'
+
+export interface CustomerCertification {
+  id?: number
+  customer_id?: string
+  certification_name: string
+  certificate_number: string | null
+  valid_until: string | null
 }
 
 export interface Location {
-  location_id: string;
-  customer_id: string;
-  location_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
-  location_name: string | null;
-  attention_to: string | null;
-  address_line1: string | null;
-  city: string | null;
-  state: string | null;
-  postal_code: string | null;
-  country: string | null;
-  contact_email: string | null;
+  location_id: string
+  customer_id: string
+  location_type: LocationType
+  location_code?: string | null
+  location_name: string | null
+  attention_to: string | null
+  address_line1: string | null
+  address_line2?: string | null
+  city: string | null
+  state: string | null
+  state_province?: string | null
+  postal_code: string | null
+  country: string | null
+  contact_person?: string | null
+  contact_email: string | null
+  contact_phone?: string | null
+  is_default?: boolean
+  tax_id?: string | null
+  shipping_instructions?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface Customer {
+  customer_id: string
+  customer_number_ext: string | null
+  company_name: string
+  tax_id?: string | null
+  industry_type?: string | null
+  facility_type?: string | null
+  website?: string | null
+  primary_contact_name?: string | null
+  primary_email?: string | null
+  primary_phone?: string | null
+  currency?: string
+  credit_limit?: number | string
+  payment_terms?: string | null
+  preferred_incoterms?: string | null
+  tax_exempt?: boolean
+  tax_exempt_certificate_id?: string | null
+  status?: CustomerStatus | string
+  created_at?: string | null
+  updated_at?: string | null
+  locations?: Location[]
+  bill_to_locations?: Location[]
+  ship_to_locations?: Location[]
+  certifications?: CustomerCertification[]
+}
+
+export type CustomerWrite = {
+  customer_id?: string
+  customer_number_ext?: string | null
+  company_name: string
+  tax_id?: string | null
+  industry_type?: string | null
+  facility_type?: string | null
+  website?: string | null
+  primary_contact_name?: string | null
+  primary_email?: string | null
+  primary_phone?: string | null
+  currency?: string
+  credit_limit?: number | string
+  payment_terms?: string | null
+  preferred_incoterms?: string | null
+  tax_exempt?: boolean
+  tax_exempt_certificate_id?: string | null
+  status?: string
+  locations: Array<{
+    location_id?: string
+    location_type: LocationType
+    location_code?: string | null
+    location_name: string
+    address_line1: string
+    address_line2?: string | null
+    city: string
+    state?: string | null
+    state_province?: string | null
+    postal_code: string
+    country: string
+    contact_person?: string | null
+    contact_email?: string | null
+    contact_phone?: string | null
+    is_default?: boolean
+    tax_id?: string | null
+    shipping_instructions?: string | null
+  }>
+  certifications?: Array<{
+    id?: number
+    certification_name: string
+    certificate_number?: string | null
+    valid_until?: string | null
+  }>
 }
 
 // ==========================================

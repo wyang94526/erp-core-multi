@@ -149,39 +149,64 @@ def seed_data():
     customer_data = {
         "customer_id": "CUST-GTT-USA",
         "company_name": "GTT USA, Inc.",
+        "customer_number_ext": "GTT-USA",
+        "industry_type": "Electronics",
+        "facility_type": "OEM",
+        "website": "https://www.grandtek.com",
+        "primary_contact_name": "Accounts Payable",
+        "primary_email": "ap@gtt-usa.example",
+        "currency": "USD",
+        "credit_limit": "250000.00",
+        "payment_terms": "NET30",
+        "preferred_incoterms": "FOB",
+        "status": "ACTIVE",
+        "locations": [
+            {
+                "location_id": "LOC-GTT-BILL-01",
+                "location_type": "BILL_TO",
+                "location_code": "HQ-BILLING",
+                "location_name": "GTT USA Corporate Finance",
+                "address_line1": "358 Fairview Way",
+                "city": "Milpitas",
+                "state": "CA",
+                "postal_code": "95035",
+                "country": "USA",
+                "is_default": True,
+            },
+            {
+                "location_id": "LOC-GTT-SHIP-01",
+                "location_type": "SHIP_TO",
+                "location_code": "PLANT-01",
+                "location_name": "Fremont Fulfillment",
+                "address_line1": "41300 Boyce Road",
+                "city": "FREMONT",
+                "state": "CA",
+                "postal_code": "94538",
+                "country": "USA",
+                "is_default": True,
+                "shipping_instructions": "Receiving hours 7:00-15:00. Dock 3.",
+            },
+        ],
+        "certifications": [
+            {
+                "certification_name": "ISO 9001",
+                "certificate_number": "QMS-GTT-9001",
+                "valid_until": "2027-12-31",
+            },
+            {
+                "certification_name": "ISO 14001",
+                "certificate_number": "EMS-GTT-14001",
+                "valid_until": "2027-06-30",
+            },
+        ],
     }
     r_cust = requests.post(f"{BASE_URL}/customers", json=customer_data)
     _report("Customer", r_cust)
 
-    bill_to = {
-        "location_id": "LOC-GTT-BILL-01",
-        "customer_id": "CUST-GTT-USA",
-        "location_type": "BILL_TO",
-        "address_line1": "358 Fairview Way",
-        "city": "Milpitas",
-        "state": "CA",
-        "postal_code": "95035",
-        "country": "USA",
-    }
-    ship_to = {
-        "location_id": "LOC-GTT-SHIP-01",
-        "customer_id": "CUST-GTT-USA",
-        "location_type": "SHIP_TO",
-        "address_line1": "41300 Boyce Road",
-        "city": "FREMONT",
-        "state": "CA",
-        "postal_code": "94538",
-        "country": "USA",
-    }
-    r_bill = requests.post(f"{BASE_URL}/customer-locations/", json=bill_to)
-    _report("Bill-To Location", r_bill)
-    r_ship = requests.post(f"{BASE_URL}/customer-locations/", json=ship_to)
-    _report("Ship-To Location", r_ship)
-
     # Additional demo customers + locations (so SO form dropdowns work for DENSO, etc.)
     extra_customers = [
-        {"customer_id": "CUST-001", "customer_number_ext": "1510988888", "company_name": "DENSO"},
-        {"customer_id": "CUST-0002", "company_name": "Texas Power Dalls"},
+        {"customer_id": "CUST-001", "customer_number_ext": "1510988888", "company_name": "DENSO", "industry_type": "Automotive", "facility_type": "Tier-1", "payment_terms": "NET60"},
+        {"customer_id": "CUST-0002", "company_name": "Texas Power Dalls", "industry_type": "Industrial", "facility_type": "OEM", "payment_terms": "NET30"},
     ]
     for cust in extra_customers:
         r = requests.post(f"{BASE_URL}/customers", json=cust)
@@ -198,6 +223,7 @@ def seed_data():
             "state": "MI",
             "postal_code": "48033",
             "country": "USA",
+            "is_default": True,
         },
         {
             "location_id": "LOC-DENSO-SHIP-01",
@@ -209,6 +235,7 @@ def seed_data():
             "state": "MI",
             "postal_code": "49037",
             "country": "USA",
+            "is_default": True,
         },
         {
             "location_id": "LOC-TPD-BILL-01",
@@ -220,6 +247,7 @@ def seed_data():
             "state": "TX",
             "postal_code": "75201",
             "country": "USA",
+            "is_default": True,
         },
         {
             "location_id": "LOC-TPD-SHIP-01",
@@ -231,6 +259,7 @@ def seed_data():
             "state": "TX",
             "postal_code": "75207",
             "country": "USA",
+            "is_default": True,
         },
     ]
     for loc in extra_locations:

@@ -93,7 +93,7 @@ export function SalesOrderForm() {
 
   const formatLocationLabel = (loc: Location) => {
     const name = loc.location_name || loc.location_id
-    const city = [loc.city, loc.state].filter(Boolean).join(', ')
+    const city = [loc.city, loc.state_province || loc.state].filter(Boolean).join(', ')
     return city ? `${name} — ${city}` : name
   }
 

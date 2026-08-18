@@ -55,11 +55,13 @@ function formatLocation(loc: Location | null | undefined, fallbackId: string): s
   const lines: string[] = []
   if (loc.location_name?.trim()) lines.push(loc.location_name.trim())
   if (loc.attention_to?.trim()) lines.push(`Attn: ${loc.attention_to.trim()}`)
+  else if (loc.contact_person?.trim()) lines.push(`Attn: ${loc.contact_person.trim()}`)
   if (loc.address_line1?.trim()) lines.push(loc.address_line1.trim())
-  const cityLine = [loc.city, loc.state, loc.postal_code]
+  const cityLine = [loc.city, loc.state_province || loc.state, loc.postal_code]
     .map((p) => p?.trim())
     .filter(Boolean)
     .join(', ')
+  if (loc.address_line2?.trim()) lines.push(loc.address_line2.trim())
   if (cityLine) lines.push(cityLine)
   if (loc.country?.trim()) lines.push(loc.country.trim())
   if (lines.length === 0) lines.push(loc.location_id || fallbackId || '—')

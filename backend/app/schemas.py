@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class ORMModel(BaseModel):
@@ -217,56 +217,398 @@ class JournalEntryRead(ORMModel):
 
 
 
-class CustomerCreate(BaseModel):
-    customer_id: str = Field(max_length=50)
-    customer_number_ext: str | None = Field(default=None, max_length=50)
-    company_name: str = Field(min_length=1, max_length=255)
+CUSTOMER_STATUSES = ('ACTIVE', 'INACTIVE', 'ON_HOLD')
+LOCATION_TYPES = ('BILL_TO', 'SHIP_TO', 'BOTH')
 
-class CustomerUpdate(BaseModel):
-    customer_number_ext: str | None = Field(default=None, max_length=50)
-    company_name: str | None = Field(default=None, min_length=1, max_length=255)
 
-class CustomerRead(ORMModel):
+def _blank_to_none(value: Any) -> Any:
+    if isinstance(value, str) and value.strip() == '':
+        return None
+    return value
+
+
+def validate_customer_locations(locations: list['CustomerLocationNested']) -> None:
+    """Require bill-to + ship-to coverage and at most one default of each role."""
+    if not locations:
+        raise ValueError('At least one BILL_TO and one SHIP_TO location are required (or one BOTH).')
+
+    has_bill = any(loc.location_type in ('BILL_TO', 'BOTH') for loc in locations)
+    has_ship = any(loc.location_type in ('SHIP_TO', 'BOTH') for loc in locations)
+    if not has_bill:
+        raise ValueError('At least one BILL_TO location is required (or a location set to BOTH).')
+    if not has_ship:
+        raise ValueError('At least one SHIP_TO location is required (or a location set to BOTH).')
+
+    default_bill = [loc for loc in locations if loc.is_default and loc.location_type in ('BILL_TO', 'BOTH')]
+    default_ship = [loc for loc in locations if loc.is_default and loc.location_type in ('SHIP_TO', 'BOTH')]
+    if len(default_bill) > 1:
+        raise ValueError('A customer may have at most one default BILL_TO location.')
+    if len(default_ship) > 1:
+        raise ValueError('A customer may have at most one default SHIP_TO location.')
+
+
+class CustomerCertificationNested(BaseModel):
+    id: int | None = None
+    certification_name: str = Field(min_length=1, max_length=100)
+    certificate_number: str | None = Field(default=None, max_length=100)
+    valid_until: date | None = None
+
+    @field_validator('certificate_number', mode='before')
+    @classmethod
+    def blank_cert_number(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+
+class CustomerCertificationRead(ORMModel):
+    id: int
     customer_id: str
-    customer_number_ext: str | None
-    company_name: str
+    certification_name: str
+    certificate_number: str | None
+    valid_until: date | None
+
+
+class CustomerLocationNested(BaseModel):
+    location_id: str | None = Field(default=None, max_length=50)
+    location_type: Literal['BILL_TO', 'SHIP_TO', 'BOTH']
+    location_code: str | None = Field(default=None, max_length=50)
+    location_name: str = Field(min_length=1, max_length=150)
+    attention_to: str | None = Field(default=None, max_length=100)
+    address_line1: str = Field(min_length=1, max_length=255)
+    address_line2: str | None = Field(default=None, max_length=255)
+    city: str = Field(min_length=1, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    state_province: str | None = Field(default=None, max_length=100)
+    postal_code: str = Field(min_length=1, max_length=32)
+    country: str = Field(min_length=1, max_length=50)
+    contact_person: str | None = Field(default=None, max_length=150)
+    contact_email: EmailStr | None = None
+    contact_phone: str | None = Field(default=None, max_length=50)
+    is_default: bool = False
+    tax_id: str | None = Field(default=None, max_length=64)
+    shipping_instructions: str | None = None
+
+    @field_validator(
+        'location_id',
+        'location_code',
+        'attention_to',
+        'address_line2',
+        'state',
+        'state_province',
+        'contact_person',
+        'contact_email',
+        'contact_phone',
+        'tax_id',
+        'shipping_instructions',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @model_validator(mode='after')
+    def unify_state_province(self) -> 'CustomerLocationNested':
+        province = self.state_province or self.state
+        self.state = province
+        self.state_province = province
+        return self
+
 
 class CustomerLocationCreate(BaseModel):
     location_id: str = Field(max_length=50)
     customer_id: str = Field(max_length=50)
     location_type: Literal['BILL_TO', 'SHIP_TO', 'BOTH']
-    location_name: str | None = Field(default=None, max_length=100)
+    location_code: str | None = Field(default=None, max_length=50)
+    location_name: str | None = Field(default=None, max_length=150)
     attention_to: str | None = Field(default=None, max_length=100)
-    address_line1: str | None = Field(default=None, max_length=255)
-    city: str | None = Field(default=None, max_length=100)
-    state: str | None = Field(default=None, max_length=50)
-    postal_code: str | None = Field(default=None, max_length=20)
-    country: str | None = Field(default=None, max_length=50)
+    address_line1: str = Field(min_length=1, max_length=255)
+    address_line2: str | None = Field(default=None, max_length=255)
+    city: str = Field(min_length=1, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    state_province: str | None = Field(default=None, max_length=100)
+    postal_code: str = Field(min_length=1, max_length=32)
+    country: str = Field(min_length=1, max_length=50)
+    contact_person: str | None = Field(default=None, max_length=150)
     contact_email: EmailStr | None = None
+    contact_phone: str | None = Field(default=None, max_length=50)
+    is_default: bool = False
+    tax_id: str | None = Field(default=None, max_length=64)
+    shipping_instructions: str | None = None
+
+    @field_validator(
+        'location_code',
+        'location_name',
+        'attention_to',
+        'address_line2',
+        'state',
+        'state_province',
+        'contact_person',
+        'contact_email',
+        'contact_phone',
+        'tax_id',
+        'shipping_instructions',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @model_validator(mode='after')
+    def apply_defaults(self) -> 'CustomerLocationCreate':
+        province = self.state_province or self.state
+        self.state = province
+        self.state_province = province
+        if not self.location_name:
+            self.location_name = self.location_id
+        return self
+
 
 class CustomerLocationUpdate(BaseModel):
     location_type: Literal['BILL_TO', 'SHIP_TO', 'BOTH'] | None = None
-    location_name: str | None = Field(default=None, max_length=100)
+    location_code: str | None = Field(default=None, max_length=50)
+    location_name: str | None = Field(default=None, max_length=150)
     attention_to: str | None = Field(default=None, max_length=100)
     address_line1: str | None = Field(default=None, max_length=255)
+    address_line2: str | None = Field(default=None, max_length=255)
     city: str | None = Field(default=None, max_length=100)
-    state: str | None = Field(default=None, max_length=50)
-    postal_code: str | None = Field(default=None, max_length=20)
+    state: str | None = Field(default=None, max_length=100)
+    state_province: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = Field(default=None, max_length=50)
+    contact_person: str | None = Field(default=None, max_length=150)
     contact_email: EmailStr | None = None
+    contact_phone: str | None = Field(default=None, max_length=50)
+    is_default: bool | None = None
+    tax_id: str | None = Field(default=None, max_length=64)
+    shipping_instructions: str | None = None
+
+    @field_validator(
+        'location_code',
+        'location_name',
+        'attention_to',
+        'address_line2',
+        'state',
+        'state_province',
+        'contact_person',
+        'contact_email',
+        'contact_phone',
+        'tax_id',
+        'shipping_instructions',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @model_validator(mode='after')
+    def unify_state_province(self) -> 'CustomerLocationUpdate':
+        if self.state_province and not self.state:
+            self.state = self.state_province
+        if self.state and not self.state_province:
+            self.state_province = self.state
+        return self
+
 
 class CustomerLocationRead(ORMModel):
     location_id: str
     customer_id: str
     location_type: str
-    location_name: str | None
-    attention_to: str | None
-    address_line1: str | None
-    city: str | None
-    state: str | None
-    postal_code: str | None
-    country: str | None
-    contact_email: EmailStr | None
+    location_code: str | None = None
+    location_name: str | None = None
+    attention_to: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    state_province: str | None = None
+    postal_code: str | None = None
+    country: str | None = None
+    contact_person: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    is_default: bool = False
+    tax_id: str | None = None
+    shipping_instructions: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @model_validator(mode='after')
+    def expose_state_province(self) -> 'CustomerLocationRead':
+        self.state_province = self.state_province or self.state
+        return self
+
+
+class CustomerBase(BaseModel):
+    customer_number_ext: str | None = Field(default=None, max_length=50)
+    company_name: str = Field(min_length=1, max_length=255)
+    tax_id: str | None = Field(default=None, max_length=64)
+    industry_type: str | None = Field(default=None, max_length=100)
+    facility_type: str | None = Field(default=None, max_length=100)
+    website: str | None = Field(default=None, max_length=255)
+    primary_contact_name: str | None = Field(default=None, max_length=255)
+    primary_email: EmailStr | None = None
+    primary_phone: str | None = Field(default=None, max_length=50)
+    currency: str = Field(default='USD', min_length=3, max_length=3)
+    credit_limit: Decimal = Field(default=Decimal('0.00'), ge=0, decimal_places=2)
+    payment_terms: str | None = Field(default=None, max_length=50)
+    preferred_incoterms: str | None = Field(default=None, max_length=10)
+    tax_exempt: bool = False
+    tax_exempt_certificate_id: str | None = Field(default=None, max_length=100)
+    status: str = Field(default='ACTIVE', max_length=32)
+
+    @field_validator(
+        'customer_number_ext',
+        'tax_id',
+        'industry_type',
+        'facility_type',
+        'website',
+        'primary_contact_name',
+        'primary_email',
+        'primary_phone',
+        'payment_terms',
+        'preferred_incoterms',
+        'tax_exempt_certificate_id',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_currency(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return 'USD'
+        return str(value).strip().upper()
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def normalize_status(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return 'ACTIVE'
+        status = str(value).strip().upper().replace(' ', '_')
+        if status not in CUSTOMER_STATUSES:
+            raise ValueError(f'status must be one of: {", ".join(CUSTOMER_STATUSES)}')
+        return status
+
+    @field_validator('preferred_incoterms', mode='before')
+    @classmethod
+    def normalize_incoterms(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().upper()
+
+
+class CustomerCreate(CustomerBase):
+    customer_id: str = Field(max_length=50)
+    locations: list[CustomerLocationNested] | None = None
+    certifications: list[CustomerCertificationNested] | None = None
+
+    @model_validator(mode='after')
+    def validate_nested(self) -> 'CustomerCreate':
+        if self.locations is not None:
+            validate_customer_locations(self.locations)
+        return self
+
+
+class CustomerUpdate(BaseModel):
+    """Partial header-only update (PATCH). Nested sync uses PUT."""
+
+    customer_number_ext: str | None = Field(default=None, max_length=50)
+    company_name: str | None = Field(default=None, min_length=1, max_length=255)
+    tax_id: str | None = Field(default=None, max_length=64)
+    industry_type: str | None = Field(default=None, max_length=100)
+    facility_type: str | None = Field(default=None, max_length=100)
+    website: str | None = Field(default=None, max_length=255)
+    primary_contact_name: str | None = Field(default=None, max_length=255)
+    primary_email: EmailStr | None = None
+    primary_phone: str | None = Field(default=None, max_length=50)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    credit_limit: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    payment_terms: str | None = Field(default=None, max_length=50)
+    preferred_incoterms: str | None = Field(default=None, max_length=10)
+    tax_exempt: bool | None = None
+    tax_exempt_certificate_id: str | None = Field(default=None, max_length=100)
+    status: str | None = Field(default=None, max_length=32)
+
+    @field_validator(
+        'customer_number_ext',
+        'tax_id',
+        'industry_type',
+        'facility_type',
+        'website',
+        'primary_contact_name',
+        'primary_email',
+        'primary_phone',
+        'payment_terms',
+        'preferred_incoterms',
+        'tax_exempt_certificate_id',
+        mode='before',
+    )
+    @classmethod
+    def blank_optional(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_currency(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip().upper()
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def normalize_status(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        status = str(cleaned).strip().upper().replace(' ', '_')
+        if status not in CUSTOMER_STATUSES:
+            raise ValueError(f'status must be one of: {", ".join(CUSTOMER_STATUSES)}')
+        return status
+
+
+class CustomerUpsert(CustomerBase):
+    """Full nested create/update payload (POST body / PUT body)."""
+
+    customer_id: str | None = Field(default=None, max_length=50)
+    locations: list[CustomerLocationNested]
+    certifications: list[CustomerCertificationNested] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_nested(self) -> 'CustomerUpsert':
+        validate_customer_locations(self.locations)
+        return self
+
+
+class CustomerRead(ORMModel):
+    customer_id: str
+    customer_number_ext: str | None = None
+    company_name: str
+    tax_id: str | None = None
+    industry_type: str | None = None
+    facility_type: str | None = None
+    website: str | None = None
+    primary_contact_name: str | None = None
+    primary_email: str | None = None
+    primary_phone: str | None = None
+    currency: str = 'USD'
+    credit_limit: Decimal = Decimal('0.00')
+    payment_terms: str | None = None
+    preferred_incoterms: str | None = None
+    tax_exempt: bool = False
+    tax_exempt_certificate_id: str | None = None
+    status: str = 'ACTIVE'
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CustomerDetailRead(CustomerRead):
+    locations: list[CustomerLocationRead] = Field(default_factory=list)
+    bill_to_locations: list[CustomerLocationRead] = Field(default_factory=list)
+    ship_to_locations: list[CustomerLocationRead] = Field(default_factory=list)
+    certifications: list[CustomerCertificationRead] = Field(default_factory=list)
 
 
 class ItemCreate(BaseModel):

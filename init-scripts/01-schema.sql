@@ -113,33 +113,74 @@ CREATE TABLE Suppliers (
     status VARCHAR(20) DEFAULT 'Active'
 );
 
+DROP TABLE IF EXISTS customer_certifications CASCADE;
 DROP TABLE IF EXISTS Customers CASCADE;
--- 1. Customers Table (Simplified, billing removed)
+-- 1. Customers (manufacturing / commercial master)
 CREATE TABLE Customers (
     customer_id VARCHAR(50) PRIMARY KEY,       -- e.g., 'CUST-DENSO-001'
     customer_number_ext VARCHAR(50),           -- DENSO's Supplier No: '20001668172'
-    company_name VARCHAR(255) NOT NULL         -- 'DENSO Products and Services...'
+    company_name VARCHAR(255) NOT NULL,        -- 'DENSO Products and Services...'
+    tax_id VARCHAR(64),
+    industry_type VARCHAR(100),                -- Automotive, Electronics, Industrial
+    facility_type VARCHAR(100),                -- OEM, Tier-1, Contract Manufacturer
+    website VARCHAR(255),
+    primary_contact_name VARCHAR(255),
+    primary_email VARCHAR(255),
+    primary_phone VARCHAR(50),
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    credit_limit DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    payment_terms VARCHAR(50),                 -- NET30, NET60, ADVANCE
+    preferred_incoterms VARCHAR(10),           -- FOB, CIF, EXW, DDP
+    tax_exempt BOOLEAN NOT NULL DEFAULT FALSE,
+    tax_exempt_certificate_id VARCHAR(100),
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX ix_customers_tax_id ON Customers (tax_id);
+CREATE INDEX ix_customers_primary_email ON Customers (primary_email);
 
 
 DROP TABLE IF EXISTS CustomerLocations CASCADE;
 
 -- 2. Unified Customer Locations (Billing & Shipping)
+-- Physical table name stays CustomerLocations (customerlocations) so existing
+-- sales-order FKs remain valid. This is the manufacturing Bill-To / Ship-To child.
 CREATE TABLE CustomerLocations (
     location_id VARCHAR(50) PRIMARY KEY,
     customer_id VARCHAR(50) REFERENCES Customers(customer_id) ON DELETE CASCADE,
     location_type VARCHAR(20) NOT NULL,        -- 'BILL_TO', 'SHIP_TO', or 'BOTH'
-    location_name VARCHAR(100),                -- e.g., 'Long Beach Plant' or 'HQ'
+    location_code VARCHAR(50),                 -- e.g., 'HQ-BILLING', 'PLANT-01'
+    location_name VARCHAR(150) NOT NULL,       -- e.g., 'Austin Assembly Plant'
     attention_to VARCHAR(100),                 -- e.g., 'Accounts Payable' or 'Receiving Dept'
-    address_line1 VARCHAR(255),
-    city VARCHAR(100),
-    state VARCHAR(50),
-    postal_code VARCHAR(20),
-    country VARCHAR(50),
-    contact_email VARCHAR(150),                -- Billing email or Shipping contact email
-    
+    address_line1 VARCHAR(255) NOT NULL,
+    address_line2 VARCHAR(255),
+    city VARCHAR(100) NOT NULL,
+    state VARCHAR(100),                        -- state / province (API: state_province)
+    postal_code VARCHAR(32) NOT NULL,
+    country VARCHAR(50) NOT NULL,
+    contact_person VARCHAR(150),
+    contact_email VARCHAR(255),
+    contact_phone VARCHAR(50),
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    tax_id VARCHAR(64),                        -- entity-specific billing / VAT
+    shipping_instructions TEXT,                -- dock notes, receiving hours
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
     CONSTRAINT chk_location_type CHECK (location_type IN ('BILL_TO', 'SHIP_TO', 'BOTH'))
 );
+CREATE INDEX ix_customerlocations_customer_id ON CustomerLocations (customer_id);
+
+
+CREATE TABLE customer_certifications (
+    id BIGSERIAL PRIMARY KEY,
+    customer_id VARCHAR(50) NOT NULL REFERENCES Customers(customer_id) ON DELETE CASCADE,
+    certification_name VARCHAR(100) NOT NULL,  -- ISO 9001, IATF 16949, ISO 14001
+    certificate_number VARCHAR(100),
+    valid_until DATE
+);
+CREATE INDEX ix_customer_certifications_customer_id ON customer_certifications (customer_id);
 
 
 DROP TABLE IF EXISTS items CASCADE;

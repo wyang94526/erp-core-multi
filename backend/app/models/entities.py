@@ -270,22 +270,68 @@ class Customer(Base):
     customer_id = Column(String(50), primary_key=True)
     customer_number_ext = Column(String(50))
     company_name = Column(String(255), nullable=False)
-    # Note: billing fields have been removed as they are now in CustomerLocation
+    tax_id = Column(String(64), nullable=True, index=True)
+    industry_type = Column(String(100), nullable=True)
+    facility_type = Column(String(100), nullable=True)
+    website = Column(String(255), nullable=True)
+    primary_contact_name = Column(String(255), nullable=True)
+    primary_email = Column(String(255), nullable=True, index=True)
+    primary_phone = Column(String(50), nullable=True)
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    credit_limit = Column(Numeric(14, 2), nullable=False, server_default=text('0.00'))
+    payment_terms = Column(String(50), nullable=True)
+    preferred_incoterms = Column(String(10), nullable=True)
+    tax_exempt = Column(Boolean, nullable=False, server_default=text('false'))
+    tax_exempt_certificate_id = Column(String(100), nullable=True)
+    status = Column(String(32), nullable=False, server_default=text("'ACTIVE'"))
+    created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text('NOW()'),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    locations = relationship(
+        "CustomerLocation",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+    )
+    certifications = relationship(
+        "CustomerCertification",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+    )
+
 
 class CustomerLocation(Base):
+    """Bill-To / Ship-To sites. Table name remains `customerlocations` to preserve SO FKs."""
+
     __tablename__ = 'customerlocations'
 
     location_id = Column(String(50), primary_key=True)
-    customer_id = Column(String(50), ForeignKey('customers.customer_id', ondelete='CASCADE'))
-    location_type = Column(String(20), nullable=False) # 'BILL_TO', 'SHIP_TO', or 'BOTH'
-    location_name = Column(String(100))
+    customer_id = Column(String(50), ForeignKey('customers.customer_id', ondelete='CASCADE'), index=True)
+    location_type = Column(String(20), nullable=False)  # 'BILL_TO', 'SHIP_TO', or 'BOTH'
+    location_code = Column(String(50), nullable=True)
+    location_name = Column(String(150), nullable=False)
     attention_to = Column(String(100))
-    address_line1 = Column(String(255))
-    city = Column(String(100))
-    state = Column(String(50))
-    postal_code = Column(String(20))
-    country = Column(String(50))
-    contact_email = Column(String(150))
+    address_line1 = Column(String(255), nullable=False)
+    address_line2 = Column(String(255), nullable=True)
+    city = Column(String(100), nullable=False)
+    state = Column(String(100), nullable=True)  # state / province (API alias: state_province)
+    postal_code = Column(String(32), nullable=False)
+    country = Column(String(50), nullable=False)
+    contact_person = Column(String(150), nullable=True)
+    contact_email = Column(String(255), nullable=True)
+    contact_phone = Column(String(50), nullable=True)
+    is_default = Column(Boolean, nullable=False, server_default=text('false'))
+    tax_id = Column(String(64), nullable=True)
+    shipping_instructions = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text('NOW()'),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -294,8 +340,24 @@ class CustomerLocation(Base):
         ),
     )
 
-    # Relationships
-    customer = relationship("Customer")
+    customer = relationship("Customer", back_populates="locations")
+
+
+class CustomerCertification(Base):
+    __tablename__ = 'customer_certifications'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    customer_id = Column(
+        String(50),
+        ForeignKey('customers.customer_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    certification_name = Column(String(100), nullable=False)
+    certificate_number = Column(String(100), nullable=True)
+    valid_until = Column(Date, nullable=True)
+
+    customer = relationship("Customer", back_populates="certifications")
 
 class Item(Base):
     __tablename__ = 'items'

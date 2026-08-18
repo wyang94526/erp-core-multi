@@ -4,27 +4,49 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { customerService } from '../api/services'
 import type { Customer } from '../types'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 
 export function CustomerList() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [skip, setSkip] = useState(0)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [toast, setToast] = useState<string | null>(null)
   const limit = 10
 
-  // Fetch customers using React Query
+  useEffect(() => {
+    const message = (location.state as { toast?: string } | null)?.toast
+    if (message) {
+      setToast(message)
+      navigate('.', { replace: true, state: {} })
+    }
+  }, [location.state, navigate])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
   const {
     data: customers = [],
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['customers', skip, limit],
-    queryFn: () => customerService.listCustomers(skip, limit),
+    queryKey: ['customers', skip, limit, search, statusFilter],
+    queryFn: () =>
+      customerService.listCustomers(skip, limit, {
+        q: search || undefined,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
+      }),
   })
 
   const { items: sortedCustomers, requestSort, sortConfig } = useSortableData(customers)
@@ -39,6 +61,12 @@ export function CustomerList() {
     if (customers.length === limit) {
       setSkip(skip + limit)
     }
+  }
+
+  const applySearch = (event: React.FormEvent) => {
+    event.preventDefault()
+    setSkip(0)
+    setSearch(searchInput.trim())
   }
 
   if (isLoading) {
@@ -64,6 +92,11 @@ export function CustomerList() {
 
   return (
     <div style={containerStyle}>
+      {toast && (
+        <div style={toastStyle} role="status">
+          {toast}
+        </div>
+      )}
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Customers</h2>
@@ -78,6 +111,32 @@ export function CustomerList() {
           + Add Customer
         </button>
       </header>
+
+      <form onSubmit={applySearch} style={filterRowStyle}>
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by name, customer ID, or tax ID"
+          style={searchInputStyle}
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value)
+            setSkip(0)
+          }}
+          style={selectStyle}
+        >
+          <option value="ALL">All statuses</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+          <option value="ON_HOLD">On hold</option>
+        </select>
+        <button type="submit" style={secondaryButtonStyle}>
+          Search
+        </button>
+      </form>
 
       <div style={dashboardSectionStyle}>
         {customers.length === 0 ? (
@@ -114,7 +173,6 @@ export function CustomerList() {
               </table>
             </div>
 
-            {/* Pagination Controls */}
             <div style={paginationRowStyle}>
               <button
                 onClick={handlePreviousPage}
@@ -143,10 +201,6 @@ export function CustomerList() {
   )
 }
 
-// ==========================================
-// STYLES
-// ==========================================
-
 const containerStyle: React.CSSProperties = {
   padding: '24px',
   maxWidth: '1200px',
@@ -155,7 +209,7 @@ const containerStyle: React.CSSProperties = {
 }
 
 const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
+  marginBottom: '16px',
   borderBottom: '1px solid var(--border)',
   paddingBottom: '16px',
   display: 'flex',
@@ -200,6 +254,36 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: '13px',
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+
+const filterRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '10px',
+  marginBottom: '16px',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+}
+
+const searchInputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: '220px',
+  padding: '9px 12px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '14px',
+  fontFamily: 'inherit',
+  backgroundColor: 'var(--bg)',
+  color: 'var(--text-h)',
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: '9px 12px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '14px',
+  fontFamily: 'inherit',
+  backgroundColor: 'var(--bg)',
+  color: 'var(--text-h)',
 }
 
 const dashboardSectionStyle: React.CSSProperties = {
@@ -267,6 +351,20 @@ const paginationRowStyle: React.CSSProperties = {
   alignItems: 'center',
   flexWrap: 'wrap',
   gap: '12px',
+}
+
+const toastStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 12,
+  zIndex: 20,
+  marginBottom: '16px',
+  backgroundColor: '#e8f5e9',
+  color: '#1b5e20',
+  border: '1px solid #c8e6c9',
+  borderRadius: '6px',
+  padding: '12px 16px',
+  fontSize: '14px',
+  fontWeight: 600,
 }
 
 export default CustomerList

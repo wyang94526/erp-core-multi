@@ -623,8 +623,14 @@ def propose_draft_sales_order(
         .filter(CustomerLocation.customer_id == customer_id.strip())
         .all()
     )
-    bill = next((l for l in locations if l.location_type in ("BILL_TO", "BOTH")), None)
-    ship = next((l for l in locations if l.location_type in ("SHIP_TO", "BOTH")), None)
+    bill = next(
+        (l for l in locations if l.location_type in ("BILL_TO", "BOTH") and getattr(l, "is_default", False)),
+        None,
+    ) or next((l for l in locations if l.location_type in ("BILL_TO", "BOTH")), None)
+    ship = next(
+        (l for l in locations if l.location_type in ("SHIP_TO", "BOTH") and getattr(l, "is_default", False)),
+        None,
+    ) or next((l for l in locations if l.location_type in ("SHIP_TO", "BOTH")), None)
     if not bill or not ship:
         return _json(
             {

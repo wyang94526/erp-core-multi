@@ -7,6 +7,7 @@ import { apiClient } from './client';
 import type {
   User,
   Customer,
+  CustomerWrite,
   Location,
   Item,
   Product,
@@ -103,36 +104,43 @@ export const userService = {
 
 export const customerService = {
   /**
-   * Fetch all customers with pagination
+   * Fetch all customers with pagination and optional search/status filters
    */
-  async listCustomers(skip: number = 0, limit: number = 100): Promise<Customer[]> {
+  async listCustomers(
+    skip: number = 0,
+    limit: number = 100,
+    filters?: { q?: string; status?: string },
+  ): Promise<Customer[]> {
     return apiClient.get<Customer[]>('/api/v1/customers', {
-      params: { skip, limit },
+      params: { skip, limit, q: filters?.q, status: filters?.status },
     });
   },
 
   /**
-   * Fetch a single customer by ID
+   * Fetch a single customer by ID (includes locations and certifications)
    */
   async getCustomer(customerId: string): Promise<Customer> {
     return apiClient.get<Customer>(`/api/v1/customers/${customerId}`);
   },
 
   /**
-   * Create a new customer
+   * Create a new customer, optionally with nested locations and certifications
    */
-  async createCustomer(data: {
-    customer_id: string;
-    customer_number_ext?: string;
-    company_name: string;
-  }): Promise<Customer> {
+  async createCustomer(data: CustomerWrite): Promise<Customer> {
     return apiClient.post<Customer>('/api/v1/customers', data);
   },
 
   /**
-   * Update a customer
+   * Full nested update (locations + certifications upsert)
    */
-  async updateCustomer(
+  async updateCustomer(customerId: string, data: CustomerWrite): Promise<Customer> {
+    return apiClient.put<Customer>(`/api/v1/customers/${customerId}`, data);
+  },
+
+  /**
+   * Header-only partial update
+   */
+  async patchCustomer(
     customerId: string,
     data: Partial<Customer>
   ): Promise<Customer> {
@@ -175,14 +183,22 @@ export const locationService = {
     location_id: string;
     customer_id: string;
     location_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+    location_code?: string;
     location_name?: string;
     attention_to?: string;
     address_line1?: string;
+    address_line2?: string;
     city?: string;
     state?: string;
+    state_province?: string;
     postal_code?: string;
     country?: string;
+    contact_person?: string;
     contact_email?: string;
+    contact_phone?: string;
+    is_default?: boolean;
+    tax_id?: string;
+    shipping_instructions?: string;
   }): Promise<Location> {
     return apiClient.post<Location>('/api/v1/customer-locations/', data);
   },
