@@ -1,0 +1,20 @@
+[Unit]
+Description=ERP Frontend (Vite)
+After=network-online.target erp-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/erp-project/erp-frontend
+Environment=HOME=/home/opc
+Environment=PATH=__NODE_BIN__:/usr/bin:/bin
+ExecStart=__NODE_BIN__/npm run dev -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

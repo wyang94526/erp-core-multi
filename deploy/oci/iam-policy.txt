@@ -1,0 +1,11 @@
+# Paste these in OCI Console → Identity & Security → Policies
+# (compartment that holds the ERP compute instance, or the tenancy root).
+#
+# Replace Administrators with your group if you use a different one.
+# Replace COMPARTMENT_NAME with the compartment display name (not the OCID).
+
+Allow group Administrators to manage resource-schedule-family in compartment COMPARTMENT_NAME
+
+# Lets Resource Scheduler start/stop compute instances in that compartment.
+# Do not include the Postgres host (10.0.1.209) on the stop schedule.
+Allow any-user to manage instance in compartment COMPARTMENT_NAME where request.principal.type='resourceschedule'
