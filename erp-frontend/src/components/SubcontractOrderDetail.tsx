@@ -372,6 +372,12 @@ export function SubcontractOrderDetail() {
             <p style={valueStyle}>{sco.item_id}</p>
           </div>
           <div>
+            <label style={labelStyle}>BOM Version</label>
+            <p style={valueStyle}>
+              {sco.bom_version_no != null ? `v${sco.bom_version_no}` : '—'}
+            </p>
+          </div>
+          <div>
             <label style={labelStyle}>Quantity Ordered</label>
             <p style={valueStyle}>{sco.quantity_ordered}</p>
           </div>

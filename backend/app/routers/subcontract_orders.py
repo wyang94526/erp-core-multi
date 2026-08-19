@@ -27,6 +27,7 @@ from app.schemas import (
     SubcontractOrderUpdate,
 )
 from app.services.approval import require_approved
+from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 
 router = APIRouter(prefix="/subcontract-orders", tags=["subcontract-orders"])
@@ -40,6 +41,7 @@ def _load_sco(db: Session, sco_number: str) -> SubcontractOrder | None:
         db.query(SubcontractOrder)
         .options(
             selectinload(SubcontractOrder.components),
+            selectinload(SubcontractOrder.bom_header),
             selectinload(SubcontractOrder.material_issues).selectinload(MaterialIssue.lines),
             selectinload(SubcontractOrder.finished_goods_receipts),
         )
@@ -56,6 +58,7 @@ def list_subcontract_orders(
         db.query(SubcontractOrder)
         .options(
             selectinload(SubcontractOrder.components),
+            selectinload(SubcontractOrder.bom_header),
             selectinload(SubcontractOrder.material_issues).selectinload(MaterialIssue.lines),
             selectinload(SubcontractOrder.finished_goods_receipts),
         )
@@ -85,7 +88,10 @@ def create_subcontract_order(
     if product is None:
         raise HTTPException(status_code=400, detail="Item not found")
 
-    bom_lines = material_bom_lines(db, payload.item_id)
+    header = resolve_header(db, payload.item_id, payload.bom_header_id)
+    bom_lines = material_bom_lines(
+        db, payload.item_id, bom_header_id=header.bom_header_id if header else None
+    )
     if not bom_lines:
         raise HTTPException(
             status_code=400,
@@ -97,6 +103,7 @@ def create_subcontract_order(
         sco_number=payload.sco_number,
         supplier_id=payload.supplier_id,
         item_id=payload.item_id,
+        bom_header_id=header.bom_header_id if header else None,
         quantity_ordered=payload.quantity_ordered,
         unit_price=payload.unit_price,
         status="PLANNED",
@@ -151,7 +158,9 @@ def calculate_components(
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
 
-    exploded = explode_assembly_components(db, sco.item_id, sco.quantity_ordered)
+    exploded = explode_assembly_components(
+        db, sco.item_id, sco.quantity_ordered, bom_header_id=sco.bom_header_id
+    )
     issued_by_component = {
         c.component_item_id: Decimal(str(c.quantity_issued or 0)) for c in sco.components
     }
@@ -181,6 +190,8 @@ def calculate_components(
         sco_number=sco.sco_number,
         assembly_item_id=sco.item_id,
         quantity_ordered=sco.quantity_ordered,
+        bom_header_id=sco.bom_header_id,
+        bom_version_no=sco.bom_version_no,
         components=components,
     )
 

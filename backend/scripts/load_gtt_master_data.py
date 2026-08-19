@@ -66,6 +66,7 @@ BOM
   bmb06 / bmb07    quantity_per = qty / base
   bmb08            scrap_factor (TIPTOP % → ERP fraction if > 1)
   bmb05            skip if expired
+  (no TIPTOP revision)  imported as itembomheaders version 1 (active)
 """
 
 from __future__ import annotations
@@ -355,6 +356,8 @@ class MappedBom:
     item_type: str = "Material"
     yield_loss_percentage: Decimal = Decimal("0")
     component_code: str | None = None
+    version_no: int = 1
+    status: str = "active"
     warnings: list[str] = field(default_factory=list)
 
 
@@ -504,6 +507,7 @@ def plan_to_preview(plan: LoadPlan, data_dir: Path) -> dict[str, Any]:
     bom = [
         {
             "bom_id": None,
+            "bom_header_id": None,
             "parent_item_id": line.parent_item_id,
             "component_item_id": line.component_item_id,
             "component_code": line.component_code,
@@ -511,6 +515,8 @@ def plan_to_preview(plan: LoadPlan, data_dir: Path) -> dict[str, Any]:
             "item_type": line.item_type,
             "scrap_factor": _jsonable(line.scrap_factor),
             "yield_loss_percentage": _jsonable(line.yield_loss_percentage),
+            "version_no": line.version_no,
+            "status": line.status,
             "created_at": None,
             "parent_description": item_desc.get(line.parent_item_id),
             "component_description": item_desc.get(line.component_item_id),
@@ -966,8 +972,10 @@ def load_items(db: Any, rows: list[MappedItem], upsert: bool) -> Counter:
 
 def load_bom(db: Any, rows: list[MappedBom], upsert: bool) -> Counter:
     from app.models import Item, ItemBOMComponent
+    from app.services.bom_versions import ensure_writable_header
 
     stats: Counter[str] = Counter()
+    headers: dict[str, Any] = {}
     for mapped in rows:
         parent = db.get(Item, mapped.parent_item_id)
         component = db.get(Item, mapped.component_item_id)
@@ -977,10 +985,14 @@ def load_bom(db: Any, rows: list[MappedBom], upsert: bool) -> Counter:
         if not parent.is_subcontract_assembly and not parent.is_outside_processed:
             parent.is_subcontract_assembly = True
             parent.is_outside_processed = True
+        header = headers.get(mapped.parent_item_id)
+        if header is None:
+            header = ensure_writable_header(db, mapped.parent_item_id)
+            headers[mapped.parent_item_id] = header
         existing = (
             db.query(ItemBOMComponent)
             .filter(
-                ItemBOMComponent.parent_item_id == mapped.parent_item_id,
+                ItemBOMComponent.bom_header_id == header.bom_header_id,
                 ItemBOMComponent.component_item_id == mapped.component_item_id,
                 ItemBOMComponent.component_code.is_(None),
             )
@@ -995,6 +1007,7 @@ def load_bom(db: Any, rows: list[MappedBom], upsert: bool) -> Counter:
         if existing is None:
             db.add(
                 ItemBOMComponent(
+                    bom_header_id=header.bom_header_id,
                     parent_item_id=mapped.parent_item_id,
                     component_item_id=mapped.component_item_id,
                     component_code=mapped.component_code,

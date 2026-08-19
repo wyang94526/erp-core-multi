@@ -184,6 +184,9 @@ export interface SubcontractBOM {
   assembly_item_id: string;
   assembly_description?: string | null;
   is_subcontract_assembly: boolean;
+  bom_header_id?: number | null;
+  bom_version_no?: number | null;
+  bom_status?: string | null;
   components: SubcontractBOMLine[];
 }
 
@@ -457,8 +460,19 @@ export interface PurchaseOrder {
 // SUBCONTRACTING / OUTSIDE PROCESSING TYPES
 // ==========================================
 
+export interface ItemBOMHeader {
+  bom_header_id: number;
+  parent_item_id: string;
+  version_no: number;
+  status: 'draft' | 'active' | 'obsolete' | string;
+  effective_from?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+}
+
 export interface ProductBOMComponent {
   bom_id: number;
+  bom_header_id?: number;
   parent_item_id: string;
   component_item_id: string | null;
   component_code: string | null;
@@ -516,6 +530,8 @@ export interface SubcontractOrder {
   sco_number: string;
   supplier_id: string;
   item_id: string;
+  bom_header_id?: number | null;
+  bom_version_no?: number | null;
   quantity_ordered: number;
   unit_price?: number;
   status: SubcontractOrderStatus | string;

@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { itemService, itemBomService } from '../api/services'
 import type { ProductBOMComponent } from '../types'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
+import { BomVersionToolbar } from './BomVersionToolbar'
 
 const UOM_OPTIONS = ['Each', 'Box', 'Case', 'Pallet', 'Kg', 'Lb', 'Meter', 'Foot', 'Liter', 'Gallon']
 
@@ -87,6 +88,7 @@ export function ItemForm() {
   // Bill of Materials component rows for this product
   const [bomComponents, setBomComponents] = useState<BomComponentRow[]>([])
   const [bomError, setBomError] = useState<string>('')
+  const [selectedBomHeaderId, setSelectedBomHeaderId] = useState<number | null>(null)
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -117,11 +119,20 @@ export function ItemForm() {
     [allItems, formData.item_id]
   )
 
+  const { data: bomHeaders = [] } = useQuery({
+    queryKey: ['itemBomHeaders', id],
+    queryFn: () => itemBomService.listHeaders(id as string),
+    enabled: isEditMode && Boolean(id),
+  })
+  const selectedBomHeader = bomHeaders.find((h) => h.bom_header_id === selectedBomHeaderId)
+  const bomReadOnly = selectedBomHeader?.status === 'obsolete'
+
   // Fetch existing BOM components for this product when editing
   const { data: existingBomComponents } = useQuery({
-    queryKey: ['itemBom', id],
-    queryFn: () => (id ? itemBomService.listBomComponents(id) : Promise.resolve([])),
-    enabled: isEditMode,
+    queryKey: ['itemBom', id, selectedBomHeaderId],
+    queryFn: () =>
+      id ? itemBomService.listBomComponents(id, selectedBomHeaderId) : Promise.resolve([]),
+    enabled: isEditMode && Boolean(id),
   })
 
   // Populate form when product data is loaded
@@ -270,10 +281,12 @@ export function ItemForm() {
   // ==========================================
 
   const handleAddBomComponent = () => {
+    if (bomReadOnly) return
     setBomComponents((prev) => [...prev, makeEmptyBomRow()])
   }
 
   const handleRemoveBomComponent = async (rowId: string) => {
+    if (bomReadOnly) return
     const row = bomComponents.find((r) => r.id === rowId)
     setBomError('')
 
@@ -352,7 +365,7 @@ export function ItemForm() {
   // it already has a bomId). Triggered onBlur of quantity, and immediately
   // when a part number / code is first selected.
   const persistBomRow = async (rowId: string) => {
-    if (!isEditMode || !id) return
+    if (!isEditMode || !id || bomReadOnly) return
 
     const row = bomComponents.find((r) => r.id === rowId)
     if (!row) return
@@ -385,13 +398,19 @@ export function ItemForm() {
           )
         )
       } else {
-        const created = await itemBomService.addBomComponent(id, {
-          ...basePayload,
-          quantity_per: Number(row.quantity),
-          item_type: row.itemType,
-          scrap_factor: Number(row.scrapFactor) || 0,
-          yield_loss_percentage: Number(row.yieldLossPercentage) || 0,
-        })
+        const created = await itemBomService.addBomComponent(
+          id,
+          {
+            ...basePayload,
+            quantity_per: Number(row.quantity),
+            item_type: row.itemType,
+            scrap_factor: Number(row.scrapFactor) || 0,
+            yield_loss_percentage: Number(row.yieldLossPercentage) || 0,
+          },
+          selectedBomHeaderId,
+        )
+        if (created.bom_header_id) setSelectedBomHeaderId(created.bom_header_id)
+        await queryClient.invalidateQueries({ queryKey: ['itemBomHeaders', id] })
         setBomComponents((prev) =>
           prev.map((r) =>
             r.id === rowId ? { ...r, bomId: created.bom_id, isSaving: false } : r
@@ -749,6 +768,13 @@ export function ItemForm() {
               ? 'Subcontract BOM / Assembly Kit'
               : 'Bill of Materials (BOM)'}
           </h3>
+          {isEditMode && id ? (
+            <BomVersionToolbar
+              itemId={id}
+              selectedHeaderId={selectedBomHeaderId}
+              onSelect={setSelectedBomHeaderId}
+            />
+          ) : null}
           {formData.is_subcontract_assembly && (
             <p style={bomEmptyTextStyle}>
               Assign raw materials/components and quantities required per assembly unit.
@@ -915,7 +941,7 @@ export function ItemForm() {
                           onClick={() => handleRemoveBomComponent(row.id)}
                           style={removeButtonStyle}
                           title="Remove component"
-                          disabled={row.isSaving}
+                          disabled={row.isSaving || bomReadOnly}
                         >
                           {row.isSaving ? 'Saving...' : '🗑 Remove'}
                         </button>
@@ -931,7 +957,7 @@ export function ItemForm() {
             type="button"
             onClick={handleAddBomComponent}
             style={addComponentButtonStyle}
-            disabled={!isEditMode}
+            disabled={!isEditMode || bomReadOnly}
           >
             + Add Component
           </button>

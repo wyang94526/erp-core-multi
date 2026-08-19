@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { itemService, itemBomService } from '../api/services'
 import type { Item } from '../types'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
+import { BomVersionToolbar } from './BomVersionToolbar'
 
 export function ItemDetail() {
   const { id } = useParams<{ id: string }>()
@@ -18,6 +19,7 @@ export function ItemDetail() {
   const queryClient = useQueryClient()
 
   const [showAddForm, setShowAddForm] = useState(false)
+  const [selectedBomHeaderId, setSelectedBomHeaderId] = useState<number | null>(null)
   const [newComponent, setNewComponent] = useState({
     component_item_id: '',
     quantity_per: '',
@@ -45,12 +47,20 @@ export function ItemDetail() {
     queryFn: () => itemService.getItem(id),
   })
 
+  const { data: bomHeaders = [] } = useQuery({
+    queryKey: ['itemBomHeaders', id],
+    queryFn: () => itemBomService.listHeaders(id as string),
+    enabled: Boolean(id),
+  })
+  const bomReadOnly = bomHeaders.find((h) => h.bom_header_id === selectedBomHeaderId)?.status === 'obsolete'
+
   const {
     data: bomComponents = [],
     isLoading: isLoadingBom,
   } = useQuery({
-    queryKey: ['itemBom', id],
-    queryFn: () => itemBomService.listBomComponents(id),
+    queryKey: ['itemBom', id, selectedBomHeaderId],
+    queryFn: () => itemBomService.listBomComponents(id as string, selectedBomHeaderId),
+    enabled: Boolean(id),
   })
 
   // Fetch all products so the user can pick a component from a dropdown
@@ -65,8 +75,10 @@ export function ItemDetail() {
       quantity_per: number
       scrap_factor?: number
       yield_loss_percentage?: number
-    }) => itemBomService.addBomComponent(id, data),
-    onSuccess: () => {
+    }) => itemBomService.addBomComponent(id as string, data, selectedBomHeaderId),
+    onSuccess: (created) => {
+      if (created.bom_header_id) setSelectedBomHeaderId(created.bom_header_id)
+      queryClient.invalidateQueries({ queryKey: ['itemBomHeaders', id] })
       queryClient.invalidateQueries({ queryKey: ['itemBom', id] })
       setShowAddForm(false)
       setNewComponent({
@@ -220,16 +232,28 @@ export function ItemDetail() {
               ? 'Subcontract BOM / Assembly Kit'
               : 'Bill of Materials (BOM)'}
           </h3>
-          <button type="button" onClick={() => setShowAddForm((v) => !v)} style={addButtonStyle}>
+          <button
+            type="button"
+            onClick={() => setShowAddForm((v) => !v)}
+            style={addButtonStyle}
+            disabled={bomReadOnly}
+          >
             {showAddForm ? 'Cancel' : '+ Add Component'}
           </button>
         </div>
+        {id ? (
+          <BomVersionToolbar
+            itemId={id}
+            selectedHeaderId={selectedBomHeaderId}
+            onSelect={setSelectedBomHeaderId}
+          />
+        ) : null}
         <p style={{ ...pageSubStyle, marginBottom: '16px' }}>
           Raw materials/components required to build one unit of this item. Used to
           automatically calculate requirements when creating a Subcontract Order.
         </p>
 
-        {showAddForm && (
+        {showAddForm && !bomReadOnly && (
           <form onSubmit={handleAddSubmit} style={{ marginBottom: '20px' }}>
             <div style={gridStyle}>
               <div style={fieldGroupStyle}>
@@ -340,7 +364,7 @@ export function ItemDetail() {
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <button
                         onClick={() => deleteMutation.mutate(bc.bom_id)}
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || bomReadOnly}
                         style={{
                           ...directoryActionButtonStyle,
                           backgroundColor: '#ffebee',

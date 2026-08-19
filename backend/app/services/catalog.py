@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Item, ItemBOMComponent, VendorItemMapping
+from app.services.bom_versions import resolve_header
 
 
 def required_quantity(
@@ -32,11 +33,18 @@ def required_quantity(
     return (base * factor).quantize(Decimal("0.0001"))
 
 
-def material_bom_lines(db: Session, assembly_id: str) -> list[ItemBOMComponent]:
+def material_bom_lines(
+    db: Session,
+    assembly_id: str,
+    bom_header_id: int | None = None,
+) -> list[ItemBOMComponent]:
+    header = resolve_header(db, assembly_id, bom_header_id)
+    if header is None:
+        return []
     return (
         db.query(ItemBOMComponent)
         .filter(
-            ItemBOMComponent.parent_item_id == assembly_id,
+            ItemBOMComponent.bom_header_id == header.bom_header_id,
             ItemBOMComponent.item_type == "Material",
             ItemBOMComponent.component_item_id.isnot(None),
         )
@@ -65,13 +73,14 @@ def explode_assembly_components(
     db: Session,
     assembly_id: str,
     quantity_ordered: int,
+    bom_header_id: int | None = None,
 ) -> list[dict]:
     """Return calculated component requirements for an assembly qty."""
     assembly = db.get(Item, assembly_id)
     if assembly is None:
         raise HTTPException(status_code=404, detail=f"Assembly item '{assembly_id}' not found")
 
-    lines = material_bom_lines(db, assembly_id)
+    lines = material_bom_lines(db, assembly_id, bom_header_id=bom_header_id)
     if not lines:
         raise HTTPException(
             status_code=400,

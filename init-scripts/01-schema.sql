@@ -301,9 +301,25 @@ CREATE TABLE SalesOrderItems (
 -- ========================================================
 
 DROP TABLE IF EXISTS itembomcomponents CASCADE;
--- 7. Master Bill of Materials: which components make up a finished product
+DROP TABLE IF EXISTS itembomheaders CASCADE;
+-- 7. Versioned Bill of Materials: header per revision, lines per version
+CREATE TABLE itembomheaders (
+    bom_header_id BIGSERIAL PRIMARY KEY,
+    parent_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
+    version_no INT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',  -- draft, active, obsolete
+    effective_from DATE,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_item_bom_version UNIQUE (parent_item_id, version_no),
+    CONSTRAINT chk_bom_header_status CHECK (status IN ('draft', 'active', 'obsolete')),
+    CONSTRAINT chk_bom_header_version_pos CHECK (version_no > 0)
+);
+CREATE UNIQUE INDEX uq_one_active_bom_per_item ON itembomheaders (parent_item_id) WHERE status = 'active';
+
 CREATE TABLE itembomcomponents (
     bom_id BIGSERIAL PRIMARY KEY,
+    bom_header_id BIGINT NOT NULL REFERENCES itembomheaders(bom_header_id) ON DELETE CASCADE,
     parent_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
     component_item_id VARCHAR(50) REFERENCES items(item_id),   -- Set for 'Material' rows only
     component_code VARCHAR(50),                        -- Set for 'Labor' / 'Outside Service' rows only (predefined codes, not real Items)
@@ -313,7 +329,7 @@ CREATE TABLE itembomcomponents (
     yield_loss_percentage NUMERIC(8, 4) NOT NULL DEFAULT 0, -- Expected yield loss %
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT unique_bom_line UNIQUE (parent_item_id, component_item_id, component_code),
+    CONSTRAINT unique_bom_line UNIQUE (bom_header_id, component_item_id, component_code),
     CONSTRAINT chk_bom_not_self_referencing CHECK (parent_item_id <> component_item_id),
     CONSTRAINT chk_bom_component_ref CHECK (
         (item_type = 'Material' AND component_item_id IS NOT NULL AND component_code IS NULL) OR
@@ -344,6 +360,7 @@ CREATE TABLE SubcontractOrders (
     sco_number VARCHAR(50) PRIMARY KEY,
     supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
     item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),  -- The finished good being subcontracted
+    bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id) ON DELETE SET NULL,
 
     quantity_ordered INT NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'PLANNED',  -- PLANNED, MATERIALS_ISSUED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED

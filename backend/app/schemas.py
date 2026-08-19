@@ -1137,6 +1137,21 @@ LABOR_SERVICE_CODES: dict[str, str] = {
 from pydantic import model_validator
 
 
+class ItemBOMHeaderCreate(BaseModel):
+    copy_from_header_id: int | None = None
+    notes: str | None = None
+
+
+class ItemBOMHeaderRead(ORMModel):
+    bom_header_id: int
+    parent_item_id: str
+    version_no: int
+    status: str
+    effective_from: date | None = None
+    notes: str | None = None
+    created_at: datetime | None = None
+
+
 class ItemBOMComponentCreate(BaseModel):
     component_item_id: str | None = Field(default=None, max_length=50)
     component_code: str | None = Field(default=None, max_length=50)
@@ -1182,6 +1197,7 @@ class ItemBOMComponentUpdate(BaseModel):
 
 class ItemBOMComponentRead(ORMModel):
     bom_id: int
+    bom_header_id: int
     parent_item_id: str
     component_item_id: str | None
     component_code: str | None = None
@@ -1256,6 +1272,7 @@ class SubcontractOrderCreate(BaseModel):
     order_date: date | None = None
     expected_return_date: date | None = None
     notes: str | None = None
+    bom_header_id: int | None = None
 
 class SubcontractOrderUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=50)
@@ -1269,6 +1286,8 @@ class SubcontractOrderRead(ORMModel):
     sco_number: str
     supplier_id: str
     item_id: str
+    bom_header_id: int | None = None
+    bom_version_no: int | None = None
     quantity_ordered: int
     unit_price: Decimal = Decimal("0")
     status: str
@@ -1793,6 +1812,9 @@ class SubcontractBOMRead(ORMModel):
     assembly_item_id: str
     assembly_description: str | None = None
     is_subcontract_assembly: bool = False
+    bom_header_id: int | None = None
+    bom_version_no: int | None = None
+    bom_status: str | None = None
     components: list[SubcontractBOMLineRead] = []
 
 
@@ -1815,6 +1837,8 @@ class CalculateComponentsResponse(BaseModel):
     sco_number: str
     assembly_item_id: str
     quantity_ordered: int
+    bom_header_id: int | None = None
+    bom_version_no: int | None = None
     components: list[CalculatedComponentLine]
 
 

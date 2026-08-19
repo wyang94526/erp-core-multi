@@ -112,6 +112,7 @@ const VENDOR_MAPPING_COLUMNS: (keyof DataImportVendorMapping)[] = [
 
 const BOM_COLUMNS: (keyof DataImportBomLine)[] = [
   'bom_id',
+  'bom_header_id',
   'parent_item_id',
   'component_item_id',
   'component_code',
@@ -119,6 +120,8 @@ const BOM_COLUMNS: (keyof DataImportBomLine)[] = [
   'item_type',
   'scrap_factor',
   'yield_loss_percentage',
+  'version_no',
+  'status',
   'created_at',
 ]
 
@@ -614,8 +617,10 @@ function PreviewBody({
       {tab === 'bom' && (
         <>
           <p style={muted}>
-            Columns match the <code>itembomcomponents</code> table. <code>bom_id</code> and{' '}
-            <code>created_at</code> are assigned on insert.
+            Columns match <code>itembomcomponents</code> plus the version header. TIPTOP has no
+            revision field, so the loader creates <code>itembomheaders</code> version 1 (active).{' '}
+            <code>bom_id</code>, <code>bom_header_id</code>, and <code>created_at</code> are assigned
+            on insert.
           </p>
           <div style={tableWrap}>
             <table style={tableStyle}>

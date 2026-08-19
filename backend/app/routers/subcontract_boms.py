@@ -1,6 +1,6 @@
 """Subcontract BOM / assembly kit management (Material lines on ItemBOMComponents)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,6 +11,7 @@ from app.schemas import (
     SubcontractBOMRead,
 )
 from app.services.catalog import material_bom_lines, primary_vendor_mapping
+from app.services.bom_versions import assert_line_writable, ensure_writable_header, resolve_header
 
 router = APIRouter(prefix="/subcontract-boms", tags=["subcontract-boms"])
 
@@ -38,11 +39,14 @@ def _line_read(db: Session, line: ItemBOMComponent) -> SubcontractBOMLineRead:
     )
 
 
-def _bom_read(db: Session, assembly_id: str) -> SubcontractBOMRead:
+def _bom_read(
+    db: Session, assembly_id: str, bom_header_id: int | None = None
+) -> SubcontractBOMRead:
     assembly = db.get(Item, assembly_id)
     if assembly is None:
         raise HTTPException(status_code=404, detail="Assembly item not found")
-    lines = material_bom_lines(db, assembly_id)
+    header = resolve_header(db, assembly_id, bom_header_id)
+    lines = material_bom_lines(db, assembly_id, bom_header_id=bom_header_id)
     return SubcontractBOMRead(
         assembly_item_id=assembly_id,
         assembly_description=assembly.description,
@@ -50,13 +54,20 @@ def _bom_read(db: Session, assembly_id: str) -> SubcontractBOMRead:
             getattr(assembly, "is_subcontract_assembly", False)
             or assembly.is_outside_processed
         ),
+        bom_header_id=header.bom_header_id if header else None,
+        bom_version_no=header.version_no if header else None,
+        bom_status=header.status if header else None,
         components=[_line_read(db, line) for line in lines],
     )
 
 
 @router.get("/{assembly_id}", response_model=SubcontractBOMRead)
-def get_subcontract_bom(assembly_id: str, db: Session = Depends(get_db)) -> SubcontractBOMRead:
-    return _bom_read(db, assembly_id)
+def get_subcontract_bom(
+    assembly_id: str,
+    bom_header_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> SubcontractBOMRead:
+    return _bom_read(db, assembly_id, bom_header_id)
 
 
 @router.post("/", response_model=SubcontractBOMLineRead, status_code=status.HTTP_201_CREATED)
@@ -77,10 +88,12 @@ def create_subcontract_bom_line(
         assembly.is_subcontract_assembly = True
         assembly.is_outside_processed = True
 
+    header = ensure_writable_header(db, payload.assembly_item_id)
+
     existing = (
         db.query(ItemBOMComponent)
         .filter(
-            ItemBOMComponent.parent_item_id == payload.assembly_item_id,
+            ItemBOMComponent.bom_header_id == header.bom_header_id,
             ItemBOMComponent.component_item_id == payload.component_item_id,
             ItemBOMComponent.item_type == "Material",
         )
@@ -90,6 +103,7 @@ def create_subcontract_bom_line(
         raise HTTPException(status_code=400, detail="Component already on this assembly kit")
 
     line = ItemBOMComponent(
+        bom_header_id=header.bom_header_id,
         parent_item_id=payload.assembly_item_id,
         component_item_id=payload.component_item_id,
         quantity_per=payload.quantity_required,
@@ -110,5 +124,6 @@ def delete_subcontract_bom_line(
     line = db.get(ItemBOMComponent, bom_id)
     if not line or line.parent_item_id != assembly_id:
         raise HTTPException(status_code=404, detail="BOM line not found")
+    assert_line_writable(line)
     db.delete(line)
     db.commit()

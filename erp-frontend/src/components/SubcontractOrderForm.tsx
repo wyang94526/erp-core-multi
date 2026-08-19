@@ -24,6 +24,7 @@ export function SubcontractOrderForm() {
     order_date: new Date().toISOString().split('T')[0],
     expected_return_date: '',
     notes: '',
+    bom_header_id: '' as string,
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -49,10 +50,21 @@ export function SubcontractOrderForm() {
     queryFn: () => itemService.listItems(0, 1000),
   })
 
+  const { data: bomHeaders = [] } = useQuery({
+    queryKey: ['itemBomHeaders', formData.item_id],
+    queryFn: () => itemBomService.listHeaders(formData.item_id),
+    enabled: !!formData.item_id,
+  })
+
+  const selectedHeaderId = formData.bom_header_id
+    ? Number(formData.bom_header_id)
+    : bomHeaders.find((h) => h.status === 'active')?.bom_header_id ??
+      bomHeaders[bomHeaders.length - 1]?.bom_header_id
+
   // Fetch BOM preview for the selected product so the user can see what will be required
   const { data: bomComponents = [] } = useQuery({
-    queryKey: ['productBom', formData.item_id],
-    queryFn: () => itemBomService.listBomComponents(formData.item_id),
+    queryKey: ['productBom', formData.item_id, selectedHeaderId],
+    queryFn: () => itemBomService.listBomComponents(formData.item_id, selectedHeaderId),
     enabled: !!formData.item_id,
   })
 
@@ -66,6 +78,7 @@ export function SubcontractOrderForm() {
         order_date: data.order_date || undefined,
         expected_return_date: data.expected_return_date || undefined,
         notes: data.notes || undefined,
+        bom_header_id: data.bom_header_id ? Number(data.bom_header_id) : selectedHeaderId,
       }),
     onSuccess: (sco) => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
@@ -85,6 +98,7 @@ export function SubcontractOrderForm() {
     setFormData((prev) => ({
       ...prev,
       [name]: name === 'quantity_ordered' ? Number(value) : value,
+      ...(name === 'item_id' ? { bom_header_id: '' } : {}),
     }))
     if (errors[name]) {
       setErrors((prev) => {
@@ -219,6 +233,27 @@ export function SubcontractOrderForm() {
               )}
             </div>
 
+            {formData.item_id && bomHeaders.length > 0 && (
+              <div style={fieldGroupStyle}>
+                <label htmlFor="bom_header_id" style={labelStyle}>
+                  BOM Version
+                </label>
+                <select
+                  id="bom_header_id"
+                  name="bom_header_id"
+                  value={formData.bom_header_id || String(selectedHeaderId ?? '')}
+                  onChange={handleChange}
+                  style={inputStyle}
+                >
+                  {bomHeaders.map((header) => (
+                    <option key={header.bom_header_id} value={header.bom_header_id}>
+                      v{header.version_no} · {header.status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div style={fieldGroupStyle}>
               <label htmlFor="quantity_ordered" style={labelStyle}>
                 Quantity Ordered *
@@ -291,7 +326,8 @@ export function SubcontractOrderForm() {
           <div style={cardStyle}>
             <h3 style={sectionHeadingStyle}>Bill of Materials Preview</h3>
             <p style={{ ...pageSubStyle, marginBottom: '12px' }}>
-              The following components will be required, scaled by the order quantity above:
+              This order will pin BOM {selectedHeaderId ? `v${bomHeaders.find((h) => h.bom_header_id === selectedHeaderId)?.version_no ?? ''}` : ''}
+              . Components below are scaled by the order quantity.
             </p>
             <div style={{ overflowX: 'auto' }}>
               <table style={tableStyle}>

@@ -16,6 +16,7 @@ import type {
   SupplierWrite,
   PurchaseOrder,
   ProductBOMComponent,
+  ItemBOMHeader,
   SubcontractOrder,
   MaterialIssue,
   FinishedGoodsReceipt,
@@ -762,11 +763,31 @@ export const purchaseOrderService = {
 // ==========================================
 
 export const itemBomService = {
+  async listHeaders(itemId: string): Promise<ItemBOMHeader[]> {
+    return apiClient.get<ItemBOMHeader[]>(`/api/v1/items/${itemId}/bom-headers`);
+  },
+
+  async createVersion(
+    itemId: string,
+    data: { copy_from_header_id?: number | null; notes?: string | null } = {},
+  ): Promise<ItemBOMHeader> {
+    return apiClient.post<ItemBOMHeader>(`/api/v1/items/${itemId}/bom-headers`, data);
+  },
+
+  async activateVersion(itemId: string, headerId: number): Promise<ItemBOMHeader> {
+    return apiClient.post<ItemBOMHeader>(
+      `/api/v1/items/${itemId}/bom-headers/${headerId}/activate`,
+      {},
+    );
+  },
+
   /**
-   * List all BOM components (raw materials) for a given finished product
+   * List BOM components for a version. Omit headerId to use the active version.
    */
-  async listBomComponents(itemId: string): Promise<ProductBOMComponent[]> {
-    return apiClient.get<ProductBOMComponent[]>(`/api/v1/items/${itemId}/bom`);
+  async listBomComponents(itemId: string, headerId?: number | null): Promise<ProductBOMComponent[]> {
+    return apiClient.get<ProductBOMComponent[]>(`/api/v1/items/${itemId}/bom`, {
+      params: { bom_header_id: headerId ?? undefined },
+    });
   },
 
   /**
@@ -783,9 +804,12 @@ export const itemBomService = {
       item_type?: 'Material' | 'Labor' | 'Outside Service';
       scrap_factor?: number;
       yield_loss_percentage?: number;
-    }
+    },
+    headerId?: number | null,
   ): Promise<ProductBOMComponent> {
-    return apiClient.post<ProductBOMComponent>(`/api/v1/items/${itemId}/bom`, data);
+    return apiClient.post<ProductBOMComponent>(`/api/v1/items/${itemId}/bom`, data, {
+      params: { bom_header_id: headerId ?? undefined },
+    });
   },
 
   /**
@@ -858,6 +882,7 @@ export const subcontractOrderService = {
     order_date?: string;
     expected_return_date?: string;
     notes?: string;
+    bom_header_id?: number | null;
   }): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>('/api/v1/subcontract-orders', data);
   },
@@ -1336,6 +1361,7 @@ export type DataImportVendorMapping = {
 
 export type DataImportBomLine = {
   bom_id?: string | number | null
+  bom_header_id?: string | number | null
   parent_item_id: string
   component_item_id: string
   component_code?: string | null
@@ -1343,6 +1369,8 @@ export type DataImportBomLine = {
   item_type?: string
   scrap_factor: string
   yield_loss_percentage?: string
+  version_no?: number | string | null
+  status?: string | null
   created_at?: string | null
   parent_description?: string | null
   component_description?: string | null

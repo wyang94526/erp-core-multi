@@ -1,11 +1,18 @@
 """Item BOM endpoints under /items/{item_id}/bom (+ deprecated /products alias)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Item, ItemBOMComponent
-from app.schemas import ItemBOMComponentCreate, ItemBOMComponentRead, ItemBOMComponentUpdate
+from app.models import Item, ItemBOMComponent, ItemBOMHeader
+from app.schemas import (
+    ItemBOMComponentCreate,
+    ItemBOMComponentRead,
+    ItemBOMComponentUpdate,
+    ItemBOMHeaderCreate,
+    ItemBOMHeaderRead,
+)
+from app.services import bom_versions
 
 router = APIRouter(tags=["item-bom"])
 
@@ -17,13 +24,64 @@ def _ensure_parent(db: Session, item_id: str) -> Item:
     return parent
 
 
+@router.get("/items/{item_id}/bom-headers", response_model=list[ItemBOMHeaderRead])
+def list_bom_headers(item_id: str, db: Session = Depends(get_db)) -> list[ItemBOMHeader]:
+    _ensure_parent(db, item_id)
+    return bom_versions.list_headers(db, item_id)
+
+
+@router.post(
+    "/items/{item_id}/bom-headers",
+    response_model=ItemBOMHeaderRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_bom_header(
+    item_id: str,
+    payload: ItemBOMHeaderCreate | None = None,
+    db: Session = Depends(get_db),
+) -> ItemBOMHeader:
+    _ensure_parent(db, item_id)
+    body = payload or ItemBOMHeaderCreate()
+    header = bom_versions.create_draft_version(
+        db,
+        item_id,
+        copy_from_header_id=body.copy_from_header_id,
+        notes=body.notes,
+    )
+    db.commit()
+    db.refresh(header)
+    return header
+
+
+@router.post(
+    "/items/{item_id}/bom-headers/{header_id}/activate",
+    response_model=ItemBOMHeaderRead,
+)
+def activate_bom_header(
+    item_id: str, header_id: int, db: Session = Depends(get_db)
+) -> ItemBOMHeader:
+    _ensure_parent(db, item_id)
+    header = bom_versions.activate_header(db, item_id, header_id)
+    db.commit()
+    db.refresh(header)
+    return header
+
+
 @router.get("/items/{item_id}/bom", response_model=list[ItemBOMComponentRead])
 @router.get("/products/{item_id}/bom", response_model=list[ItemBOMComponentRead], deprecated=True)
-def list_bom_components(item_id: str, db: Session = Depends(get_db)) -> list[ItemBOMComponent]:
+def list_bom_components(
+    item_id: str,
+    bom_header_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[ItemBOMComponent]:
     _ensure_parent(db, item_id)
+    header = bom_versions.resolve_header(db, item_id, bom_header_id)
+    if header is None:
+        return []
     return (
         db.query(ItemBOMComponent)
-        .filter(ItemBOMComponent.parent_item_id == item_id)
+        .filter(ItemBOMComponent.bom_header_id == header.bom_header_id)
+        .order_by(ItemBOMComponent.bom_id)
         .all()
     )
 
@@ -40,7 +98,10 @@ def list_bom_components(item_id: str, db: Session = Depends(get_db)) -> list[Ite
     deprecated=True,
 )
 def add_bom_component(
-    item_id: str, payload: ItemBOMComponentCreate, db: Session = Depends(get_db)
+    item_id: str,
+    payload: ItemBOMComponentCreate,
+    bom_header_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
 ) -> ItemBOMComponent:
     _ensure_parent(db, item_id)
 
@@ -51,10 +112,12 @@ def add_bom_component(
         if not component:
             raise HTTPException(status_code=400, detail="Component item not found")
 
+    header = bom_versions.ensure_writable_header(db, item_id, bom_header_id)
+
     existing = (
         db.query(ItemBOMComponent)
         .filter(
-            ItemBOMComponent.parent_item_id == item_id,
+            ItemBOMComponent.bom_header_id == header.bom_header_id,
             ItemBOMComponent.component_item_id == payload.component_item_id,
             ItemBOMComponent.component_code == payload.component_code,
         )
@@ -64,6 +127,7 @@ def add_bom_component(
         raise HTTPException(status_code=400, detail="This component already exists on the BOM")
 
     bom_line = ItemBOMComponent(
+        bom_header_id=header.bom_header_id,
         parent_item_id=item_id,
         component_item_id=payload.component_item_id,
         component_code=payload.component_code,
@@ -97,6 +161,7 @@ def update_bom_component(
     )
     if not bom_line:
         raise HTTPException(status_code=404, detail="BOM component not found")
+    bom_versions.assert_line_writable(bom_line)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(bom_line, key, value)
     db.commit()
@@ -121,5 +186,6 @@ def delete_bom_component(item_id: str, bom_id: int, db: Session = Depends(get_db
     )
     if not bom_line:
         raise HTTPException(status_code=404, detail="BOM component not found")
+    bom_versions.assert_line_writable(bom_line)
     db.delete(bom_line)
     db.commit()

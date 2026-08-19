@@ -17,6 +17,7 @@ from sqlalchemy import (
     Date,
     CheckConstraint,
     UniqueConstraint,
+    Index,
     text,
 )
 
@@ -376,6 +377,11 @@ class Item(Base):
     is_raw_material = Column(Boolean, nullable=False, server_default=text('false'))
 
     vendor_mappings = relationship("VendorItemMapping", back_populates="item", cascade="all, delete-orphan")
+    bom_headers = relationship(
+        "ItemBOMHeader",
+        back_populates="parent_item",
+        cascade="all, delete-orphan",
+    )
     bom_components = relationship(
         "ItemBOMComponent",
         foreign_keys="ItemBOMComponent.parent_item_id",
@@ -559,10 +565,51 @@ class Supplier(Base):
 # 4. SUBCONTRACTING / OUTSIDE PROCESSING TABLES
 # ========================================================
 
+class ItemBOMHeader(Base):
+    """One BOM revision for an assembly. Lines live on ItemBOMComponent."""
+
+    __tablename__ = "itembomheaders"
+
+    bom_header_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    parent_item_id = Column(
+        String(50), ForeignKey("items.item_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version_no = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    effective_from = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
+
+    __table_args__ = (
+        UniqueConstraint("parent_item_id", "version_no", name="uq_item_bom_version"),
+        CheckConstraint("status IN ('draft', 'active', 'obsolete')", name="chk_bom_header_status"),
+        CheckConstraint("version_no > 0", name="chk_bom_header_version_pos"),
+        Index(
+            "uq_one_active_bom_per_item",
+            "parent_item_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    parent_item = relationship("Item", back_populates="bom_headers")
+    components = relationship(
+        "ItemBOMComponent",
+        back_populates="header",
+        cascade="all, delete-orphan",
+    )
+
+
 class ItemBOMComponent(Base):
     __tablename__ = 'itembomcomponents'
 
     bom_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    bom_header_id = Column(
+        BigInteger,
+        ForeignKey("itembomheaders.bom_header_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     parent_item_id = Column(String(50), ForeignKey('items.item_id', ondelete='CASCADE'), nullable=False)
     component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=True)
     component_code = Column(String(50), nullable=True)  # Predefined Labor / Outside Service code (non-Product)
@@ -573,11 +620,12 @@ class ItemBOMComponent(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
-        UniqueConstraint('parent_item_id', 'component_item_id', 'component_code', name='unique_bom_line'),
+        UniqueConstraint('bom_header_id', 'component_item_id', 'component_code', name='unique_bom_line'),
         CheckConstraint('parent_item_id <> component_item_id', name='chk_bom_not_self_referencing'),
     )
 
     # Relationships
+    header = relationship("ItemBOMHeader", back_populates="components")
     parent_item = relationship("Item", foreign_keys=[parent_item_id], back_populates="bom_components")
     component_item = relationship("Item", foreign_keys=[component_item_id])
 
@@ -633,6 +681,11 @@ class SubcontractOrder(Base):
     sco_number = Column(String(50), primary_key=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
     item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
+    bom_header_id = Column(
+        BigInteger,
+        ForeignKey("itembomheaders.bom_header_id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     quantity_ordered = Column(Integer, nullable=False)
     unit_price = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
@@ -650,9 +703,14 @@ class SubcontractOrder(Base):
     # Relationships
     supplier = relationship("Supplier")
     item = relationship("Item")
+    bom_header = relationship("ItemBOMHeader")
     components = relationship("SubcontractOrderComponent", back_populates="subcontract_order", cascade="all, delete-orphan")
     material_issues = relationship("MaterialIssue", back_populates="subcontract_order")
     finished_goods_receipts = relationship("FinishedGoodsReceipt", back_populates="subcontract_order")
+
+    @property
+    def bom_version_no(self) -> int | None:
+        return self.bom_header.version_no if self.bom_header is not None else None
 
 
 class SubcontractOrderComponent(Base):
