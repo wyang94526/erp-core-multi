@@ -126,10 +126,21 @@ CREATE TABLE Suppliers (
     status VARCHAR(20) DEFAULT 'Active',
     vendor_type VARCHAR(20) NOT NULL DEFAULT 'material',
     tax_id VARCHAR(50),
+    tax_document_type VARCHAR(64),
+    is_overseas BOOLEAN NOT NULL DEFAULT FALSE,
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     ap_account_id UUID REFERENCES chart_of_accounts(id) ON DELETE SET NULL,
     payment_method VARCHAR(20),
     incoterms VARCHAR(10),
+    incoterm_location VARCHAR(150),
+    country_of_origin VARCHAR(50),
+    bank_name VARCHAR(150),
+    swift_code VARCHAR(11),
+    iban_account_number VARCHAR(64),
+    bank_address TEXT,
+    intermediary_bank_name VARCHAR(150),
+    intermediary_swift_code VARCHAR(11),
+    intermediary_routing_aba VARCHAR(20),
     lead_time_days INTEGER NOT NULL DEFAULT 0,
     work_center_id VARCHAR(50) REFERENCES work_centers(work_center_id) ON DELETE SET NULL,
     consignment_stock_loc_id VARCHAR(50),
@@ -141,7 +152,11 @@ CREATE TABLE Suppliers (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT chk_supplier_vendor_type CHECK (vendor_type IN ('material', 'subcontractor', 'both', 'service')),
     CONSTRAINT chk_supplier_payment_method CHECK (payment_method IS NULL OR payment_method IN ('wire', 'ach', 'check', 'credit_card')),
-    CONSTRAINT chk_supplier_qc_status CHECK (qc_status IN ('approved', 'probation', 'blocked'))
+    CONSTRAINT chk_supplier_qc_status CHECK (qc_status IN ('approved', 'probation', 'blocked')),
+    CONSTRAINT chk_supplier_tax_document_type CHECK (
+        tax_document_type IS NULL OR tax_document_type IN
+        ('W-8BEN-E', 'W-8BEN', 'Certificate of Foreign Status', 'Other', 'W-9')
+    )
 );
 
 DROP TABLE IF EXISTS customer_certifications CASCADE;
@@ -151,6 +166,7 @@ CREATE TABLE Customers (
     customer_id VARCHAR(50) PRIMARY KEY,       -- e.g., 'CUST-DENSO-001'
     customer_number_ext VARCHAR(50),           -- DENSO's Supplier No: '20001668172'
     company_name VARCHAR(255) NOT NULL,        -- 'DENSO Products and Services...'
+    tax_id_type VARCHAR(16),                   -- EIN, TIN, VAT, SSN, OTHER
     tax_id VARCHAR(64),
     industry_type VARCHAR(100),                -- Automotive, Electronics, Industrial
     facility_type VARCHAR(100),                -- OEM, Tier-1, Contract Manufacturer
@@ -166,7 +182,8 @@ CREATE TABLE Customers (
     tax_exempt_certificate_id VARCHAR(100),
     status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_customers_tax_id_type CHECK (tax_id_type IS NULL OR tax_id_type IN ('EIN', 'TIN', 'VAT', 'SSN', 'OTHER'))
 );
 CREATE INDEX ix_customers_tax_id ON Customers (tax_id);
 CREATE INDEX ix_customers_primary_email ON Customers (primary_email);

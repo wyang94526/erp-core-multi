@@ -49,6 +49,7 @@ LOCATION_COLUMNS = (
 CUSTOMER_COLUMNS = (
     "customer_number_ext",
     "company_name",
+    "tax_id_type",
     "tax_id",
     "industry_type",
     "facility_type",

@@ -219,12 +219,31 @@ class JournalEntryRead(ORMModel):
 
 CUSTOMER_STATUSES = ('ACTIVE', 'INACTIVE', 'ON_HOLD')
 LOCATION_TYPES = ('BILL_TO', 'SHIP_TO', 'BOTH')
+TAX_ID_TYPES = ('EIN', 'TIN', 'VAT', 'SSN', 'OTHER')
 
 
 def _blank_to_none(value: Any) -> Any:
     if isinstance(value, str) and value.strip() == '':
         return None
     return value
+
+
+def _normalize_tax_id_type(value: Any) -> Any:
+    cleaned = _blank_to_none(value)
+    if cleaned is None:
+        return None
+    normalized = str(cleaned).strip().upper().replace(' ', '_')
+    aliases = {
+        'EMPLOYER_IDENTIFICATION_NUMBER': 'EIN',
+        'TAXPAYER_IDENTIFICATION_NUMBER': 'TIN',
+        'VALUE_ADDED_TAX': 'VAT',
+        'SOCIAL_SECURITY_NUMBER': 'SSN',
+        'OTHER': 'OTHER',
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in TAX_ID_TYPES:
+        raise ValueError(f'tax_id_type must be one of: {", ".join(TAX_ID_TYPES)}')
+    return normalized
 
 
 def validate_customer_locations(locations: list['CustomerLocationNested']) -> None:
@@ -440,6 +459,7 @@ class CustomerLocationRead(ORMModel):
 class CustomerBase(BaseModel):
     customer_number_ext: str | None = Field(default=None, max_length=50)
     company_name: str = Field(min_length=1, max_length=255)
+    tax_id_type: str | None = Field(default=None, max_length=16)
     tax_id: str | None = Field(default=None, max_length=64)
     industry_type: str | None = Field(default=None, max_length=100)
     facility_type: str | None = Field(default=None, max_length=100)
@@ -472,6 +492,11 @@ class CustomerBase(BaseModel):
     @classmethod
     def blank_optional(cls, value: Any) -> Any:
         return _blank_to_none(value)
+
+    @field_validator('tax_id_type', mode='before')
+    @classmethod
+    def normalize_tax_id_type(cls, value: Any) -> Any:
+        return _normalize_tax_id_type(value)
 
     @field_validator('currency', mode='before')
     @classmethod
@@ -516,6 +541,7 @@ class CustomerUpdate(BaseModel):
 
     customer_number_ext: str | None = Field(default=None, max_length=50)
     company_name: str | None = Field(default=None, min_length=1, max_length=255)
+    tax_id_type: str | None = Field(default=None, max_length=16)
     tax_id: str | None = Field(default=None, max_length=64)
     industry_type: str | None = Field(default=None, max_length=100)
     facility_type: str | None = Field(default=None, max_length=100)
@@ -548,6 +574,11 @@ class CustomerUpdate(BaseModel):
     @classmethod
     def blank_optional(cls, value: Any) -> Any:
         return _blank_to_none(value)
+
+    @field_validator('tax_id_type', mode='before')
+    @classmethod
+    def normalize_tax_id_type(cls, value: Any) -> Any:
+        return _normalize_tax_id_type(value)
 
     @field_validator('currency', mode='before')
     @classmethod
@@ -586,6 +617,7 @@ class CustomerRead(ORMModel):
     customer_id: str
     customer_number_ext: str | None = None
     company_name: str
+    tax_id_type: str | None = None
     tax_id: str | None = None
     industry_type: str | None = None
     facility_type: str | None = None
@@ -757,6 +789,45 @@ class OrderDeliveryScheduleRead(ORMModel):
 VENDOR_TYPES = ('material', 'subcontractor', 'both', 'service')
 PAYMENT_METHODS = ('wire', 'ach', 'check', 'credit_card')
 QC_STATUSES = ('approved', 'probation', 'blocked')
+TAX_DOCUMENT_TYPES = (
+    'W-8BEN-E',
+    'W-8BEN',
+    'Certificate of Foreign Status',
+    'Other',
+    'W-9',
+)
+
+
+def _normalize_swift_code(value: Any) -> Any:
+    cleaned = _blank_to_none(value)
+    if cleaned is None:
+        return None
+    code = str(cleaned).strip().replace(' ', '').upper()
+    if not code.isalnum() or len(code) not in (8, 11):
+        raise ValueError('SWIFT / BIC must be 8 or 11 alphanumeric characters')
+    return code
+
+
+def _normalize_tax_document_type(value: Any) -> Any:
+    cleaned = _blank_to_none(value)
+    if cleaned is None:
+        return None
+    label = str(cleaned).strip()
+    lookup: dict[str, str | None] = {item.upper(): item for item in TAX_DOCUMENT_TYPES}
+    lookup.update({
+        'W8BENE': 'W-8BEN-E',
+        'W-8BENE': 'W-8BEN-E',
+        'W8BEN': 'W-8BEN',
+        'W9': 'W-9',
+        'NONE': None,
+    })
+    key = label.upper()
+    compact = key.replace(' ', '').replace('_', '-')
+    if key in lookup:
+        return lookup[key]
+    if compact in lookup:
+        return lookup[compact]
+    raise ValueError(f'tax_document_type must be one of: {", ".join(TAX_DOCUMENT_TYPES)}')
 
 
 class WorkCenterCreate(BaseModel):
@@ -790,10 +861,21 @@ class SupplierBase(BaseModel):
     status: str | None = Field(default="Active", max_length=20)
     vendor_type: Literal['material', 'subcontractor', 'both', 'service'] = 'material'
     tax_id: str | None = Field(default=None, max_length=50)
+    tax_document_type: str | None = Field(default=None, max_length=64)
+    is_overseas: bool = False
     currency: str = Field(default='USD', min_length=3, max_length=3)
     ap_account_id: UUID | None = None
     payment_method: Literal['wire', 'ach', 'check', 'credit_card'] | None = None
     incoterms: str | None = Field(default=None, max_length=10)
+    incoterm_location: str | None = Field(default=None, max_length=150)
+    country_of_origin: str | None = Field(default=None, max_length=50)
+    bank_name: str | None = Field(default=None, max_length=150)
+    swift_code: str | None = Field(default=None, max_length=11)
+    iban_account_number: str | None = Field(default=None, max_length=64)
+    bank_address: str | None = None
+    intermediary_bank_name: str | None = Field(default=None, max_length=150)
+    intermediary_swift_code: str | None = Field(default=None, max_length=11)
+    intermediary_routing_aba: str | None = Field(default=None, max_length=20)
     lead_time_days: int = Field(default=0, ge=0)
     work_center_id: str | None = Field(default=None, max_length=50)
     consignment_stock_loc_id: str | None = Field(default=None, max_length=50)
@@ -815,9 +897,19 @@ class SupplierBase(BaseModel):
         'vendor_number_ext',
         'payment_terms',
         'tax_id',
+        'tax_document_type',
         'ap_account_id',
         'payment_method',
         'incoterms',
+        'incoterm_location',
+        'country_of_origin',
+        'bank_name',
+        'swift_code',
+        'iban_account_number',
+        'bank_address',
+        'intermediary_bank_name',
+        'intermediary_swift_code',
+        'intermediary_routing_aba',
         'work_center_id',
         'consignment_stock_loc_id',
         'notes',
@@ -864,6 +956,35 @@ class SupplierBase(BaseModel):
             return None
         return str(cleaned).strip().upper()
 
+    @field_validator('tax_document_type', mode='before')
+    @classmethod
+    def normalize_tax_document_type(cls, value: Any) -> Any:
+        return _normalize_tax_document_type(value)
+
+    @field_validator('swift_code', 'intermediary_swift_code', mode='before')
+    @classmethod
+    def normalize_swift(cls, value: Any) -> Any:
+        return _normalize_swift_code(value)
+
+    @field_validator('iban_account_number', mode='before')
+    @classmethod
+    def normalize_iban(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        return str(cleaned).strip()
+
+    @field_validator('intermediary_routing_aba', mode='before')
+    @classmethod
+    def normalize_aba(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        digits = ''.join(ch for ch in str(cleaned) if ch.isdigit())
+        if len(digits) not in (0, 9):
+            raise ValueError('Intermediary routing / ABA must be 9 digits')
+        return digits or None
+
 
 class SupplierCreate(SupplierBase):
     supplier_id: str = Field(max_length=50)
@@ -885,10 +1006,21 @@ class SupplierUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=20)
     vendor_type: Literal['material', 'subcontractor', 'both', 'service'] | None = None
     tax_id: str | None = Field(default=None, max_length=50)
+    tax_document_type: str | None = Field(default=None, max_length=64)
+    is_overseas: bool | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     ap_account_id: UUID | None = None
     payment_method: Literal['wire', 'ach', 'check', 'credit_card'] | None = None
     incoterms: str | None = Field(default=None, max_length=10)
+    incoterm_location: str | None = Field(default=None, max_length=150)
+    country_of_origin: str | None = Field(default=None, max_length=50)
+    bank_name: str | None = Field(default=None, max_length=150)
+    swift_code: str | None = Field(default=None, max_length=11)
+    iban_account_number: str | None = Field(default=None, max_length=64)
+    bank_address: str | None = None
+    intermediary_bank_name: str | None = Field(default=None, max_length=150)
+    intermediary_swift_code: str | None = Field(default=None, max_length=11)
+    intermediary_routing_aba: str | None = Field(default=None, max_length=20)
     lead_time_days: int | None = Field(default=None, ge=0)
     work_center_id: str | None = Field(default=None, max_length=50)
     consignment_stock_loc_id: str | None = Field(default=None, max_length=50)
@@ -910,9 +1042,19 @@ class SupplierUpdate(BaseModel):
         'vendor_number_ext',
         'payment_terms',
         'tax_id',
+        'tax_document_type',
         'ap_account_id',
         'payment_method',
         'incoterms',
+        'incoterm_location',
+        'country_of_origin',
+        'bank_name',
+        'swift_code',
+        'iban_account_number',
+        'bank_address',
+        'intermediary_bank_name',
+        'intermediary_swift_code',
+        'intermediary_routing_aba',
         'work_center_id',
         'consignment_stock_loc_id',
         'notes',
@@ -945,6 +1087,27 @@ class SupplierUpdate(BaseModel):
         if cleaned is None:
             return None
         return str(cleaned).strip().upper()
+
+    @field_validator('tax_document_type', mode='before')
+    @classmethod
+    def normalize_tax_document_type(cls, value: Any) -> Any:
+        return _normalize_tax_document_type(value)
+
+    @field_validator('swift_code', 'intermediary_swift_code', mode='before')
+    @classmethod
+    def normalize_swift(cls, value: Any) -> Any:
+        return _normalize_swift_code(value)
+
+    @field_validator('intermediary_routing_aba', mode='before')
+    @classmethod
+    def normalize_aba(cls, value: Any) -> Any:
+        cleaned = _blank_to_none(value)
+        if cleaned is None:
+            return None
+        digits = ''.join(ch for ch in str(cleaned) if ch.isdigit())
+        if digits and len(digits) != 9:
+            raise ValueError('Intermediary routing / ABA must be 9 digits')
+        return digits or None
 
 
 class SupplierRead(SupplierBase):

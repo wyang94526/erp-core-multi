@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { customerService } from '../api/services'
-import type { Customer, CustomerWrite, Location } from '../types'
+import type { Customer, CustomerWrite, Location, TaxIdType } from '../types'
 
 type TabId = 'general' | 'billTo' | 'shipTo' | 'certs'
 
@@ -49,6 +49,54 @@ const STATUS_OPTIONS = [
   { value: 'ON_HOLD', label: 'On hold' },
 ]
 const CERT_NAME_OPTIONS = ['ISO 9001', 'IATF 16949', 'ISO 14001', 'ISO 45001', 'AS9100', 'ISO 13485']
+const TAX_ID_TYPE_OPTIONS: TaxIdType[] = ['EIN', 'TIN', 'VAT', 'SSN', 'OTHER']
+const TAX_ID_TYPE_LABELS: Record<string, string> = {
+  EIN: 'EIN (Employer Identification Number)',
+  TIN: 'TIN (Taxpayer Identification Number)',
+  VAT: 'VAT (Value Added Tax)',
+  SSN: 'SSN (Social Security Number)',
+  OTHER: 'Other',
+}
+const TAX_ID_PLACEHOLDERS: Record<string, string> = {
+  EIN: 'XX-XXXXXXX',
+  TIN: 'XX-XXXXXXX or XXX-XX-XXXX',
+  VAT: 'e.g. GB123456789',
+  SSN: 'XXX-XX-XXXX',
+  OTHER: 'Tax identification number',
+}
+const EIN_RE = /^\d{2}-\d{7}$/
+const SSN_RE = /^\d{3}-\d{2}-\d{4}$/
+const TIN_RE = /^(\d{2}-\d{7}|\d{3}-\d{2}-\d{4}|\d{9})$/
+
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, '')
+}
+
+function formatEin(value: string) {
+  const digits = digitsOnly(value).slice(0, 9)
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`
+}
+
+function formatSsn(value: string) {
+  const digits = digitsOnly(value).slice(0, 9)
+  if (digits.length <= 3) return digits
+  if (digits.length <= 5) return `${digits.slice(0, 3)}-${digits.slice(3)}`
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`
+}
+
+function formatTaxIdValue(type: string, value: string) {
+  if (type === 'EIN') return formatEin(value)
+  if (type === 'SSN') return formatSsn(value)
+  if (type === 'VAT') return value.replace(/\s+/g, '').toUpperCase()
+  return value
+}
+
+function taxIdMaxLength(type: string) {
+  if (type === 'EIN') return 10
+  if (type === 'SSN') return 11
+  return 64
+}
 
 function newKey() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -150,6 +198,7 @@ export function CustomerForm() {
     customer_id: '',
     customer_number_ext: '',
     company_name: '',
+    tax_id_type: '',
     tax_id: '',
     website: '',
     industry_type: '',
@@ -187,7 +236,8 @@ export function CustomerForm() {
       customer_id: customer.customer_id,
       customer_number_ext: customer.customer_number_ext || '',
       company_name: customer.company_name,
-      tax_id: customer.tax_id || '',
+      tax_id_type: customer.tax_id_type || '',
+      tax_id: formatTaxIdValue(customer.tax_id_type || '', customer.tax_id || ''),
       website: customer.website || '',
       industry_type: customer.industry_type || '',
       facility_type: customer.facility_type || '',
@@ -346,6 +396,23 @@ export function CustomerForm() {
     if (formData.primary_email && !EMAIL_RE.test(formData.primary_email)) {
       next.primary_email = 'Enter a valid email address'
     }
+    const taxId = formData.tax_id.trim()
+    const taxIdType = formData.tax_id_type.trim()
+    if (taxId && !taxIdType) {
+      next.tax_id_type = 'Select a Tax ID Type'
+    }
+    if (taxId && taxIdType === 'EIN' && !EIN_RE.test(taxId)) {
+      next.tax_id = 'EIN must match XX-XXXXXXX'
+    }
+    if (taxId && taxIdType === 'SSN' && !SSN_RE.test(taxId)) {
+      next.tax_id = 'SSN must match XXX-XX-XXXX'
+    }
+    if (taxId && taxIdType === 'TIN' && !TIN_RE.test(taxId)) {
+      next.tax_id = 'TIN must be 9 digits (EIN or SSN format)'
+    }
+    if (taxId && taxIdType === 'VAT' && taxId.replace(/[\s.-]/g, '').length < 5) {
+      next.tax_id = 'Enter a valid VAT number'
+    }
     if (formData.website && !/^https?:\/\/.+/i.test(formData.website) && formData.website.includes('.')) {
       // allow host-only websites; only reject obviously broken values
     }
@@ -377,7 +444,7 @@ export function CustomerForm() {
     })
 
     setErrors(next)
-    if (next.customer_id || next.company_name || next.primary_email || next.credit_limit) {
+    if (next.customer_id || next.company_name || next.primary_email || next.credit_limit || next.tax_id || next.tax_id_type) {
       setActiveTab('general')
     } else if (Object.keys(next).some((key) => key.startsWith('bill') || key === 'billTo')) {
       setActiveTab('billTo')
@@ -393,6 +460,7 @@ export function CustomerForm() {
     customer_id: formData.customer_id.trim(),
     customer_number_ext: formData.customer_number_ext.trim() || undefined,
     company_name: formData.company_name.trim(),
+    tax_id_type: formData.tax_id_type.trim() || undefined,
     tax_id: formData.tax_id.trim() || undefined,
     website: formData.website.trim() || undefined,
     industry_type: formData.industry_type || undefined,
@@ -463,7 +531,7 @@ export function CustomerForm() {
   }
 
   const tabs: Array<{ id: TabId; label: string; count?: number; hasError?: boolean }> = [
-    { id: 'general', label: 'General & Commercial', hasError: Boolean(errors.customer_id || errors.company_name) },
+    { id: 'general', label: 'General & Commercial', hasError: Boolean(errors.customer_id || errors.company_name || errors.tax_id || errors.tax_id_type) },
     { id: 'billTo', label: 'Bill-To Locations', count: billToRows.filter(isFilledLocation).length, hasError: Boolean(errors.billTo) },
     { id: 'shipTo', label: 'Ship-To Locations', count: shipToRows.filter(isFilledLocation).length, hasError: Boolean(errors.shipTo) },
     { id: 'certs', label: 'Certifications', count: certRows.filter((row) => row.certification_name.trim()).length },
@@ -537,12 +605,28 @@ export function CustomerForm() {
                 onChange={handleChange}
                 placeholder="External / ERP number"
               />
-              <Field
-                label="Tax ID"
-                name="tax_id"
-                value={formData.tax_id}
-                onChange={handleChange}
-                placeholder="VAT / EIN"
+              <TaxIdFields
+                taxIdType={formData.tax_id_type}
+                taxId={formData.tax_id}
+                typeError={errors.tax_id_type}
+                taxIdError={errors.tax_id}
+                onTypeChange={(value) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    tax_id_type: value,
+                    tax_id: formatTaxIdValue(value, prev.tax_id),
+                  }))
+                  clearError('tax_id_type')
+                  clearError('tax_id')
+                }}
+                onTaxIdChange={(value) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    tax_id: formatTaxIdValue(prev.tax_id_type, value),
+                  }))
+                  clearError('tax_id')
+                  clearError('tax_id_type')
+                }}
               />
               <Field
                 label="Website"
@@ -788,6 +872,47 @@ function uniqueOptions(options: string[], current?: string) {
   return options
 }
 
+function TaxIdFields({
+  taxIdType,
+  taxId,
+  typeError,
+  taxIdError,
+  onTypeChange,
+  onTaxIdChange,
+}: {
+  taxIdType: string
+  taxId: string
+  typeError?: string
+  taxIdError?: string
+  onTypeChange: (value: string) => void
+  onTaxIdChange: (value: string) => void
+}) {
+  const typeOptions = uniqueOptions(TAX_ID_TYPE_OPTIONS, taxIdType)
+  return (
+    <div style={taxIdRowStyle}>
+      <SelectField
+        label="Tax ID Type"
+        name="tax_id_type"
+        value={taxIdType}
+        onChange={(e) => onTypeChange(e.target.value)}
+        options={typeOptions}
+        labels={TAX_ID_TYPE_LABELS}
+        error={typeError}
+      />
+      <Field
+        label="Tax ID"
+        name="tax_id"
+        value={taxId}
+        onChange={(e) => onTaxIdChange(e.target.value)}
+        error={taxIdError}
+        placeholder={TAX_ID_PLACEHOLDERS[taxIdType] || 'VAT / EIN'}
+        maxLength={taxIdMaxLength(taxIdType)}
+        inputMode={taxIdType === 'VAT' || taxIdType === 'OTHER' || !taxIdType ? undefined : 'numeric'}
+      />
+    </div>
+  )
+}
+
 function Field({
   label,
   name,
@@ -798,6 +923,7 @@ function Field({
   disabled,
   type = 'text',
   inputMode,
+  maxLength,
 }: {
   label: string
   name: string
@@ -808,6 +934,7 @@ function Field({
   disabled?: boolean
   type?: string
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
+  maxLength?: number
 }) {
   return (
     <div style={fieldGroupStyle}>
@@ -823,6 +950,7 @@ function Field({
         onChange={onChange}
         disabled={disabled}
         placeholder={placeholder}
+        maxLength={maxLength}
         style={{
           ...inputStyle,
           backgroundColor: disabled ? 'var(--social-bg)' : 'var(--bg)',
@@ -1120,6 +1248,13 @@ const gridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
   gap: '16px',
+}
+
+const taxIdRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(200px, 0.9fr) minmax(220px, 1.1fr)',
+  gap: '16px',
+  gridColumn: '1 / -1',
 }
 
 const fieldGroupStyle: React.CSSProperties = {

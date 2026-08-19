@@ -270,6 +270,7 @@ class Customer(Base):
     customer_id = Column(String(50), primary_key=True)
     customer_number_ext = Column(String(50))
     company_name = Column(String(255), nullable=False)
+    tax_id_type = Column(String(16), nullable=True)
     tax_id = Column(String(64), nullable=True, index=True)
     industry_type = Column(String(100), nullable=True)
     facility_type = Column(String(100), nullable=True)
@@ -492,10 +493,21 @@ class Supplier(Base):
     status = Column(String(20), default='Active')
     vendor_type = Column(String(20), nullable=False, server_default=text("'material'"))
     tax_id = Column(String(50), nullable=True)
+    tax_document_type = Column(String(64), nullable=True)
+    is_overseas = Column(Boolean, nullable=False, server_default=text('false'))
     currency = Column(String(3), nullable=False, server_default=text("'USD'"))
     ap_account_id = Column(UUID(as_uuid=True), ForeignKey('chart_of_accounts.id', ondelete='SET NULL'), nullable=True)
     payment_method = Column(String(20), nullable=True)
     incoterms = Column(String(10), nullable=True)
+    incoterm_location = Column(String(150), nullable=True)
+    country_of_origin = Column(String(50), nullable=True)
+    bank_name = Column(String(150), nullable=True)
+    swift_code = Column(String(11), nullable=True)
+    iban_account_number = Column(String(64), nullable=True)
+    bank_address = Column(Text, nullable=True)
+    intermediary_bank_name = Column(String(150), nullable=True)
+    intermediary_swift_code = Column(String(11), nullable=True)
+    intermediary_routing_aba = Column(String(20), nullable=True)
     lead_time_days = Column(Integer, nullable=False, server_default=text('0'))
     work_center_id = Column(
         String(50),
@@ -530,6 +542,11 @@ class Supplier(Base):
         CheckConstraint(
             "qc_status IN ('approved', 'probation', 'blocked')",
             name='chk_supplier_qc_status',
+        ),
+        CheckConstraint(
+            "tax_document_type IS NULL OR tax_document_type IN "
+            "('W-8BEN-E', 'W-8BEN', 'Certificate of Foreign Status', 'Other', 'W-9')",
+            name='chk_supplier_tax_document_type',
         ),
     )
 

@@ -18,6 +18,7 @@ export interface User {
 // ==========================================
 export type LocationType = 'BILL_TO' | 'SHIP_TO' | 'BOTH'
 export type CustomerStatus = 'ACTIVE' | 'INACTIVE' | 'ON_HOLD'
+export type TaxIdType = 'EIN' | 'TIN' | 'VAT' | 'SSN' | 'OTHER' | string
 
 export interface CustomerCertification {
   id?: number
@@ -55,6 +56,7 @@ export interface Customer {
   customer_id: string
   customer_number_ext: string | null
   company_name: string
+  tax_id_type?: TaxIdType | null
   tax_id?: string | null
   industry_type?: string | null
   facility_type?: string | null
@@ -81,6 +83,7 @@ export type CustomerWrite = {
   customer_id?: string
   customer_number_ext?: string | null
   company_name: string
+  tax_id_type?: TaxIdType | null
   tax_id?: string | null
   industry_type?: string | null
   facility_type?: string | null
@@ -349,6 +352,15 @@ export interface ApiError {
 export type VendorType = 'material' | 'subcontractor' | 'both' | 'service'
 export type VendorPaymentMethod = 'wire' | 'ach' | 'check' | 'credit_card'
 export type VendorQcStatus = 'approved' | 'probation' | 'blocked'
+export type TaxDocumentType =
+  | 'W-8BEN-E'
+  | 'W-8BEN'
+  | 'Certificate of Foreign Status'
+  | 'Other'
+  | 'W-9'
+  | 'None'
+  | string
+export type VendorIncoterm = 'FOB' | 'EXW' | 'DDP' | 'CIF' | 'FCA' | 'CPT' | string
 
 export interface WorkCenter {
   work_center_id: string
@@ -374,10 +386,21 @@ export interface Supplier {
   status?: 'Active' | 'Inactive' | string | null;
   vendor_type?: VendorType | string;
   tax_id?: string | null;
-  currency?: string;
+  tax_document_type?: TaxDocumentType | null;
+  is_overseas?: boolean;
+  currency?: 'USD' | 'EUR' | 'JPY' | 'TWD' | 'CNY' | string;
   ap_account_id?: string | null;
   payment_method?: VendorPaymentMethod | string | null;
-  incoterms?: string | null;
+  incoterms?: VendorIncoterm | null;
+  incoterm_location?: string | null;
+  country_of_origin?: string | null;
+  bank_name?: string | null;
+  swift_code?: string | null;
+  iban_account_number?: string | null;
+  bank_address?: string | null;
+  intermediary_bank_name?: string | null;
+  intermediary_swift_code?: string | null;
+  intermediary_routing_aba?: string | null;
   lead_time_days?: number;
   work_center_id?: string | null;
   consignment_stock_loc_id?: string | null;

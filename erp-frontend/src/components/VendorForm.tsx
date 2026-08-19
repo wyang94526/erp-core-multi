@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { chartOfAccountsService, inventoryService, vendorService, workCenterService } from '../api/services'
-import type { SupplierWrite, VendorPaymentMethod, VendorQcStatus, VendorType } from '../types'
+import type { SupplierWrite, TaxDocumentType, VendorPaymentMethod, VendorQcStatus, VendorType } from '../types'
 
 const PAYMENT_TERMS_OPTIONS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 60', 'Net 90']
 const VENDOR_TYPE_OPTIONS: Array<{ value: VendorType; label: string }> = [
@@ -29,8 +29,91 @@ const QC_STATUS_OPTIONS: Array<{ value: VendorQcStatus; label: string }> = [
 ]
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'JPY', 'TWD', 'CNY']
 const INCOTERM_OPTIONS = ['FOB', 'EXW', 'DDP', 'CIF', 'FCA', 'CPT']
+const FOREIGN_TAX_DOCUMENT_OPTIONS: Array<{ value: TaxDocumentType; label: string }> = [
+  { value: 'W-8BEN-E', label: 'W-8BEN-E' },
+  { value: 'W-8BEN', label: 'W-8BEN' },
+  { value: 'Certificate of Foreign Status', label: 'Certificate of Foreign Status' },
+  { value: 'Other', label: 'Other' },
+]
+const COUNTRY_OPTIONS = [
+  'United States',
+  'Taiwan',
+  'China',
+  'Japan',
+  'South Korea',
+  'Germany',
+  'United Kingdom',
+  'France',
+  'Italy',
+  'Netherlands',
+  'Singapore',
+  'Vietnam',
+  'Thailand',
+  'Malaysia',
+  'India',
+  'Philippines',
+  'Mexico',
+  'Canada',
+  'Australia',
+  'Brazil',
+  'Hong Kong',
+  'Switzerland',
+  'Sweden',
+  'Austria',
+  'Belgium',
+  'Spain',
+  'Indonesia',
+]
+const HOME_COUNTRY_ALIASES = new Set([
+  'us',
+  'usa',
+  'u s',
+  'u s a',
+  'united states',
+  'united states of america',
+])
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const SWIFT_RE = /^[A-Za-z0-9]{8}([A-Za-z0-9]{3})?$/
+const EIN_RE = /^\d{2}-\d{7}$/
+
+function normalizeCountryKey(value: string) {
+  return value.trim().toLowerCase().replace(/[.]/g, ' ').replace(/\s+/g, ' ')
+}
+
+function isHomeCountry(country: string) {
+  return HOME_COUNTRY_ALIASES.has(normalizeCountryKey(country))
+}
+
+function inferOverseas(country: string) {
+  if (!country.trim()) return false
+  return !isHomeCountry(country)
+}
+
+function formatDomesticTaxId(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 9)
+  const asSsn = value.indexOf('-') === 3
+  if (asSsn) {
+    if (digits.length <= 3) return digits
+    if (digits.length <= 5) return `${digits.slice(0, 3)}-${digits.slice(3)}`
+    return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`
+  }
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`
+}
+
+function formatSwift(value: string) {
+  return value.replace(/\s+/g, '').toUpperCase().slice(0, 11)
+}
+
+const FOREIGN_TAX_DOCS = new Set(['W-8BEN-E', 'W-8BEN', 'Certificate of Foreign Status', 'Other'])
+
+function syncTaxDocumentType(isOverseas: boolean, current: string): TaxDocumentType | '' {
+  if (isOverseas) {
+    return current === 'W-9' ? '' : (current as TaxDocumentType | '')
+  }
+  return FOREIGN_TAX_DOCS.has(current) ? '' : (current as TaxDocumentType | '')
+}
 
 type VendorFormData = {
   supplier_id: string
@@ -38,6 +121,8 @@ type VendorFormData = {
   vendor_number_ext: string
   vendor_type: VendorType
   tax_id: string
+  tax_document_type: TaxDocumentType | ''
+  is_overseas: boolean
   status: string
   qc_status: VendorQcStatus
   contact_name: string
@@ -54,6 +139,15 @@ type VendorFormData = {
   currency: string
   ap_account_id: string
   incoterms: string
+  incoterm_location: string
+  country_of_origin: string
+  bank_name: string
+  swift_code: string
+  iban_account_number: string
+  bank_address: string
+  intermediary_bank_name: string
+  intermediary_swift_code: string
+  intermediary_routing_aba: string
   lead_time_days: string
   work_center_id: string
   consignment_stock_loc_id: string
@@ -68,6 +162,8 @@ const EMPTY_FORM: VendorFormData = {
   vendor_number_ext: '',
   vendor_type: 'material',
   tax_id: '',
+  tax_document_type: '',
+  is_overseas: false,
   status: 'Active',
   qc_status: 'approved',
   contact_name: '',
@@ -84,6 +180,15 @@ const EMPTY_FORM: VendorFormData = {
   currency: 'USD',
   ap_account_id: '',
   incoterms: '',
+  incoterm_location: '',
+  country_of_origin: '',
+  bank_name: '',
+  swift_code: '',
+  iban_account_number: '',
+  bank_address: '',
+  intermediary_bank_name: '',
+  intermediary_swift_code: '',
+  intermediary_routing_aba: '',
   lead_time_days: '0',
   work_center_id: '',
   consignment_stock_loc_id: '',
@@ -133,6 +238,11 @@ export function VendorForm() {
       vendor_number_ext: vendor.vendor_number_ext || '',
       vendor_type: (vendor.vendor_type as VendorType) || 'material',
       tax_id: vendor.tax_id || '',
+      tax_document_type: (vendor.tax_document_type as TaxDocumentType) || '',
+      is_overseas:
+        typeof vendor.is_overseas === 'boolean'
+          ? vendor.is_overseas
+          : inferOverseas(vendor.country || ''),
       status: vendor.status || 'Active',
       qc_status: (vendor.qc_status as VendorQcStatus) || 'approved',
       contact_name: vendor.contact_name || '',
@@ -149,6 +259,15 @@ export function VendorForm() {
       currency: vendor.currency || 'USD',
       ap_account_id: vendor.ap_account_id || '',
       incoterms: vendor.incoterms || '',
+      incoterm_location: vendor.incoterm_location || '',
+      country_of_origin: vendor.country_of_origin || '',
+      bank_name: vendor.bank_name || '',
+      swift_code: vendor.swift_code || '',
+      iban_account_number: vendor.iban_account_number || '',
+      bank_address: vendor.bank_address || '',
+      intermediary_bank_name: vendor.intermediary_bank_name || '',
+      intermediary_swift_code: vendor.intermediary_swift_code || '',
+      intermediary_routing_aba: vendor.intermediary_routing_aba || '',
       lead_time_days: String(vendor.lead_time_days ?? 0),
       work_center_id: vendor.work_center_id || '',
       consignment_stock_loc_id: vendor.consignment_stock_loc_id || '',
@@ -177,6 +296,8 @@ export function VendorForm() {
     vendor_number_ext: blankToUndef(data.vendor_number_ext) || null,
     vendor_type: data.vendor_type,
     tax_id: blankToUndef(data.tax_id) || null,
+    tax_document_type: blankToUndef(data.tax_document_type) || null,
+    is_overseas: data.is_overseas,
     status: data.status,
     qc_status: data.qc_status,
     contact_name: blankToUndef(data.contact_name) || null,
@@ -193,6 +314,15 @@ export function VendorForm() {
     currency: data.currency || 'USD',
     ap_account_id: blankToUndef(data.ap_account_id) || null,
     incoterms: blankToUndef(data.incoterms) || null,
+    incoterm_location: blankToUndef(data.incoterm_location) || null,
+    country_of_origin: blankToUndef(data.country_of_origin) || null,
+    bank_name: blankToUndef(data.bank_name) || null,
+    swift_code: blankToUndef(data.swift_code) || null,
+    iban_account_number: blankToUndef(data.iban_account_number) || null,
+    bank_address: blankToUndef(data.bank_address) || null,
+    intermediary_bank_name: blankToUndef(data.intermediary_bank_name) || null,
+    intermediary_swift_code: blankToUndef(data.intermediary_swift_code) || null,
+    intermediary_routing_aba: blankToUndef(data.intermediary_routing_aba) || null,
     lead_time_days: Number(data.lead_time_days || 0),
     work_center_id: showSubcontracting ? blankToUndef(data.work_center_id) || null : null,
     consignment_stock_loc_id: showSubcontracting
@@ -230,18 +360,51 @@ export function VendorForm() {
   ) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }))
-    if (errors[name]) {
+    setFormData((prev) => {
+      if (name === 'country') {
+        const overseas = inferOverseas(value)
+        return {
+          ...prev,
+          country: value,
+          is_overseas: overseas,
+          tax_document_type: syncTaxDocumentType(overseas, prev.tax_document_type),
+        }
+      }
+      if (name === 'is_overseas') {
+        return {
+          ...prev,
+          is_overseas: checked,
+          tax_document_type: syncTaxDocumentType(checked, prev.tax_document_type),
+        }
+      }
+      if (name === 'tax_id') {
+        return {
+          ...prev,
+          tax_id: prev.is_overseas ? value : formatDomesticTaxId(value),
+        }
+      }
+      if (name === 'swift_code' || name === 'intermediary_swift_code') {
+        return { ...prev, [name]: formatSwift(value) }
+      }
+      if (name === 'intermediary_routing_aba') {
+        return { ...prev, intermediary_routing_aba: value.replace(/\D/g, '').slice(0, 9) }
+      }
+      return {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value,
+      }
+    })
+    if (errors[name] || (name === 'country' && errors.is_overseas)) {
       setErrors((prev) => {
         const next = { ...prev }
         delete next[name]
+        if (name === 'country') delete next.is_overseas
         return next
       })
     }
   }
+
+  const showBankingCard = formData.is_overseas || formData.payment_method === 'wire'
 
   const validateForm = (): boolean => {
     const next: Record<string, string> = {}
@@ -255,6 +418,31 @@ export function VendorForm() {
     const scrap = Number(formData.standard_scrap_rate)
     if (!Number.isFinite(scrap) || scrap < 0 || scrap > 100) {
       next.standard_scrap_rate = 'Scrap rate must be between 0 and 100'
+    }
+    const taxId = formData.tax_id.trim()
+    if (taxId && !formData.is_overseas && !EIN_RE.test(taxId) && !/^\d{3}-\d{2}-\d{4}$/.test(taxId)) {
+      next.tax_id = 'Use EIN (XX-XXXXXXX) or SSN (XXX-XX-XXXX) format'
+    }
+    if (formData.swift_code && !SWIFT_RE.test(formData.swift_code)) {
+      next.swift_code = 'SWIFT / BIC must be 8 or 11 alphanumeric characters'
+    }
+    if (formData.intermediary_swift_code && !SWIFT_RE.test(formData.intermediary_swift_code)) {
+      next.intermediary_swift_code = 'SWIFT / BIC must be 8 or 11 alphanumeric characters'
+    }
+    if (
+      formData.intermediary_routing_aba &&
+      formData.intermediary_routing_aba.length !== 9
+    ) {
+      next.intermediary_routing_aba = 'ABA routing number must be 9 digits'
+    }
+    if (formData.payment_method === 'wire') {
+      if (!formData.bank_name.trim()) next.bank_name = 'Beneficiary bank name is required for wire payments'
+      if (!formData.iban_account_number.trim()) {
+        next.iban_account_number = 'IBAN / account number is required for wire payments'
+      }
+      if (formData.is_overseas && !formData.swift_code.trim()) {
+        next.swift_code = 'SWIFT / BIC is required for overseas wire payments'
+      }
     }
     setErrors(next)
     return Object.keys(next).length === 0
@@ -307,7 +495,38 @@ export function VendorForm() {
           <Field label="Company Name *" name="company_name" value={formData.company_name} onChange={handleChange} error={errors.company_name} />
           <Field label="Vendor Number Ext" name="vendor_number_ext" value={formData.vendor_number_ext} onChange={handleChange} />
           <SelectField label="Vendor Type" name="vendor_type" value={formData.vendor_type} onChange={handleChange} options={VENDOR_TYPE_OPTIONS} />
-          <Field label="Tax ID / VAT" name="tax_id" value={formData.tax_id} onChange={handleChange} placeholder="Uniform Invoice / VAT number" />
+          <div style={checkboxFieldStyle}>
+            <label style={checkboxLabelStyle}>
+              <input
+                type="checkbox"
+                name="is_overseas"
+                checked={formData.is_overseas}
+                onChange={handleChange}
+              />
+              Overseas / Foreign Vendor
+            </label>
+            <span style={checkboxHintStyle}>Checked automatically when Country is outside the United States.</span>
+          </div>
+          <div style={formData.is_overseas ? taxIdRowStyle : undefined}>
+            <Field
+              label={formData.is_overseas ? 'Foreign Tax ID / VAT / FTIN' : 'Tax ID / VAT'}
+              name="tax_id"
+              value={formData.tax_id}
+              onChange={handleChange}
+              error={errors.tax_id}
+              placeholder={formData.is_overseas ? 'Foreign Tax ID / VAT / FTIN' : 'EIN XX-XXXXXXX or SSN XXX-XX-XXXX'}
+            />
+            {formData.is_overseas && (
+              <SelectField
+                label="Tax Document Type"
+                name="tax_document_type"
+                value={formData.tax_document_type}
+                onChange={handleChange}
+                options={FOREIGN_TAX_DOCUMENT_OPTIONS}
+                allowBlank
+              />
+            )}
+          </div>
           <SelectField
             label="Status"
             name="status"
@@ -330,7 +549,13 @@ export function VendorForm() {
           <Field label="City" name="city" value={formData.city} onChange={handleChange} />
           <Field label="State" name="state" value={formData.state} onChange={handleChange} />
           <Field label="Postal Code" name="postal_code" value={formData.postal_code} onChange={handleChange} />
-          <Field label="Country" name="country" value={formData.country} onChange={handleChange} />
+          <CountryField
+            label="Country"
+            name="country"
+            value={formData.country}
+            onChange={handleChange}
+            placeholder="United States"
+          />
         </Section>
 
         <Section title="Commercial & Payment Terms">
@@ -367,13 +592,29 @@ export function VendorForm() {
               ))}
             </select>
           </div>
-          <SelectField
-            label="Incoterms"
-            name="incoterms"
-            value={formData.incoterms}
+          <div style={incotermRowStyle}>
+            <SelectField
+              label="Incoterms"
+              name="incoterms"
+              value={formData.incoterms}
+              onChange={handleChange}
+              options={INCOTERM_OPTIONS.map((code) => ({ value: code, label: code }))}
+              allowBlank
+            />
+            <Field
+              label="Named Port / Place of Destination"
+              name="incoterm_location"
+              value={formData.incoterm_location}
+              onChange={handleChange}
+              placeholder="e.g. FOB Kaohsiung Port, FCA Taipei"
+            />
+          </div>
+          <CountryField
+            label="Default Country of Origin (COO)"
+            name="country_of_origin"
+            value={formData.country_of_origin}
             onChange={handleChange}
-            options={INCOTERM_OPTIONS.map((code) => ({ value: code, label: code }))}
-            allowBlank
+            placeholder="Country of manufacture / origin"
           />
           <Field
             label="Lead Time (days)"
@@ -384,6 +625,69 @@ export function VendorForm() {
             inputMode="numeric"
           />
         </Section>
+
+        {showBankingCard && (
+          <Section
+            title="International Banking & Remittance"
+            hint="Required for wire payments. Optional correspondent details for USD clearing."
+          >
+            <Field
+              label="Beneficiary Bank Name"
+              name="bank_name"
+              value={formData.bank_name}
+              onChange={handleChange}
+              error={errors.bank_name}
+              placeholder="Receiving bank legal name"
+            />
+            <Field
+              label="SWIFT / BIC Code"
+              name="swift_code"
+              value={formData.swift_code}
+              onChange={handleChange}
+              error={errors.swift_code}
+              placeholder="8 or 11 characters"
+            />
+            <Field
+              label="IBAN / Account Number"
+              name="iban_account_number"
+              value={formData.iban_account_number}
+              onChange={handleChange}
+              error={errors.iban_account_number}
+              placeholder="IBAN or local account number"
+            />
+            <TextAreaField
+              label="Bank Address"
+              name="bank_address"
+              value={formData.bank_address}
+              onChange={handleChange}
+              placeholder="Street, city, and country of the beneficiary bank"
+            />
+            <div style={subsectionStyle}>Intermediary / Correspondent Bank (Optional)</div>
+            <Field
+              label="Intermediary Bank Name"
+              name="intermediary_bank_name"
+              value={formData.intermediary_bank_name}
+              onChange={handleChange}
+            />
+            <Field
+              label="Intermediary SWIFT / BIC"
+              name="intermediary_swift_code"
+              value={formData.intermediary_swift_code}
+              onChange={handleChange}
+              error={errors.intermediary_swift_code}
+              placeholder="8 or 11 characters"
+            />
+            <Field
+              label="Intermediary Routing / ABA"
+              name="intermediary_routing_aba"
+              value={formData.intermediary_routing_aba}
+              onChange={handleChange}
+              error={errors.intermediary_routing_aba}
+              placeholder="9-digit ABA"
+              inputMode="numeric"
+            />
+          </Section>
+        )}
 
         {showSubcontracting && (
           <Section title="Subcontracting & Manufacturing">
@@ -477,10 +781,19 @@ export function VendorForm() {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: string
+  children: React.ReactNode
+}) {
   return (
     <div style={cardStyle}>
       <h3 style={sectionHeadingStyle}>{title}</h3>
+      {hint && <p style={hintStyle}>{hint}</p>}
       <div style={gridStyle}>{children}</div>
     </div>
   )
@@ -535,6 +848,7 @@ function SelectField({
   onChange,
   options,
   allowBlank = false,
+  error,
 }: {
   label: string
   name: string
@@ -542,16 +856,89 @@ function SelectField({
   onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void
   options: Array<{ value: string; label: string }>
   allowBlank?: boolean
+  error?: string
 }) {
   return (
     <div style={fieldGroupStyle}>
       <label htmlFor={name} style={labelStyle}>{label}</label>
-      <select id={name} name={name} value={value} onChange={onChange} style={inputStyle}>
+      <select
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        style={{ ...inputStyle, border: error ? '1px solid #f44336' : '1px solid var(--border)' }}
+      >
         {allowBlank && <option value="">Select…</option>}
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
+      {error && <span style={errorTextStyle}>{error}</span>}
+    </div>
+  )
+}
+
+function CountryField({
+  label,
+  name,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  name: string
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  placeholder?: string
+}) {
+  const listId = `${name}-country-options`
+  return (
+    <div style={fieldGroupStyle}>
+      <label htmlFor={name} style={labelStyle}>{label}</label>
+      <input
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        list={listId}
+        style={inputStyle}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {COUNTRY_OPTIONS.map((country) => (
+          <option key={country} value={country} />
+        ))}
+      </datalist>
+    </div>
+  )
+}
+
+function TextAreaField({
+  label,
+  name,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  name: string
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
+  placeholder?: string
+}) {
+  return (
+    <div style={{ ...fieldGroupStyle, gridColumn: '1 / -1' }}>
+      <label htmlFor={name} style={labelStyle}>{label}</label>
+      <textarea
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        rows={3}
+        style={{ ...inputStyle, resize: 'vertical', minHeight: 84, width: '100%' }}
+      />
     </div>
   )
 }
@@ -604,6 +991,48 @@ const gridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
   gap: '20px',
+}
+
+const taxIdRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(220px, 1.1fr) minmax(200px, 0.9fr)',
+  gap: '20px',
+  gridColumn: '1 / -1',
+}
+
+const incotermRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(160px, 0.7fr) minmax(220px, 1.3fr)',
+  gap: '20px',
+  gridColumn: '1 / -1',
+}
+
+const checkboxFieldStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  gap: 4,
+}
+
+const hintStyle: React.CSSProperties = {
+  margin: '0 0 12px 0',
+  fontSize: 13,
+  color: 'var(--text)',
+}
+
+const checkboxHintStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 500,
+  color: 'var(--text)',
+}
+
+const subsectionStyle: React.CSSProperties = {
+  gridColumn: '1 / -1',
+  fontSize: 14,
+  fontWeight: 700,
+  color: 'var(--text-h)',
+  paddingTop: 8,
+  borderTop: '1px solid var(--border)',
 }
 
 const fieldGroupStyle: React.CSSProperties = {

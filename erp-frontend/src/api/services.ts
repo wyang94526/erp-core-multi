@@ -1241,6 +1241,7 @@ export type DataImportCustomer = {
   customer_id: string
   customer_number_ext?: string | null
   company_name: string
+  tax_id_type?: string | null
   tax_id?: string | null
   industry_type?: string | null
   facility_type?: string | null
@@ -1279,10 +1280,14 @@ export type DataImportSupplier = {
   status?: string | null
   vendor_type: string
   tax_id?: string | null
+  tax_document_type?: string | null
+  is_overseas?: boolean
   currency?: string
   ap_account_id?: string | null
   payment_method?: string | null
   incoterms?: string | null
+  incoterm_location?: string | null
+  country_of_origin?: string | null
   lead_time_days?: number | string | null
   work_center_id?: string | null
   consignment_stock_loc_id?: string | null

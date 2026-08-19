@@ -161,6 +161,13 @@ def clip(value: str | None, max_len: int) -> str | None:
     return text[:max_len]
 
 
+def is_us_country(value: str | None) -> bool:
+    if not value:
+        return False
+    key = value.strip().lower().replace(".", "")
+    return key in {"us", "usa", "united states", "united states of america"}
+
+
 def to_decimal(value: str | None, default: Decimal | None = None) -> Decimal | None:
     text = blank(value)
     if text is None:
@@ -685,6 +692,7 @@ def map_supplier(row: dict[str, str], subcontract_ids: set[str]) -> MappedSuppli
         )
     else:
         warnings.append("no address in TIPTOP export")
+    payload["is_overseas"] = bool(payload.get("country")) and not is_us_country(payload.get("country"))
     return MappedSupplier(supplier_id=supplier_id, payload=payload, warnings=warnings)
 
 
