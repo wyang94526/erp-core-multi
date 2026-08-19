@@ -195,6 +195,12 @@ export const NAV_CATEGORIES: NavCategory[] = [
     roles: ['ROLE-ADMIN'],
     entries: [
       { kind: 'link', label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
+      {
+        kind: 'link',
+        label: 'CSV Import Preview',
+        to: '/admin/data-import',
+        permission: 'admin:manage',
+      },
     ],
   },
 ]

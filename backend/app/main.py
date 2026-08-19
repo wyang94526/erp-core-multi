@@ -32,6 +32,7 @@ from app.routers import (
     vendor_invoices,
     attachments,
     work_centers,
+    data_import,
 )
 
 
@@ -84,6 +85,7 @@ app.include_router(cash_transactions.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(admin_rbac.router, prefix="/api/v1")
+app.include_router(data_import.router, prefix="/api/v1")
 
 
 

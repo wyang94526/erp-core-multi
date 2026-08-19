@@ -41,9 +41,17 @@ class Settings(BaseSettings):
     ai_knowledge_path: str = "backend/app/ai/knowledge"
     attachments_path: str = "backend/data/attachments"
     attachments_max_bytes: int = 15 * 1024 * 1024
+    # Relative paths resolve from the repo root; Docker sets /data/imports.
+    gtt_data_dir: str = "backend/data/imports"
 
     def attachments_root(self) -> Path:
         path = Path(self.attachments_path)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
+
+    def gtt_import_root(self) -> Path:
+        path = Path(self.gtt_data_dir)
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         return path

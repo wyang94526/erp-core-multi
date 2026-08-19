@@ -32,9 +32,11 @@ services:
       ENVIRONMENT: production
       AI_CHROMA_PATH: /data/chroma
       ATTACHMENTS_PATH: /data/attachments
+      GTT_DATA_DIR: /data/imports
     volumes:
       - chroma_data:/data/chroma
       - attachments_data:/data/attachments
+      - imports_data:/data/imports
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,3 +57,4 @@ volumes:
   postgres_data:
   chroma_data:
   attachments_data:
+  imports_data:

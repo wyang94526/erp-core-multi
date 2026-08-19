@@ -42,6 +42,7 @@ import InventoryOverview from './components/InventoryOverview'
 import StockMovements from './components/StockMovements'
 import WarehousesBins from './components/WarehousesBins'
 import AdminRbacPage from './components/AdminRbacPage'
+import DataImportPreview from './components/DataImportPreview'
 import Dashboard from './components/Dashboard'
 
 /** Legacy /products/:id → /items/:id */
@@ -262,6 +263,10 @@ export const router = createBrowserRouter([
       {
         path: 'admin/rbac',
         element: <AdminRbacPage />,
+      },
+      {
+        path: 'admin/data-import',
+        element: <DataImportPreview />,
       },
     ],
   },

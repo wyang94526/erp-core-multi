@@ -1218,6 +1218,176 @@ export const adminRbacService = {
   },
 };
 
+export type DataImportWarning = {
+  entity: string
+  id: string
+  message: string
+}
+
+export type DataImportLocation = {
+  location_id: string
+  location_type: string
+  location_name?: string
+  address_line1?: string
+  address_line2?: string | null
+  city?: string
+  state?: string | null
+  postal_code?: string
+  country?: string
+  address_display?: string | null
+}
+
+export type DataImportCustomer = {
+  customer_id: string
+  customer_number_ext?: string | null
+  company_name: string
+  tax_id?: string | null
+  industry_type?: string | null
+  facility_type?: string | null
+  website?: string | null
+  primary_contact_name?: string | null
+  primary_email?: string | null
+  primary_phone?: string | null
+  currency?: string
+  credit_limit?: string
+  payment_terms?: string | null
+  preferred_incoterms?: string | null
+  tax_exempt?: boolean
+  tax_exempt_certificate_id?: string | null
+  status: string
+  created_at?: string | null
+  updated_at?: string | null
+  has_address: boolean
+  address_display?: string | null
+  locations: DataImportLocation[]
+  warnings: string[]
+}
+
+export type DataImportSupplier = {
+  supplier_id: string
+  company_name: string
+  contact_name?: string | null
+  contact_email?: string | null
+  phone_number?: string | null
+  address_line1?: string | null
+  city?: string | null
+  state?: string | null
+  postal_code?: string | null
+  country?: string | null
+  vendor_number_ext?: string | null
+  payment_terms?: string | null
+  status?: string | null
+  vendor_type: string
+  tax_id?: string | null
+  currency?: string
+  ap_account_id?: string | null
+  payment_method?: string | null
+  incoterms?: string | null
+  lead_time_days?: number | string | null
+  work_center_id?: string | null
+  consignment_stock_loc_id?: string | null
+  standard_scrap_rate?: string | null
+  iso_certified?: boolean
+  qc_status?: string | null
+  notes?: string | null
+  address_line2?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+  has_address: boolean
+  address_display?: string | null
+  warnings: string[]
+}
+
+export type DataImportItem = {
+  item_id: string
+  customer_part_number: string
+  description?: string | null
+  uom?: string
+  unit_price?: string | null
+  on_hand_quantity?: number | string
+  wip_quantity?: number | string
+  is_outside_processed?: boolean
+  is_purchase_item?: boolean
+  is_subcontract_assembly?: boolean
+  is_raw_material?: boolean
+  flags: string[]
+  vendor_id?: string | null
+  vendor_cost?: string | null
+  vendor_mappings?: DataImportVendorMapping[]
+  warnings: string[]
+}
+
+export type DataImportVendorMapping = {
+  mapping_id?: string | number | null
+  supplier_id: string
+  item_id: string
+  vendor_sku?: string | null
+  unit_cost?: string | null
+  minimum_order_qty?: string | null
+  lead_time_days?: number | string | null
+  is_primary_vendor?: boolean
+  created_at?: string | null
+}
+
+export type DataImportBomLine = {
+  bom_id?: string | number | null
+  parent_item_id: string
+  component_item_id: string
+  component_code?: string | null
+  quantity_per: string
+  item_type?: string
+  scrap_factor: string
+  yield_loss_percentage?: string
+  created_at?: string | null
+  parent_description?: string | null
+  component_description?: string | null
+}
+
+export type DataImportFileInfo = {
+  name: string
+  size: number
+} | null
+
+export type DataImportPreview = {
+  dry_run: boolean
+  ready: boolean
+  data_dir: string
+  missing: string[]
+  files: Record<string, DataImportFileInfo>
+  source_files: Record<string, string>
+  counts: {
+    customers: number
+    suppliers: number
+    items: number
+    bom: number
+    customers_with_address: number
+    suppliers_with_address: number
+    warnings: number
+  }
+  warnings: DataImportWarning[]
+  customers: DataImportCustomer[]
+  suppliers: DataImportSupplier[]
+  items: DataImportItem[]
+  vendor_mappings?: DataImportVendorMapping[]
+  bom: DataImportBomLine[]
+}
+
+export const dataImportService = {
+  preview() {
+    return apiClient.get<DataImportPreview>('/api/v1/admin/data-import/preview')
+  },
+  upload(files: File[]) {
+    const formData = new FormData()
+    for (const file of files) {
+      formData.append('files', file)
+    }
+    return apiClient.upload<{ saved: Record<string, string> } & DataImportPreview>(
+      '/api/v1/admin/data-import/files',
+      formData,
+    )
+  },
+};
+
 // ==========================================
 // CHART OF ACCOUNTS SERVICES
 // ==========================================
