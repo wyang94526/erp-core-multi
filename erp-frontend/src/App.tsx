@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { CircleHelp } from 'lucide-react'
+import { Outlet, useLocation } from 'react-router-dom'
 import AiAssistant from './components/AiAssistant'
+import HelpDrawer from './components/help/HelpDrawer'
 import PageBreadcrumbs from './components/PageBreadcrumbs'
 import SidebarNav from './components/SidebarNav'
 import UserMenu from './components/UserMenu'
@@ -30,10 +32,32 @@ function App() {
     typeof window !== 'undefined' ? window.innerWidth >= MOBILE_BREAKPOINT : true,
   )
   const [aiOpen, setAiOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const location = useLocation()
 
   useEffect(() => {
     setSidebarOpen(!isMobile)
   }, [isMobile])
+
+  useEffect(() => {
+    setHelpOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHelpOpen(false)
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && !event.repeat && (event.key === '/' || event.code === 'Slash')) {
+        event.preventDefault()
+        setHelpOpen((open) => !open)
+        setAiOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const toggleSidebar = () => setSidebarOpen((open) => !open)
   const closeSidebar = () => {
@@ -72,8 +96,25 @@ function App() {
           <div className="app-topbar-actions">
             <button
               type="button"
+              className={`ai-launcher help-launcher${helpOpen ? ' active' : ''}`}
+              onClick={() => {
+                setHelpOpen((open) => !open)
+                setAiOpen(false)
+              }}
+              aria-expanded={helpOpen}
+              aria-controls="help-drawer"
+              title="Help (Ctrl or ⌘ + /)"
+            >
+              <CircleHelp size={16} aria-hidden />
+              Help
+            </button>
+            <button
+              type="button"
               className={`ai-launcher${aiOpen ? ' active' : ''}`}
-              onClick={() => setAiOpen((v) => !v)}
+              onClick={() => {
+                setAiOpen((open) => !open)
+                setHelpOpen(false)
+              }}
               aria-expanded={aiOpen}
             >
               AI Assistant
@@ -87,6 +128,7 @@ function App() {
         </main>
       </div>
 
+      <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
       <AiAssistant open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   )

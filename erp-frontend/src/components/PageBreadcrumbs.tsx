@@ -1,9 +1,30 @@
 import { Link, useLocation } from 'react-router-dom'
-import { getBreadcrumbs } from '../config/sidebarNav'
+import { getBreadcrumbs, type BreadcrumbCrumb } from '../config/sidebarNav'
+import { getArticleById } from '../data/userGuideData'
+
+function helpCrumbs(pathname: string): BreadcrumbCrumb[] | null {
+  if (pathname !== '/help' && !pathname.startsWith('/help/')) return null
+  if (pathname === '/help/workflows' || pathname.startsWith('/help/workflows/')) {
+    return [
+      { label: 'Home', to: '/' },
+      { label: 'User Guide', to: '/help' },
+      { label: 'Process Workflows' },
+    ]
+  }
+  const article = getArticleById(pathname.split('/')[2])
+  if (!article) {
+    return [{ label: 'Home', to: '/' }, { label: 'User Guide' }]
+  }
+  return [
+    { label: 'Home', to: '/' },
+    { label: 'User Guide', to: '/help' },
+    { label: article.title },
+  ]
+}
 
 export default function PageBreadcrumbs() {
   const { pathname } = useLocation()
-  const crumbs = getBreadcrumbs(pathname)
+  const crumbs = helpCrumbs(pathname) ?? getBreadcrumbs(pathname)
 
   if (crumbs.length < 2) return null
 

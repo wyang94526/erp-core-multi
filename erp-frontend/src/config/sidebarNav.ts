@@ -52,7 +52,11 @@ export const NAV_CATEGORIES: NavCategory[] = [
     id: 'home',
     label: '🏠 Home',
     roles: ALL_ROLES,
-    entries: [{ kind: 'link', label: 'Dashboard', to: '/', end: true }],
+    entries: [
+      { kind: 'link', label: 'Dashboard', to: '/', end: true },
+      { kind: 'link', label: 'User Guide', to: '/help' },
+      { kind: 'link', label: 'Process Workflows', to: '/help/workflows' },
+    ],
   },
   {
     id: 'sales-procurement',
@@ -217,6 +221,13 @@ export function flattenNavLinks(entries: NavEntry[]): NavLinkItem[] {
 export function isNavLinkActive(pathname: string, item: NavLinkItem): boolean {
   if (item.to === '/') {
     return pathname === '/'
+  }
+  if (item.to === '/help/workflows') {
+    return pathname === '/help/workflows' || pathname.startsWith('/help/workflows/')
+  }
+  if (item.to === '/help') {
+    if (pathname === '/help/workflows' || pathname.startsWith('/help/workflows/')) return false
+    return pathname === '/help' || pathname.startsWith('/help/')
   }
   if (item.to === '/sales-orders') {
     return (

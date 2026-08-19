@@ -44,6 +44,8 @@ import WarehousesBins from './components/WarehousesBins'
 import AdminRbacPage from './components/AdminRbacPage'
 import DataImportPreview from './components/DataImportPreview'
 import Dashboard from './components/Dashboard'
+import UserGuide from './components/help/UserGuide'
+import WorkflowGuides from './components/help/WorkflowGuides'
 
 /** Legacy /products/:id → /items/:id */
 function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
@@ -56,6 +58,11 @@ function RedirectProductToItem({ edit = false }: { edit?: boolean }) {
 function RedirectPreserveSearch({ to }: { to: string }) {
   const location = useLocation()
   return <Navigate to={`${to}${location.search}${location.hash}`} replace />
+}
+
+function RedirectUserGuideArticle() {
+  const { articleId } = useParams<{ articleId: string }>()
+  return <RedirectPreserveSearch to={`/help/${articleId}`} />
 }
 
 export const router = createBrowserRouter([
@@ -86,6 +93,26 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <Dashboard />,
+      },
+      {
+        path: 'help',
+        element: <UserGuide />,
+      },
+      {
+        path: 'help/workflows',
+        element: <WorkflowGuides />,
+      },
+      {
+        path: 'help/:articleId',
+        element: <UserGuide />,
+      },
+      {
+        path: 'user-guide',
+        element: <Navigate to="/help" replace />,
+      },
+      {
+        path: 'user-guide/:articleId',
+        element: <RedirectUserGuideArticle />,
       },
       {
         path: 'sales-orders',

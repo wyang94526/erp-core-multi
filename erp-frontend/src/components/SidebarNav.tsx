@@ -263,6 +263,24 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
             )
           })}
         </nav>
+        <div className="app-sidebar-footer">
+          <NavLink
+            to="/help"
+            className={({ isActive }) =>
+              `app-nav-link${isActive || (location.pathname.startsWith('/help') && location.pathname !== '/help/workflows' && !location.pathname.startsWith('/help/workflows/')) ? ' active' : ''}`
+            }
+            onClick={onNavigate}
+          >
+            User Guide
+          </NavLink>
+          <NavLink
+            to="/help/workflows"
+            className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}
+            onClick={onNavigate}
+          >
+            Process Workflows
+          </NavLink>
+        </div>
       </div>
     </aside>
   )
