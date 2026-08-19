@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState, type RefObject } from 'react'
 import { dataImportService } from '../api/services'
 import type {
+  DataImportAccount,
   DataImportBomLine,
   DataImportCustomer,
   DataImportItem,
@@ -16,13 +17,14 @@ import type {
 } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 
-type Tab = 'customers' | 'suppliers' | 'items' | 'bom'
+type Tab = 'customers' | 'suppliers' | 'items' | 'bom' | 'accounts'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'customers', label: 'Customers' },
   { id: 'suppliers', label: 'Suppliers' },
   { id: 'items', label: 'Items' },
   { id: 'bom', label: 'BOM' },
+  { id: 'accounts', label: 'Chart of Accounts' },
 ]
 
 const CUSTOMER_COLUMNS: (keyof DataImportCustomer)[] = [
@@ -72,6 +74,13 @@ const SUPPLIER_COLUMNS: (keyof DataImportSupplier)[] = [
   'incoterms',
   'incoterm_location',
   'country_of_origin',
+  'bank_name',
+  'swift_code',
+  'iban_account_number',
+  'bank_address',
+  'intermediary_bank_name',
+  'intermediary_swift_code',
+  'intermediary_routing_aba',
   'lead_time_days',
   'work_center_id',
   'consignment_stock_loc_id',
@@ -125,6 +134,13 @@ const BOM_COLUMNS: (keyof DataImportBomLine)[] = [
   'created_at',
 ]
 
+const ACCOUNT_COLUMNS: (keyof DataImportAccount)[] = [
+  'account_code',
+  'account_name',
+  'account_type',
+  'type_basis',
+]
+
 function emptyCell(value: unknown) {
   if (value === null || value === undefined || value === '') {
     return <span style={muted}>—</span>
@@ -138,6 +154,9 @@ function renderCustomerCell(row: DataImportCustomer, col: keyof DataImportCustom
   }
   if (col === 'status') {
     return <StatusChip status={row.status} />
+  }
+  if (col === 'tax_id_type' && row.tax_id_type) {
+    return <span style={chip}>{row.tax_id_type}</span>
   }
   if (col === 'tax_exempt') {
     return row.tax_exempt ? 'true' : 'false'
@@ -158,6 +177,12 @@ function renderSupplierCell(row: DataImportSupplier, col: keyof DataImportSuppli
   }
   if (col === 'vendor_type') {
     return <span style={chip}>{row.vendor_type}</span>
+  }
+  if (col === 'tax_document_type' && row.tax_document_type) {
+    return <span style={chip}>{row.tax_document_type}</span>
+  }
+  if (col === 'is_overseas') {
+    return boolCell(row.is_overseas)
   }
   if (col === 'iso_certified') {
     return row.iso_certified ? 'true' : 'false'
@@ -214,6 +239,23 @@ function renderVendorMappingCell(row: DataImportVendorMapping, col: keyof DataIm
 function renderBomCell(row: DataImportBomLine, col: keyof DataImportBomLine) {
   if (col === 'parent_item_id' || col === 'component_item_id') {
     return <code>{String(row[col] ?? '')}</code>
+  }
+  return schemaValue(row[col])
+}
+
+function renderAccountCell(row: DataImportAccount, col: keyof DataImportAccount) {
+  if (col === 'account_code') {
+    return <code>{row.account_code}</code>
+  }
+  if (col === 'account_type') {
+    return <span style={chip}>{row.account_type}</span>
+  }
+  if (col === 'type_basis') {
+    return row.type_basis === 'description' ? (
+      <span style={chip}>from name</span>
+    ) : (
+      <span style={{ ...chip, background: '#fff8e1', color: '#f57f17' }}>from code</span>
+    )
   }
   return schemaValue(row[col])
 }
@@ -293,7 +335,11 @@ const FILE_LABELS: Record<string, string> = {
   suppliers: 'Suppliers (供應商)',
   items: 'Items (料件)',
   bom: 'BOM',
+  accounts: 'Chart of Accounts (科目)',
 }
+
+const CORE_FILE_KEYS = ['customers', 'suppliers', 'items', 'bom'] as const
+const FILE_KEYS = [...CORE_FILE_KEYS, 'accounts'] as const
 
 function UploadPanel({
   data,
@@ -310,7 +356,7 @@ function UploadPanel({
   onPick: () => void
   onFiles: (files: File[]) => void
 }) {
-  const missing = data?.missing ?? ['customers', 'suppliers', 'items', 'bom']
+  const missing = data?.missing ?? [...CORE_FILE_KEYS]
   return (
     <div style={uploadBox}>
       <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text)' }}>
@@ -325,8 +371,9 @@ function UploadPanel({
         This works on OCI — no laptop path is required.
       </p>
       <ul style={fileList}>
-        {(['customers', 'suppliers', 'items', 'bom'] as const).map((key) => {
+        {FILE_KEYS.map((key) => {
           const info = data?.files?.[key]
+          const optional = key === 'accounts'
           return (
             <li key={key}>
               {info ? (
@@ -335,7 +382,12 @@ function UploadPanel({
                 </>
               ) : (
                 <>
-                  <strong>{FILE_LABELS[key]}</strong>: <span style={errorStyle}>missing</span>
+                  <strong>{FILE_LABELS[key]}</strong>:{' '}
+                  {optional ? (
+                    <span style={muted}>optional — not uploaded</span>
+                  ) : (
+                    <span style={errorStyle}>missing</span>
+                  )}
                 </>
               )}
             </li>
@@ -359,8 +411,8 @@ function UploadPanel({
       </button>
       {missing.length > 0 && (
         <p style={{ ...muted, margin: '10px 0 0' }}>
-          Upload the four TIPTOP exports (or a zip). Recognized names include 客戶 / 供應商 / 料件 /
-          BOM.
+          Upload the four TIPTOP exports (or a zip). Optionally add chartOfAccount.csv. Recognized
+          names include 客戶 / 供應商 / 料件 / BOM / 科目.
         </p>
       )}
       {error && <p style={errorStyle}>{error}</p>}
@@ -396,6 +448,7 @@ function PreviewBody({
         <Stat label="Suppliers" value={counts.suppliers} hint={`${counts.suppliers_with_address} with address`} />
         <Stat label="Items" value={counts.items} />
         <Stat label="BOM lines" value={counts.bom} />
+        <Stat label="Accounts" value={counts.accounts ?? 0} />
         <Stat label="Warnings" value={counts.warnings} warn={counts.warnings > 0} />
       </div>
 
@@ -435,7 +488,8 @@ function PreviewBody({
         <>
           <p style={muted}>
             Columns match the <code>customers</code> table. Empty cells are not present in the TIPTOP
-            CSV. Addresses load into <code>customerlocations</code> below.
+            CSV. <code>tax_id_type</code> is inferred from the tax ID format. Addresses load into{' '}
+            <code>customerlocations</code> below.
           </p>
           <div style={tableWrap}>
             <table style={tableStyle}>
@@ -469,12 +523,19 @@ function PreviewBody({
                   <th style={th}>location_id</th>
                   <th style={th}>customer_id</th>
                   <th style={th}>location_type</th>
+                  <th style={th}>location_code</th>
                   <th style={th}>location_name</th>
+                  <th style={th}>attention_to</th>
                   <th style={th}>address_line1</th>
                   <th style={th}>city</th>
                   <th style={th}>state</th>
                   <th style={th}>postal_code</th>
                   <th style={th}>country</th>
+                  <th style={th}>contact_person</th>
+                  <th style={th}>contact_email</th>
+                  <th style={th}>contact_phone</th>
+                  <th style={th}>tax_id</th>
+                  <th style={th}>shipping_instructions</th>
                 </tr>
               </thead>
               <tbody>
@@ -491,17 +552,24 @@ function PreviewBody({
                           <td style={td}>
                             <span style={chip}>{loc.location_type}</span>
                           </td>
+                          <td style={td}>{loc.location_code || '—'}</td>
                           <td style={td}>{loc.location_name || '—'}</td>
+                          <td style={td}>{loc.attention_to || '—'}</td>
                           <td style={td}>{loc.address_line1 || '—'}</td>
                           <td style={td}>{loc.city || '—'}</td>
                           <td style={td}>{loc.state || '—'}</td>
                           <td style={td}>{loc.postal_code || '—'}</td>
                           <td style={td}>{loc.country || '—'}</td>
+                          <td style={td}>{loc.contact_person || '—'}</td>
+                          <td style={td}>{loc.contact_email || '—'}</td>
+                          <td style={td}>{loc.contact_phone || '—'}</td>
+                          <td style={td}>{loc.tax_id || '—'}</td>
+                          <td style={td}>{loc.shipping_instructions || '—'}</td>
                         </tr>
                       ))
                     : [
                         <tr key={`${row.customer_id}-none`}>
-                          <td style={td} colSpan={9}>
+                          <td style={td} colSpan={16}>
                             <span style={muted}>
                               {row.customer_id}: no Bill-To/Ship-To address in CSV
                             </span>
@@ -519,7 +587,8 @@ function PreviewBody({
         <>
           <p style={muted}>
             Columns match the <code>suppliers</code> table. Empty cells are not present in the TIPTOP
-            CSV.
+            CSV. <code>is_overseas</code> and <code>tax_document_type</code> follow the address country;
+            <code>pmc55</code>/<code>pmc56</code> map to SWIFT and remittance account when present.
           </p>
           <div style={tableWrap}>
             <table style={tableStyle}>
@@ -643,6 +712,48 @@ function PreviewBody({
                     ))}
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'accounts' && (
+        <>
+          <p style={muted}>
+            Columns match the <code>chart_of_accounts</code> table. The CSV has code and name only.
+            <code>account_type</code> is inferred from the account name, with the 1xxx–9xxx code
+            range as fallback (<code>type_basis</code>).
+          </p>
+          <div style={tableWrap}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  {ACCOUNT_COLUMNS.map((col) => (
+                    <th key={col} style={th}>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(data.accounts ?? []).length === 0 ? (
+                  <tr>
+                    <td style={td} colSpan={ACCOUNT_COLUMNS.length}>
+                      <span style={muted}>No chartOfAccount.csv in the import folder</span>
+                    </td>
+                  </tr>
+                ) : (
+                  (data.accounts ?? []).map((row) => (
+                    <tr key={row.account_code}>
+                      {ACCOUNT_COLUMNS.map((col) => (
+                        <td key={col} style={td}>
+                          {renderAccountCell(row, col)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

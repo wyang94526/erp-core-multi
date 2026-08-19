@@ -1252,13 +1252,21 @@ export type DataImportWarning = {
 export type DataImportLocation = {
   location_id: string
   location_type: string
+  location_code?: string | null
   location_name?: string
+  attention_to?: string | null
   address_line1?: string
   address_line2?: string | null
   city?: string
   state?: string | null
   postal_code?: string
   country?: string
+  contact_person?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  is_default?: boolean
+  tax_id?: string | null
+  shipping_instructions?: string | null
   address_display?: string | null
 }
 
@@ -1313,6 +1321,13 @@ export type DataImportSupplier = {
   incoterms?: string | null
   incoterm_location?: string | null
   country_of_origin?: string | null
+  bank_name?: string | null
+  swift_code?: string | null
+  iban_account_number?: string | null
+  bank_address?: string | null
+  intermediary_bank_name?: string | null
+  intermediary_swift_code?: string | null
+  intermediary_routing_aba?: string | null
   lead_time_days?: number | string | null
   work_center_id?: string | null
   consignment_stock_loc_id?: string | null
@@ -1376,6 +1391,14 @@ export type DataImportBomLine = {
   component_description?: string | null
 }
 
+export type DataImportAccount = {
+  account_code: string
+  account_name: string
+  account_type: string
+  type_basis: string
+  warnings: string[]
+}
+
 export type DataImportFileInfo = {
   name: string
   size: number
@@ -1393,6 +1416,7 @@ export type DataImportPreview = {
     suppliers: number
     items: number
     bom: number
+    accounts?: number
     customers_with_address: number
     suppliers_with_address: number
     warnings: number
@@ -1403,6 +1427,7 @@ export type DataImportPreview = {
   items: DataImportItem[]
   vendor_mappings?: DataImportVendorMapping[]
   bom: DataImportBomLine[]
+  accounts?: DataImportAccount[]
 }
 
 export const dataImportService = {

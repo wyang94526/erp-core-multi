@@ -575,7 +575,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Company profile in the UI is the top-bar title “Grand-Tek Technology USA”. Legal/tax identity for vendors/customers lives on those masters, not in a separate profile screen.',
-      'CSV Import Preview (Administration) dry-runs TIPTOP customer/vendor/item/BOM files before load.',
+      'CSV Import Preview (Administration) dry-runs TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv, before load.',
     ],
     faqs: [
       {
@@ -632,14 +632,15 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'CSV Import Preview',
     routeMatch: ['/admin/data-import'],
     summary:
-      'Dry-run TIPTOP CSV mapping for customers, suppliers, items, and BOM before loading into the database.',
+      'Dry-run TIPTOP CSV mapping for customers, suppliers, items, BOM, and chart of accounts before loading into the database.',
     screenshots: [
       { src: '/guide-screenshots/admin-import.jpg', caption: 'Data import preview tabs' },
     ],
     steps: [
       'Open Administration → CSV Import Preview.',
-      'Choose the Customers, Suppliers, Items, or BOM tab.',
-      'Review mapped columns (including customer tax_id_type and vendor is_overseas when present).',
+      'Choose the Customers, Suppliers, Items, BOM, or Chart of Accounts tab.',
+      'Review mapped columns (including customer tax_id_type, vendor is_overseas / tax_document_type / SWIFT, and COA account_type).',
+      'Account type is inferred from the account name; the 1xxx–9xxx code range is used only when the name has no type keyword.',
       'Fix source-file issues called out in warnings, then run the loader from the approved operations process.',
     ],
     callouts: [
@@ -649,6 +650,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Vendor shows as domestic after import',
         fix: 'Country was blank or US-like in the file. Edit the vendor and set Country / Overseas, or correct the address in the source CSV.',
+      },
+      {
+        issue: 'Chart of account type looks wrong after import',
+        fix: 'Type is inferred from the account name, then the 1xxx–9xxx code range. Open Finance → Chart of Accounts and edit account_type, or correct the name in chartOfAccount.csv and re-run with --upsert.',
       },
     ],
   },

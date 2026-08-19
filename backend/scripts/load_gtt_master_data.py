@@ -6,18 +6,21 @@ Source files (Aug 17 2026 export):
   GTTUSA基本資料-供應商.csv        pmc_file  → suppliers
   GTTUSA基本資料-料件基本資料.csv  ima_file  → items + vendoritemmappings
   GTTUSA基本資料-BOM.csv           bma/bmb   → itembomcomponents
+  chartOfAccount.csv               aag/科目  → chart_of_accounts
 
 Load order (FK-safe):
-  1. customers / locations
-  2. suppliers
-  3. items
-  4. vendor mappings (item.ima54 → supplier)
-  5. BOM lines (parent + component items must exist)
+  1. chart of accounts (optional; type from account name, else code range)
+  2. customers / locations
+  3. suppliers
+  4. items
+  5. vendor mappings (item.ima54 → supplier)
+  6. BOM lines (parent + component items must exist)
 
 Usage (venv active, Postgres reachable via .env):
   python backend/scripts/load_gtt_master_data.py --dry-run
   python backend/scripts/load_gtt_master_data.py --upsert
   python backend/scripts/load_gtt_master_data.py --only items,bom --upsert
+  python backend/scripts/load_gtt_master_data.py --only accounts --upsert
 
 Field mapping (TIPTOP → ERP)
 ------------------------------
@@ -25,9 +28,10 @@ Customer
   occ01            customer_id
   occ02            customer_number_ext (short name)
   occ18 / occ02    company_name
-  occ11            tax_id
-  occ29 / occ28    primary_contact_name
-  occ261           primary_phone
+  occ11            tax_id  (occ1020 / occ1017 fallback)
+  (inferred)       tax_id_type  EIN / SSN / TIN / VAT / OTHER from tax_id format
+  occ29 / occ28    primary_contact_name; location attention_to / contact_person
+  occ261           primary_phone; location contact_phone
   occ42            currency
   occ63            credit_limit
   occ45            payment_terms  (T010→NET30, T020→NET60, T000→Due on Receipt)
@@ -35,17 +39,22 @@ Customer
   occacti          status  (Y→ACTIVE, P→ON_HOLD, N→INACTIVE)
   occ231–233       BILL_TO address (or BOTH if same as ship-to)
   occ241–243       SHIP_TO address
+  occ701–704       location shipping_instructions
 
 Supplier
   pmc01            supplier_id
   pmc081 / pmc03   company_name
   pmc10            phone_number
   pmc091–095       address lines / city / state / postal / country (parsed)
+                   is_overseas, country_of_origin, tax_document_type (W-9 vs W-8BEN-E)
   pmc22            currency
   pmc24            tax_id
   pmc17            payment_terms (TIPTOP payment-method code)
   pmcacti          status  (Y→Active)
   pmc58            lead_time_days
+  pmc55            swift_code when value is an 8/11-character SWIFT/BIC
+  pmc56            iban_account_number (remittance account)
+  pmc55 present    payment_method=wire
   pmc903           related-party flag (stored in notes)
   ima54 of a BOM parent → vendor_type=subcontractor, else material
 
@@ -67,6 +76,11 @@ BOM
   bmb08            scrap_factor (TIPTOP % → ERP fraction if > 1)
   bmb05            skip if expired
   (no TIPTOP revision)  imported as itembomheaders version 1 (active)
+
+Chart of accounts
+  科目代號 / aag01 / account_code   account_code
+  科目名稱 / aag02 / account_name   account_name
+  (no type column)                  account_type inferred from name, else 1xxx–9xxx range
 """
 
 from __future__ import annotations
@@ -106,12 +120,32 @@ PAYMENT_TERMS_MAP = {
 
 OCC_STATUS_MAP = {"Y": "ACTIVE", "P": "ON_HOLD", "N": "INACTIVE"}
 
+CORE_IMPORT_KEYS = ("customers", "suppliers", "items", "bom")
+
 FILE_GLOBS = {
     "customers": ["customers.csv", "*客戶.csv"],
     "suppliers": ["suppliers.csv", "*供應商.csv"],
     "items": ["items.csv", "*料件*.csv"],
     "bom": ["bom.csv", "*BOM.csv"],
+    "accounts": [
+        "chartOfAccount.csv",
+        "chartOfAccounts.csv",
+        "accounts.csv",
+        "*chart*account*.csv",
+        "*科目*.csv",
+    ],
 }
+
+ACCOUNT_CODE_KEYS = ("科目代號", "科目代号", "aag01", "account_code", "accountcode", "code")
+ACCOUNT_NAME_KEYS = (
+    "科目名稱",
+    "科目名称",
+    "aag02",
+    "account_name",
+    "accountname",
+    "description",
+    "name",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -162,11 +196,297 @@ def clip(value: str | None, max_len: int) -> str | None:
     return text[:max_len]
 
 
+def row_first(row: dict[str, str], keys: tuple[str, ...]) -> str | None:
+    lowered = {key.lower(): value for key, value in row.items()}
+    for key in keys:
+        value = blank(row.get(key)) or blank(lowered.get(key.lower()))
+        if value:
+            return value
+    return None
+
+
+def _norm_account_name(name: str) -> str:
+    return " ".join(name.lower().replace("–", "-").replace("—", "-").split())
+
+
+def _has_any(hay: str, *needles: str) -> bool:
+    return any(needle in hay for needle in needles)
+
+
+def _leading_account_digit(code: str) -> str | None:
+    for char in code:
+        if char.isdigit():
+            return char
+    return None
+
+
+def infer_account_type(account_code: str, account_name: str) -> tuple[str, str]:
+    """Classify GL type from the account name first, then the code range.
+
+    Returns (account_type, type_basis) where type_basis is description or account_code.
+    """
+    hay = _norm_account_name(account_name)
+    name = account_name
+
+    # Prepaid / input-tax assets before generic "expense" or "tax".
+    if _has_any(
+        hay,
+        "prepaid",
+        "prepayment",
+        "prepayments",
+        "vat paid",
+        "input tax",
+        "overpaid vat",
+        "advances to",
+        "refundable deposit",
+        "payment on behalf",
+        "temporary payments",
+    ) or any(token in name for token in ("預付", "進項")):
+        return "Asset", "description"
+
+    # Contra-asset valuation accounts (not sales discounts and allowances).
+    if _has_any(
+        hay,
+        "allowance for uncollectible",
+        "allowance for reduction",
+        "accumulated depreciation",
+    ):
+        return "Asset", "description"
+
+    if _has_any(
+        hay,
+        "payable",
+        "payables",
+        "borrowings",
+        "bank overdraft",
+        "bank loan",
+        "unearned",
+        "withholding",
+        "withheld",
+        "accrued",
+        "receipts under custody",
+        "current liabilities",
+        "lease liability",
+        "lease liabilities",
+        "notes payable",
+        "accounts payable",
+        "long-term loan",
+        "long-term liabilities",
+        "income tax payable",
+        "sales tax",
+        "deferred income tax liabilit",
+        "gr/ir",
+    ) or any(token in name for token in ("應付", "負債", "借款", "預收", "代收", "代扣")):
+        return "Liability", "description"
+
+    if _has_any(
+        hay,
+        "income tax expense",
+        "tax expense",
+        "interest expense",
+        "non-operating expense",
+        "exchange loss",
+        "foreign exchange loss",
+        "cost of sales",
+        "cost of goods",
+        "other cost",
+        "other operating cost",
+        "processing fees",
+        "moh-",
+        "payroll expense",
+        "payroll tax",
+        "rent expense",
+        "travelling expense",
+        "shipping expenses",
+        "postage",
+        "repair(s) and maintenance",
+        "repair and maintenance",
+        "advertisement",
+        "utilities expense",
+        "insurance expense",
+        "entertainment expense",
+        "donation expense",
+        "depreciation expense",
+        "amortization",
+        "meal expenses",
+        "employee benefits",
+        "commission expense",
+        "training expense",
+        "inspection fees",
+        "correction fee",
+        "consuming costs",
+        "rework expenses",
+        "other expenses",
+        "freight costs",
+        "import duties",
+        "consumables",
+        "sundry purchases",
+        "tooling and mold",
+        "purchase expenses",
+        "handling fee",
+        "miscellaneous purchase",
+        "commissioned research",
+        "loss on",
+        "allocated manufacturing",
+        "allocated processing",
+        "stationery",
+        "transportation fees",
+        "expense",
+        "expenses",
+    ) or hay in {"labor", "taxes"} or any(token in name for token in ("費用", "損失", "成本")):
+        return "Expense", "description"
+
+    if _has_any(
+        hay,
+        "interest revenue",
+        "non-operating revenue",
+        "exchange gain",
+        "foreign exchange gain",
+        "sales revenue",
+        "sales return",
+        "sales discounts",
+        "service revenue",
+        "operating revenue",
+        "revenue",
+        "gain",
+    ) or any(token in name for token in ("收入", "收益")):
+        return "Revenue", "description"
+
+    if _has_any(
+        hay,
+        "capital",
+        "surplus",
+        "retained",
+        "paid-in",
+        "net income",
+        "translation adjustment",
+        "prior period",
+        "accumulated profit",
+        "open gl",
+    ) or any(
+        token in name
+        for token in (
+            "資本",
+            "盈餘",
+            "淨利",
+            "淨損",
+            "每股",
+            "權益",
+            "業主",
+            "綜合損益",
+            "換算",
+            "兌換差額",
+            "歸屬於",
+        )
+    ):
+        return "Equity", "description"
+
+    if _has_any(
+        hay,
+        "cash",
+        "receivable",
+        "inventory",
+        "finished goods",
+        "work in process",
+        "raw materials",
+        "merchandise",
+        "land",
+        "building",
+        "machinery",
+        "equipment",
+        "computer",
+        "software",
+        "intangible",
+        "investment",
+        "right-of-use",
+        "deferred income tax asset",
+        "current assets",
+        "deposit account",
+        "petty cash",
+        "notes receivable",
+        "materials and supplies",
+    ) or any(token in name for token in ("現金", "存貨", "應收", "資產", "設備", "土地")):
+        return "Asset", "description"
+
+    digit = _leading_account_digit(account_code)
+    if digit == "1":
+        return "Asset", "account_code"
+    if digit == "2":
+        return "Liability", "account_code"
+    if digit == "3":
+        return "Equity", "account_code"
+    if digit == "4":
+        return "Revenue", "account_code"
+    if digit in {"5", "6"}:
+        return "Expense", "account_code"
+    if digit == "7":
+        second = None
+        started = False
+        for char in account_code:
+            if char.isdigit():
+                if not started:
+                    started = True
+                    continue
+                second = char
+                break
+        if second in {"0", "1", "2", "3", "4"}:
+            return "Revenue", "account_code"
+        return "Expense", "account_code"
+    if digit in {"8", "9"}:
+        return "Equity", "account_code"
+    return "Asset", "account_code"
+
+
 def is_us_country(value: str | None) -> bool:
     if not value:
         return False
     key = value.strip().lower().replace(".", "")
     return key in {"us", "usa", "united states", "united states of america"}
+
+
+_EIN_RE = re.compile(r"^\d{2}-\d{7}$")
+_SSN_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+_SWIFT_RE = re.compile(r"^[A-Z0-9]{8}(?:[A-Z0-9]{3})?$")
+
+
+def infer_tax_id_type(tax_id: str | None, country: str | None = None) -> str | None:
+    """Map a tax ID string to customers.tax_id_type (EIN, SSN, TIN, VAT, OTHER)."""
+    text = blank(tax_id)
+    if not text:
+        return None
+    compact = re.sub(r"\s+", "", text)
+    if _EIN_RE.match(compact):
+        return "EIN"
+    if _SSN_RE.match(compact):
+        return "SSN"
+    if re.search(r"[A-Za-z]", compact):
+        return "VAT"
+    digits = re.sub(r"\D", "", compact)
+    if len(digits) == 8:
+        return "VAT"
+    if len(digits) == 9:
+        return "TIN"
+    if country and not is_us_country(country):
+        return "VAT"
+    return "OTHER"
+
+
+def map_swift_code(value: str | None) -> tuple[str | None, str | None]:
+    text = blank(value)
+    if not text:
+        return None, None
+    code = re.sub(r"\s+", "", text).upper()
+    if _SWIFT_RE.match(code):
+        return code, None
+    return None, f"pmc55 bank code {text!r} is not an 8/11-character SWIFT/BIC"
+
+
+def infer_tax_document_type(*, is_overseas: bool, country: str | None) -> str | None:
+    if is_overseas:
+        return "W-8BEN-E"
+    if is_us_country(country) or not country:
+        return "W-9"
+    return None
 
 
 def to_decimal(value: str | None, default: Decimal | None = None) -> Decimal | None:
@@ -362,11 +682,21 @@ class MappedBom:
 
 
 @dataclass
+class MappedAccount:
+    account_code: str
+    account_name: str
+    account_type: str
+    type_basis: str
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
 class LoadPlan:
     customers: list[MappedCustomer] = field(default_factory=list)
     suppliers: list[MappedSupplier] = field(default_factory=list)
     items: list[MappedItem] = field(default_factory=list)
     bom: list[MappedBom] = field(default_factory=list)
+    accounts: list[MappedAccount] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
     def print_summary(self) -> None:
@@ -375,6 +705,7 @@ class LoadPlan:
         print(f"  suppliers : {len(self.suppliers)}")
         print(f"  items     : {len(self.items)}")
         print(f"  bom lines : {len(self.bom)}")
+        print(f"  accounts  : {len(self.accounts)}")
         if self.skipped:
             print(f"  skipped   : {len(self.skipped)}")
             for line in self.skipped:
@@ -384,6 +715,7 @@ class LoadPlan:
             *[(f"supplier {s.supplier_id}", w) for s in self.suppliers for w in s.warnings],
             *[(f"item {i.item_id}", w) for i in self.items for w in i.warnings],
             *[(f"bom {b.parent_item_id}/{b.component_item_id}", w) for b in self.bom for w in b.warnings],
+            *[(f"account {a.account_code}", w) for a in self.accounts for w in a.warnings],
         ]
         if warnings:
             print(f"  warnings  : {len(warnings)}")
@@ -432,6 +764,9 @@ def collect_warnings(plan: LoadPlan) -> list[dict[str, str]]:
                     "message": msg,
                 }
             )
+    for account in plan.accounts:
+        for msg in account.warnings:
+            rows.append({"entity": "account", "id": account.account_code, "message": msg})
     for skipped in plan.skipped:
         rows.append({"entity": "skipped", "id": "", "message": skipped})
     return rows
@@ -523,6 +858,16 @@ def plan_to_preview(plan: LoadPlan, data_dir: Path) -> dict[str, Any]:
         }
         for line in plan.bom
     ]
+    accounts = [
+        {
+            "account_code": row.account_code,
+            "account_name": row.account_name,
+            "account_type": row.account_type,
+            "type_basis": row.type_basis,
+            "warnings": row.warnings,
+        }
+        for row in plan.accounts
+    ]
     source_files: dict[str, str] = {}
     for key, glob_pat in FILE_GLOBS.items():
         try:
@@ -538,6 +883,7 @@ def plan_to_preview(plan: LoadPlan, data_dir: Path) -> dict[str, Any]:
             "suppliers": len(suppliers),
             "items": len(items),
             "bom": len(bom),
+            "accounts": len(accounts),
             "customers_with_address": sum(1 for row in customers if row["has_address"]),
             "suppliers_with_address": sum(1 for row in suppliers if row["has_address"]),
             "warnings": len(collect_warnings(plan)),
@@ -548,11 +894,12 @@ def plan_to_preview(plan: LoadPlan, data_dir: Path) -> dict[str, Any]:
         "items": items,
         "vendor_mappings": vendor_mappings,
         "bom": bom,
+        "accounts": accounts,
     }
 
 
 def preview_from_dir(data_dir: Path) -> dict[str, Any]:
-    plan = build_plan(data_dir, {"customers", "suppliers", "items", "bom"})
+    plan = build_plan(data_dir, {"customers", "suppliers", "items", "bom", "accounts"})
     return plan_to_preview(plan, data_dir)
 
 
@@ -575,12 +922,26 @@ def map_customer(row: dict[str, str]) -> MappedCustomer | None:
     incoterms = clip(row.get("occ44"), 10)
     if incoterms:
         incoterms = incoterms.upper()
+    tax_id = clip(row.get("occ11") or row.get("occ1020") or row.get("occ1017"), 64)
+    shipping_instructions = join_lines(row.get("occ701"), row.get("occ702"), row.get("occ703"), row.get("occ704"))
+
+    bill = parse_address(row.get("occ231"), row.get("occ232"), row.get("occ233"), row.get("occ234"))
+    ship = parse_address(row.get("occ241"), row.get("occ242"), row.get("occ243"), row.get("occ244"))
+    country_hint = None
+    if bill and bill.parsed:
+        country_hint = bill.country
+    elif ship and ship.parsed:
+        country_hint = ship.country
+    tax_id_type = infer_tax_id_type(tax_id, country_hint)
+    if tax_id and tax_id_type == "OTHER":
+        warnings.append(f"tax_id_type defaulted to OTHER for {tax_id}")
 
     payload = {
         "customer_id": customer_id,
         "customer_number_ext": clip(row.get("occ02"), 50),
         "company_name": clip(name, 255) or customer_id,
-        "tax_id": clip(row.get("occ11"), 64),
+        "tax_id_type": tax_id_type,
+        "tax_id": tax_id,
         "industry_type": None,
         "facility_type": None,
         "website": None,
@@ -596,8 +957,6 @@ def map_customer(row: dict[str, str]) -> MappedCustomer | None:
         "status": status,
     }
 
-    bill = parse_address(row.get("occ231"), row.get("occ232"), row.get("occ233"), row.get("occ234"))
-    ship = parse_address(row.get("occ241"), row.get("occ242"), row.get("occ243"), row.get("occ244"))
     locations: list[dict[str, Any]] = []
 
     def loc_dict(loc_id: str, loc_type: str, addr: ParsedAddress, name_suffix: str) -> dict[str, Any]:
@@ -608,6 +967,7 @@ def map_customer(row: dict[str, str]) -> MappedCustomer | None:
             "location_type": loc_type,
             "location_code": loc_type,
             "location_name": clip(f"{payload['company_name']} {name_suffix}", 150),
+            "attention_to": clip(contact, 100),
             "address_line1": addr.address_line1,
             "address_line2": addr.address_line2,
             "city": addr.city,
@@ -615,9 +975,11 @@ def map_customer(row: dict[str, str]) -> MappedCustomer | None:
             "postal_code": addr.postal_code,
             "country": addr.country,
             "contact_person": clip(contact, 150),
+            "contact_email": None,
             "contact_phone": clip(row.get("occ261"), 50),
             "is_default": True,
-            "tax_id": clip(row.get("occ11"), 64),
+            "tax_id": tax_id,
+            "shipping_instructions": clip(shipping_instructions, 10000) if shipping_instructions else None,
         }
 
     if bill and ship and bill.address_line1 == ship.address_line1:
@@ -654,6 +1016,9 @@ def map_supplier(row: dict[str, str], subcontract_ids: set[str]) -> MappedSuppli
         notes_bits.append(f"short_name={row.get('pmc03')}")
 
     vendor_type = "subcontractor" if supplier_id in subcontract_ids else "material"
+    swift_code, swift_warning = map_swift_code(row.get("pmc55"))
+    if swift_warning:
+        warnings.append(swift_warning)
     payload: dict[str, Any] = {
         "supplier_id": supplier_id,
         "company_name": clip(name, 255) or supplier_id,
@@ -670,10 +1035,21 @@ def map_supplier(row: dict[str, str], subcontract_ids: set[str]) -> MappedSuppli
         "status": "Active" if (row.get("pmcacti") or "Y").upper() == "Y" else "Inactive",
         "vendor_type": vendor_type,
         "tax_id": clip(row.get("pmc24"), 50),
+        "tax_document_type": None,
+        "is_overseas": False,
         "currency": (blank(row.get("pmc22")) or "USD").upper()[:3],
         "ap_account_id": None,
-        "payment_method": None,
+        "payment_method": "wire" if swift_code else None,
         "incoterms": None,
+        "incoterm_location": None,
+        "country_of_origin": None,
+        "bank_name": None,
+        "swift_code": swift_code,
+        "iban_account_number": clip(row.get("pmc56"), 64),
+        "bank_address": None,
+        "intermediary_bank_name": None,
+        "intermediary_swift_code": None,
+        "intermediary_routing_aba": None,
         "lead_time_days": to_int(row.get("pmc58"), 0),
         "work_center_id": None,
         "consignment_stock_loc_id": None,
@@ -698,7 +1074,13 @@ def map_supplier(row: dict[str, str], subcontract_ids: set[str]) -> MappedSuppli
         )
     else:
         warnings.append("no address in TIPTOP export")
-    payload["is_overseas"] = bool(payload.get("country")) and not is_us_country(payload.get("country"))
+    country = payload.get("country")
+    is_overseas = bool(country) and not is_us_country(country)
+    payload["is_overseas"] = is_overseas
+    payload["country_of_origin"] = clip(country, 50)
+    payload["tax_document_type"] = infer_tax_document_type(is_overseas=is_overseas, country=country)
+    if is_overseas and not payload.get("tax_id"):
+        warnings.append("overseas vendor has no tax_id; enter Foreign Tax ID / VAT / FTIN after load")
     return MappedSupplier(supplier_id=supplier_id, payload=payload, warnings=warnings)
 
 
@@ -769,6 +1151,26 @@ def map_bom_line(row: dict[str, str], today: date) -> MappedBom | None:
         component_item_id=component,
         quantity_per=quantity_per,
         scrap_factor=scrap,
+    )
+
+
+def map_account(row: dict[str, str]) -> MappedAccount | None:
+    account_code = clip(row_first(row, ACCOUNT_CODE_KEYS), 50)
+    if not account_code:
+        return None
+    account_name = clip(row_first(row, ACCOUNT_NAME_KEYS), 255) or account_code
+    account_type, type_basis = infer_account_type(account_code, account_name)
+    warnings: list[str] = []
+    if type_basis == "account_code":
+        warnings.append(
+            f"account type {account_type} assigned from account code range (name did not match a type keyword)"
+        )
+    return MappedAccount(
+        account_code=account_code,
+        account_name=account_name,
+        account_type=account_type,
+        type_basis=type_basis,
+        warnings=warnings,
     )
 
 
@@ -849,6 +1251,26 @@ def build_plan(data_dir: Path, include: set[str]) -> LoadPlan:
             if line.parent_item_id in item_ids and line.component_item_id in item_ids:
                 keep.append(line)
         plan.bom = keep
+
+    if "accounts" in include:
+        try:
+            path = find_file(data_dir, FILE_GLOBS["accounts"])
+        except FileNotFoundError:
+            if include <= {"accounts"}:
+                raise
+        else:
+            rows = read_tip_csv(path)
+            print(f"Read {len(rows):>3} rows  {path.name}")
+            seen: set[str] = set()
+            for row in rows:
+                mapped = map_account(row)
+                if mapped is None:
+                    continue
+                if mapped.account_code in seen:
+                    plan.skipped.append(f"duplicate account_code {mapped.account_code}")
+                    continue
+                seen.add(mapped.account_code)
+                plan.accounts.append(mapped)
 
     return plan
 
@@ -1023,12 +1445,40 @@ def load_bom(db: Any, rows: list[MappedBom], upsert: bool) -> Counter:
     return stats
 
 
+def load_accounts(db: Any, rows: list[MappedAccount], upsert: bool) -> Counter:
+    from app.models import ChartOfAccount
+
+    stats: Counter[str] = Counter()
+    for mapped in rows:
+        existing = (
+            db.query(ChartOfAccount).filter(ChartOfAccount.account_code == mapped.account_code).first()
+        )
+        fields = {"account_name": mapped.account_name, "account_type": mapped.account_type}
+        if existing is None:
+            db.add(
+                ChartOfAccount(
+                    account_code=mapped.account_code,
+                    account_name=mapped.account_name,
+                    account_type=mapped.account_type,
+                )
+            )
+            stats["accounts_created"] += 1
+        elif upsert:
+            _apply_fields(existing, fields)
+            stats["accounts_updated"] += 1
+        else:
+            stats["accounts_skipped"] += 1
+    return stats
+
+
 def apply_plan(plan: LoadPlan, upsert: bool) -> Counter:
     from app.database import SessionLocal
 
     db = SessionLocal()
     stats: Counter[str] = Counter()
     try:
+        if plan.accounts:
+            stats.update(load_accounts(db, plan.accounts, upsert))
         if plan.customers:
             stats.update(load_customers(db, plan.customers, upsert))
         if plan.suppliers:
@@ -1048,7 +1498,7 @@ def apply_plan(plan: LoadPlan, upsert: bool) -> Counter:
 
 
 def parse_only(raw: str | None) -> set[str]:
-    allowed = {"customers", "suppliers", "items", "bom"}
+    allowed = {"customers", "suppliers", "items", "bom", "accounts"}
     if not raw:
         return allowed
     parts = {p.strip().lower() for p in raw.split(",") if p.strip()}
@@ -1059,12 +1509,12 @@ def parse_only(raw: str | None) -> set[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Load GTT TIPTOP customer/supplier/item/BOM CSVs")
+    parser = argparse.ArgumentParser(description="Load GTT TIPTOP customer/supplier/item/BOM/COA CSVs")
     parser.add_argument(
         "--data-dir",
         type=Path,
         default=DEFAULT_DATA_DIR,
-        help="Folder with the four CSVs (default: $GTT_DATA_DIR or backend/data/imports)",
+        help="Folder with the TIPTOP CSVs (default: $GTT_DATA_DIR or backend/data/imports)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Map and print; do not write the database")
     parser.add_argument(
@@ -1074,7 +1524,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--only",
-        help="Comma-separated subset: customers,suppliers,items,bom",
+        help="Comma-separated subset: customers,suppliers,items,bom,accounts",
     )
     args = parser.parse_args()
 
@@ -1128,6 +1578,12 @@ def main() -> None:
         print(
             f"  {line.parent_item_id} ← {line.component_item_id:22} "
             f"qty={line.quantity_per} scrap={line.scrap_factor}"
+        )
+    print("\n--- Chart of Accounts ---")
+    for account in plan.accounts:
+        print(
+            f"  {account.account_code:12} {account.account_type:10} "
+            f"{account.type_basis:13} {account.account_name[:60]}"
         )
 
     if args.dry_run:

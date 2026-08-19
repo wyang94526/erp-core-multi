@@ -27,7 +27,7 @@ function ChartOfAccounts() {
     setLoading(true)
     setError(null)
     try {
-      const data = await chartOfAccountsService.listAccounts()
+      const data = await chartOfAccountsService.listAccounts(0, 2000)
       setAccounts(
         [...data].sort((a, b) => a.account_code.localeCompare(b.account_code)),
       )

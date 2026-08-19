@@ -1,7 +1,7 @@
 """TIPTOP CSV import folder: inspect, upload, and dry-run preview.
 
 Files live in GTT_DATA_DIR (default backend/data/imports locally, /data/imports in Docker).
-Admins upload the four CSVs (or a zip) from the ERP UI so OCI does not need a laptop path.
+Admins upload the master CSVs (or a zip) from the ERP UI so OCI does not need a laptop path.
 """
 
 from __future__ import annotations
@@ -20,13 +20,14 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from load_gtt_master_data import FILE_GLOBS, find_file, preview_from_dir  # noqa: E402
+from load_gtt_master_data import CORE_IMPORT_KEYS, FILE_GLOBS, find_file, preview_from_dir  # noqa: E402
 
 CANONICAL_NAMES = {
     "customers": "customers.csv",
     "suppliers": "suppliers.csv",
     "items": "items.csv",
     "bom": "bom.csv",
+    "accounts": "chartOfAccount.csv",
 }
 
 EMPTY_COUNTS = {
@@ -34,6 +35,7 @@ EMPTY_COUNTS = {
     "suppliers": 0,
     "items": 0,
     "bom": 0,
+    "accounts": 0,
     "customers_with_address": 0,
     "suppliers_with_address": 0,
     "warnings": 0,
@@ -48,7 +50,11 @@ def import_root() -> Path:
 
 def classify_filename(name: str) -> str | None:
     stem = Path(name).name
-    lower = stem.lower()
+    lower = stem.lower().replace(" ", "")
+    if "科目" in stem or "chartofaccount" in lower or ("chart" in lower and "account" in lower):
+        return "accounts"
+    if lower in {"accounts.csv", "coa.csv"}:
+        return "accounts"
     if "客戶" in stem or "客户" in stem or "customer" in lower:
         return "customers"
     if "供應商" in stem or "供应商" in stem or "supplier" in lower or "vendor" in lower:
@@ -70,7 +76,8 @@ def inspect_sources(data_dir: Path | None = None) -> dict[str, Any]:
             files[key] = {"name": path.name, "size": path.stat().st_size}
         except FileNotFoundError:
             files[key] = None
-            missing.append(key)
+            if key in CORE_IMPORT_KEYS:
+                missing.append(key)
     return {
         "data_dir": str(root),
         "files": files,
@@ -91,6 +98,7 @@ def _empty_preview(status: dict[str, Any]) -> dict[str, Any]:
         "items": [],
         "vendor_mappings": [],
         "bom": [],
+        "accounts": [],
     }
 
 
@@ -131,7 +139,7 @@ def _write_bytes(root: Path, kind: str, payload: bytes) -> str:
 
 async def save_uploads(uploads: list[UploadFile]) -> dict[str, Any]:
     if not uploads:
-        raise HTTPException(status_code=400, detail="Select at least one CSV or a zip of the four files")
+        raise HTTPException(status_code=400, detail="Select at least one CSV or a zip of the master files")
     root = import_root()
     saved: dict[str, str] = {}
     for upload in uploads:
@@ -152,8 +160,8 @@ async def save_uploads(uploads: list[UploadFile]) -> dict[str, Any]:
                 status_code=400,
                 detail=(
                     f"Cannot tell which master '{filename}' is. "
-                    "Name files with 客戶 / 供應商 / 料件 / BOM, or customers.csv / "
-                    "suppliers.csv / items.csv / bom.csv."
+                    "Name files with 客戶 / 供應商 / 料件 / BOM / 科目, or customers.csv / "
+                    "suppliers.csv / items.csv / bom.csv / chartOfAccount.csv."
                 ),
             )
         saved[kind] = _write_bytes(root, kind, payload)
@@ -188,6 +196,6 @@ def _extract_zip(root: Path, payload: bytes, zip_name: str) -> dict[str, str]:
     if not saved:
         raise HTTPException(
             status_code=400,
-            detail="Zip did not contain recognizable customer/supplier/item/BOM CSV files",
+            detail="Zip did not contain recognizable customer/supplier/item/BOM/chart-of-account CSV files",
         )
     return saved
