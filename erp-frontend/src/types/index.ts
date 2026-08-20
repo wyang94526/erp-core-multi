@@ -221,6 +221,7 @@ export interface SalesOrderItem {
   sales_order_id: string;
   line_number: number;
   item_id: string;
+  customer_part_number?: string | null;
   quantity_ordered: number;
   unit_price: number; // Decimal from backend
   tax_amount: number; // Decimal from backend
@@ -322,6 +323,7 @@ export interface SalesOrder {
   customer_po_number: string;
   po_revision_number: number;
   order_date: string; // ISO date
+  customer_revision_date?: string | null;
   payment_terms: string | null;
   freight_terms: string | null;
   shipping_method: string | null;
@@ -426,6 +428,7 @@ export type Vendor = Supplier;
 export interface PurchaseOrderItem {
   id: string; // React-friendly unique row id (maps to backend item_id)
   sku: string;
+  bom_header_id?: number | null;
   quantity: number;
   unit_price: number;
   tax_rate: number; // e.g., 5 for 5%
@@ -438,6 +441,9 @@ export interface PurchaseOrder {
   po_number: string;
   supplier_id: string;
   supplier_name?: string;
+  po_type?: 'MATERIAL' | 'SUBCONTRACT';
+  bom_header_id?: number | null;
+  sco_number?: string | null;
   order_date: string;
   expected_delivery_date: string;
   payment_terms: string;

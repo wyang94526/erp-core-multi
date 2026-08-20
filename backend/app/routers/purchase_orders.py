@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import PurchaseOrder, PurchaseOrderItem, Supplier
+from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, Supplier
 from app.schemas import (
     GoodsReceiptCreate,
     GoodsReceiptRead,
@@ -14,6 +14,28 @@ from app.services import p2p
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
+
+
+def _validate_po_links(db: Session, po_type: str | None, sco_number: str | None, items) -> None:
+    if sco_number and db.get(SubcontractOrder, sco_number) is None:
+        raise HTTPException(status_code=400, detail=f"Subcontract order '{sco_number}' not found")
+    if (po_type or "MATERIAL") != "SUBCONTRACT" or not items:
+        return
+    for item in items or []:
+        sku = item.get("sku") if isinstance(item, dict) else getattr(item, "sku", None)
+        if not sku:
+            continue
+        catalog = db.get(Item, sku)
+        if catalog is None:
+            raise HTTPException(status_code=400, detail=f"Item '{sku}' not found")
+        if not (catalog.is_subcontract_assembly or catalog.is_outside_processed or catalog.is_purchase_item):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Item '{sku}' is not flagged as a subcontract assembly or purchase item. "
+                    "Mark it on the item master before adding it to a subcontract PO."
+                ),
+            )
 
 
 def _load_po(db: Session, po_number: str) -> PurchaseOrder | None:
@@ -47,7 +69,11 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     if db.get(Supplier, payload.supplier_id) is None:
         raise HTTPException(status_code=400, detail="Supplier not found")
 
+    _validate_po_links(db, payload.po_type, payload.sco_number, payload.items)
+
     data = payload.model_dump(exclude={"items"})
+    if not data.get("sco_number"):
+        data["sco_number"] = None
     items = payload.items
 
     po = PurchaseOrder(**data)
@@ -84,6 +110,13 @@ def update_purchase_order(
     if "supplier_id" in data and data["supplier_id"] is not None:
         if db.get(Supplier, data["supplier_id"]) is None:
             raise HTTPException(status_code=400, detail="Supplier not found")
+
+    if "sco_number" in data and not data.get("sco_number"):
+        data["sco_number"] = None
+
+    po_type = data.get("po_type", po.po_type)
+    sco_number = data.get("sco_number", po.sco_number)
+    _validate_po_links(db, po_type, sco_number, payload.items)
 
     for key, value in data.items():
         setattr(po, key, value)

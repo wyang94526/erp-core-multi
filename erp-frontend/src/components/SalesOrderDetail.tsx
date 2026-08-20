@@ -245,6 +245,14 @@ export function SalesOrderDetail() {
             <p style={valueStyle}>{order.po_revision_number}</p>
           </div>
           <div>
+            <label style={labelStyle}>Customer Revision Date</label>
+            <p style={valueStyle}>
+              {order.customer_revision_date
+                ? new Date(order.customer_revision_date).toLocaleDateString()
+                : '-'}
+            </p>
+          </div>
+          <div>
             <label style={labelStyle}>Currency</label>
             <p style={valueStyle}>{order.currency}</p>
           </div>
@@ -281,7 +289,7 @@ export function SalesOrderDetail() {
             <p style={valueStyle}>{order.payment_terms || '-'}</p>
           </div>
           <div>
-            <label style={labelStyle}>Freight Terms</label>
+            <label style={labelStyle}>Freight Terms / Incoterms</label>
             <p style={valueStyle}>{order.freight_terms || '-'}</p>
           </div>
           <div>
@@ -315,6 +323,7 @@ export function SalesOrderDetail() {
                 <tr style={theadRowStyle}>
                   <th style={thStyle}>Line #</th>
                   <th style={thStyle}>Product ID</th>
+                  <th style={thStyle}>Customer P/N</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Quantity</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Unit Price</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Tax Amount</th>
@@ -326,6 +335,7 @@ export function SalesOrderDetail() {
                   <tr key={item.so_item_id} style={tbodyRowStyle}>
                     <td style={tdStyle}>{item.line_number}</td>
                     <td style={tdStyle}>{item.item_id}</td>
+                    <td style={tdStyle}>{item.customer_part_number || '-'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{item.quantity_ordered}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {order.currency} {Number(item.unit_price).toFixed(4)}

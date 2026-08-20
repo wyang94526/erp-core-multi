@@ -233,16 +233,26 @@ export const locationService = {
 // ==========================================
 
 export const itemService = {
-  async listItems(skip: number = 0, limit: number = 100): Promise<Item[]> {
+  async listItems(
+    skip: number = 0,
+    limit: number = 100,
+    opts: { q?: string; catalog?: string; purchaseOnly?: boolean } = {},
+  ): Promise<Item[]> {
     const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items', {
-      params: { skip, limit },
+      params: {
+        skip,
+        limit,
+        q: opts.q || undefined,
+        catalog: opts.catalog || undefined,
+        purchase_only: opts.purchaseOnly || undefined,
+      },
     });
     return rows.map(mapItem);
   },
 
-  async listPurchaseItems(skip: number = 0, limit: number = 500): Promise<Item[]> {
+  async listPurchaseItems(skip: number = 0, limit: number = 500, q?: string): Promise<Item[]> {
     const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/purchase-items', {
-      params: { skip, limit },
+      params: { skip, limit, q: q || undefined },
     });
     return rows.map(mapItem);
   },
@@ -254,9 +264,9 @@ export const itemService = {
     return rows.map(mapItem);
   },
 
-  async listAssemblies(skip: number = 0, limit: number = 500): Promise<Item[]> {
+  async listAssemblies(skip: number = 0, limit: number = 500, q?: string): Promise<Item[]> {
     const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/assemblies', {
-      params: { skip, limit },
+      params: { skip, limit, q: q || undefined },
     });
     return rows.map(mapItem);
   },
@@ -419,6 +429,7 @@ export const salesOrderService = {
     customer_po_number: string;
     po_revision_number?: number;
     order_date: string; // ISO date
+    customer_revision_date?: string | null;
     payment_terms?: string;
     freight_terms?: string;
     shipping_method?: string;
@@ -430,6 +441,7 @@ export const salesOrderService = {
     items: Array<{
       line_number: number;
       item_id: string;
+      customer_part_number?: string | null;
       quantity_ordered: number;
       unit_price: number;
       tax_amount?: number;
@@ -678,6 +690,7 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
       return {
         id: String(row.item_id ?? row.id ?? `row-${idx}`),
         sku: String(row.sku || ''),
+        bom_header_id: row.bom_header_id == null ? null : Number(row.bom_header_id),
         quantity: Number(row.quantity ?? 0),
         unit_price: Number(row.unit_price ?? 0),
         tax_rate: Number(row.tax_rate ?? 0),
@@ -686,6 +699,9 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         line_total: Number(row.line_total ?? 0),
       };
     }),
+    po_type: po.po_type || 'MATERIAL',
+    bom_header_id: po.bom_header_id ?? null,
+    sco_number: po.sco_number || '',
   };
 }
 
@@ -702,9 +718,27 @@ export const purchaseOrderService = {
     return mapPurchaseOrderFromApi(po);
   },
 
-  async createPurchaseOrder(data: Omit<PurchaseOrder, 'supplier_name' | 'approval_status'> & {
+  async createPurchaseOrder(data: {
+    po_number: string;
+    supplier_id: string;
+    po_type?: 'MATERIAL' | 'SUBCONTRACT';
+    bom_header_id?: number | null;
+    sco_number?: string | null;
+    order_date?: string;
+    expected_delivery_date?: string | null;
+    payment_terms?: string | null;
+    status: PurchaseOrder['status'];
+    shipping_fee: number;
+    discount_type: PurchaseOrder['discount_type'];
+    discount_value: number;
+    subtotal: number;
+    total_tax: number;
+    discount_amount: number;
+    grand_total: number;
+    notes?: string | null;
     items: Array<{
       sku: string;
+      bom_header_id?: number | null;
       quantity: number;
       unit_price: number;
       tax_rate: number;
@@ -719,9 +753,26 @@ export const purchaseOrderService = {
 
   async updatePurchaseOrder(
     poNumber: string,
-    data: Partial<Omit<PurchaseOrder, 'po_number' | 'supplier_name' | 'items'>> & {
+    data: {
+      supplier_id?: string;
+      po_type?: 'MATERIAL' | 'SUBCONTRACT';
+      bom_header_id?: number | null;
+      sco_number?: string | null;
+      order_date?: string;
+      expected_delivery_date?: string | null;
+      payment_terms?: string | null;
+      status?: PurchaseOrder['status'];
+      shipping_fee?: number;
+      discount_type?: PurchaseOrder['discount_type'];
+      discount_value?: number;
+      subtotal?: number;
+      total_tax?: number;
+      discount_amount?: number;
+      grand_total?: number;
+      notes?: string | null;
       items?: Array<{
         sku: string;
+        bom_header_id?: number | null;
         quantity: number;
         unit_price: number;
         tax_rate: number;

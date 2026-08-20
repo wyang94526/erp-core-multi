@@ -1,16 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Supplier } from '../types';
+import { Link } from 'react-router-dom';
+import type { SubcontractOrder, Supplier } from '../types';
 import type { POFormState } from '../hooks/usePurchaseOrderState';
+import { PO_TYPE_OPTIONS } from '../data/orderOptions';
 
 interface POHeaderProps {
   state: POFormState;
   setHeader: (field: string, value: any) => void;
   isReadOnly: boolean;
   suppliers: Supplier[];
+  subcontractOrders?: SubcontractOrder[];
   errors: Record<string, string>;
 }
 
-export function POHeader({ state, setHeader, isReadOnly, suppliers, errors }: POHeaderProps) {
+export function POHeader({
+  state,
+  setHeader,
+  isReadOnly,
+  suppliers,
+  subcontractOrders = [],
+  errors,
+}: POHeaderProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -50,6 +60,22 @@ export function POHeader({ state, setHeader, isReadOnly, suppliers, errors }: PO
     setHeader('supplier_name', supplier.company_name);
     setSearchTerm(supplier.company_name);
     setShowDropdown(false);
+  };
+
+  const handleScoSelect = (scoNumber: string) => {
+    setHeader('sco_number', scoNumber);
+    if (!scoNumber) {
+      setHeader('bom_header_id', null);
+      return;
+    }
+    const sco = subcontractOrders.find((row) => row.sco_number === scoNumber);
+    if (!sco) return;
+    if (!state.supplier_id) {
+      setHeader('supplier_id', sco.supplier_id);
+      const matched = suppliers.find((s) => s.supplier_id === sco.supplier_id);
+      if (matched) setHeader('supplier_name', matched.company_name);
+    }
+    setHeader('bom_header_id', sco.bom_header_id ?? null);
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,6 +139,61 @@ export function POHeader({ state, setHeader, isReadOnly, suppliers, errors }: PO
           )}
           {errors.po_number && <span style={errorTextStyle}>{errors.po_number}</span>}
         </div>
+
+        <div style={fieldGroupStyle}>
+          <label style={labelStyle} htmlFor="po_type">PO Type *</label>
+          {isReadOnly ? (
+            <div style={readOnlyValueStyle}>
+              {PO_TYPE_OPTIONS.find((opt) => opt.value === state.po_type)?.label || state.po_type || 'Material PO'}
+            </div>
+          ) : (
+            <select
+              id="po_type"
+              value={state.po_type || 'MATERIAL'}
+              onChange={(e) => setHeader('po_type', e.target.value)}
+              style={inputStyle}
+            >
+              {PO_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {state.po_type === 'SUBCONTRACT' && (
+          <div style={fieldGroupStyle}>
+            <label style={labelStyle} htmlFor="sco_number">Linked Subcontract Order (外發加工單)</label>
+            {isReadOnly ? (
+              <div style={readOnlyValueStyle}>{state.sco_number || 'Not linked'}</div>
+            ) : (
+              <select
+                id="sco_number"
+                value={state.sco_number || ''}
+                onChange={(e) => handleScoSelect(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="">None — purchasing outside processing only</option>
+                {state.sco_number &&
+                !subcontractOrders.some((sco) => sco.sco_number === state.sco_number) ? (
+                  <option value={state.sco_number}>{state.sco_number}</option>
+                ) : null}
+                {subcontractOrders.map((sco) => (
+                  <option key={sco.sco_number} value={sco.sco_number}>
+                    {sco.sco_number} — {sco.item_id} (qty {sco.quantity_ordered})
+                  </option>
+                ))}
+              </select>
+            )}
+            <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 6 }}>
+              Material issue and FG receipt stay on the subcontract order.{' '}
+              <Link to="/subcontract-orders/new" style={{ color: 'var(--accent)' }}>
+                Create 外發加工單
+              </Link>
+            </span>
+          </div>
+        )}
 
         {/* Vendor Selection (Searchable Dropdown / Autocomplete) */}
         <div style={fieldGroupStyle} ref={dropdownRef}>

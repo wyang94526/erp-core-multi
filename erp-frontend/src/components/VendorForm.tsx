@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { chartOfAccountsService, inventoryService, vendorService, workCenterService } from '../api/services'
 import type { SupplierWrite, TaxDocumentType, VendorPaymentMethod, VendorQcStatus, VendorType } from '../types'
+import { INCOTERM_OPTIONS } from '../data/orderOptions'
 
 const PAYMENT_TERMS_OPTIONS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 60', 'Net 90']
 const VENDOR_TYPE_OPTIONS: Array<{ value: VendorType; label: string }> = [
@@ -28,7 +29,6 @@ const QC_STATUS_OPTIONS: Array<{ value: VendorQcStatus; label: string }> = [
   { value: 'blocked', label: 'Blocked' },
 ]
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'JPY', 'TWD', 'CNY']
-const INCOTERM_OPTIONS = ['FOB', 'EXW', 'DDP', 'CIF', 'FCA', 'CPT']
 const FOREIGN_TAX_DOCUMENT_OPTIONS: Array<{ value: TaxDocumentType; label: string }> = [
   { value: 'W-8BEN-E', label: 'W-8BEN-E' },
   { value: 'W-8BEN', label: 'W-8BEN' },

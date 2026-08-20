@@ -404,6 +404,7 @@ class SalesOrder(Base):
     customer_po_number = Column(String(50), nullable=False)
     po_revision_number = Column(Integer, default=0)
     order_date = Column(Date, nullable=False)
+    customer_revision_date = Column(Date, nullable=True)
     
     payment_terms = Column(String(50))
     freight_terms = Column(String(50))
@@ -433,6 +434,7 @@ class SalesOrderItem(Base):
     sales_order_id = Column(String(50), ForeignKey('salesorders.sales_order_id'))
     line_number = Column(Integer, nullable=False)
     item_id = Column(String(50), ForeignKey('items.item_id'))
+    customer_part_number = Column(String(50), nullable=True)
     
     quantity_ordered = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 4), nullable=False)
@@ -843,6 +845,9 @@ class PurchaseOrder(Base):
 
     po_number = Column(String(50), primary_key=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
+    po_type = Column(String(20), nullable=False, server_default=text("'MATERIAL'"))
+    bom_header_id = Column(BigInteger, ForeignKey('itembomheaders.bom_header_id'), nullable=True)
+    sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number'), nullable=True)
 
     order_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
     expected_delivery_date = Column(Date)
@@ -867,6 +872,7 @@ class PurchaseOrder(Base):
     __table_args__ = (
         CheckConstraint("status IN ('Draft', 'Submitted', 'Approved', 'Void')", name='chk_po_status'),
         CheckConstraint("discount_type IN ('percentage', 'fixed')", name='chk_po_discount_type'),
+        CheckConstraint("po_type IN ('MATERIAL', 'SUBCONTRACT')", name='chk_po_type'),
     )
 
     # Relationships
@@ -882,6 +888,7 @@ class PurchaseOrderItem(Base):
     po_number = Column(String(50), ForeignKey('purchaseorders.po_number', ondelete='CASCADE'), nullable=False)
 
     sku = Column(String(100), nullable=False)
+    bom_header_id = Column(BigInteger, ForeignKey('itembomheaders.bom_header_id'), nullable=True)
     quantity = Column(Numeric(12, 4), nullable=False, default=1)
     unit_price = Column(Numeric(12, 4), nullable=False, default=0)
     tax_rate = Column(Numeric(6, 3), nullable=False, default=0)

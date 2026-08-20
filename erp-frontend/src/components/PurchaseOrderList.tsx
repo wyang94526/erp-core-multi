@@ -98,6 +98,8 @@ export function PurchaseOrderList() {
         po.po_number.toLowerCase().includes(q) ||
         supplierName.toLowerCase().includes(q) ||
         po.status.toLowerCase().includes(q) ||
+        (po.po_type || '').toLowerCase().includes(q) ||
+        (po.sco_number || '').toLowerCase().includes(q) ||
         (po.approval_status || '').toLowerCase().includes(q)
       )
     })
@@ -212,6 +214,7 @@ export function PurchaseOrderList() {
                 <thead>
                   <tr style={directoryTheadRowStyle}>
                     <SortableTh label="PO Number" columnKey="po_number" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Type" columnKey="po_type" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Supplier / Vendor" columnKey="supplier_name" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Order Date" columnKey="order_date" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Expected Delivery" columnKey="expected_delivery_date" sortConfig={sortConfig} onRequestSort={requestSort} />
@@ -230,6 +233,9 @@ export function PurchaseOrderList() {
                     return (
                       <tr key={po.po_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{po.po_number}</td>
+                        <td style={directoryTdStyle}>
+                          {po.po_type === 'SUBCONTRACT' ? 'Subcontract / 外發加工' : 'Material'}
+                        </td>
                         <td style={directoryTdStyle}>{supplierName}</td>
                         <td style={directoryTdStyle}>
                           {po.order_date

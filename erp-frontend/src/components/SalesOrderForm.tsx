@@ -9,10 +9,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { salesOrderService, customerService, itemService, locationService } from '../api/services'
 import type { Customer, Item, Location } from '../types'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
+import ItemLookup from './ItemLookup'
+import {
+  INCOTERM_OPTIONS,
+  SHIPPING_METHOD_OPTIONS,
+  withCurrentOption,
+} from '../data/orderOptions'
 
 interface LineItem {
   line_number: number
   item_id: string
+  customer_part_number: string
   quantity_ordered: number
   unit_price: number
   tax_amount: number
@@ -33,6 +40,7 @@ export function SalesOrderForm() {
     customer_po_number: '',
     po_revision_number: 0,
     order_date: new Date().toISOString().split('T')[0],
+    customer_revision_date: '',
     payment_terms: '',
     freight_terms: '',
     shipping_method: '',
@@ -47,6 +55,7 @@ export function SalesOrderForm() {
     {
       line_number: 1,
       item_id: '',
+      customer_part_number: '',
       quantity_ordered: 1,
       unit_price: 0,
       tax_amount: 0,
@@ -119,6 +128,9 @@ export function SalesOrderForm() {
         customer_po_number: salesOrder.customer_po_number,
         po_revision_number: salesOrder.po_revision_number,
         order_date: salesOrder.order_date,
+        customer_revision_date: salesOrder.customer_revision_date
+          ? String(salesOrder.customer_revision_date).slice(0, 10)
+          : '',
         payment_terms: salesOrder.payment_terms || '',
         freight_terms: salesOrder.freight_terms || '',
         shipping_method: salesOrder.shipping_method || '',
@@ -134,6 +146,7 @@ export function SalesOrderForm() {
           salesOrder.items.map((item) => ({
             line_number: item.line_number,
             item_id: item.item_id,
+            customer_part_number: item.customer_part_number || '',
             quantity_ordered: item.quantity_ordered,
             unit_price: Number(item.unit_price),
             tax_amount: Number(item.tax_amount),
@@ -157,6 +170,7 @@ export function SalesOrderForm() {
         customer_po_number: data.customer_po_number,
         po_revision_number: data.po_revision_number,
         order_date: data.order_date,
+        customer_revision_date: emptyToNull(data.customer_revision_date),
         payment_terms: emptyToNull(data.payment_terms) ?? undefined,
         freight_terms: emptyToNull(data.freight_terms) ?? undefined,
         shipping_method: emptyToNull(data.shipping_method) ?? undefined,
@@ -186,6 +200,7 @@ export function SalesOrderForm() {
         ship_to_location_id: data.ship_to_location_id,
         customer_po_number: data.customer_po_number,
         po_revision_number: data.po_revision_number,
+        customer_revision_date: emptyToNull(data.customer_revision_date),
         payment_terms: emptyToNull(data.payment_terms),
         freight_terms: emptyToNull(data.freight_terms),
         shipping_method: emptyToNull(data.shipping_method),
@@ -216,6 +231,10 @@ export function SalesOrderForm() {
       if (name === 'customer_id') {
         next.bill_to_location_id = ''
         next.ship_to_location_id = ''
+        const customer = customers.find((c: Customer) => c.customer_id === value)
+        if (customer?.preferred_incoterms && !prev.freight_terms) {
+          next.freight_terms = customer.preferred_incoterms
+        }
       }
       return next
     })
@@ -242,7 +261,7 @@ export function SalesOrderForm() {
 
     if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount') {
       (item[field] as number) = Number(value)
-    } else if (field === 'item_id') {
+    } else if (field === 'item_id' || field === 'customer_part_number') {
       (item[field] as string) = value as string
     } else if (field === 'line_number') {
       (item[field] as number) = Number(value)
@@ -261,6 +280,25 @@ export function SalesOrderForm() {
     }))
   }
 
+  const selectCatalogItem = (index: number, catalog: Item | null) => {
+    const newItems = [...lineItems]
+    const item = newItems[index]
+    item.item_id = catalog?.item_id || ''
+    item.customer_part_number = catalog?.customer_part_number || ''
+    if (catalog?.unit_price != null) {
+      item.unit_price = Number(catalog.unit_price)
+    }
+    item.total_amount = item.quantity_ordered * item.unit_price + item.tax_amount
+    setLineItems(newItems)
+    const newTotal = newItems.reduce((sum, li) => sum + li.total_amount, 0)
+    setFormData((prev) => ({ ...prev, total_amount: newTotal }))
+    setErrors((prev) => {
+      const next = { ...prev }
+      delete next[`item_${index}_product`]
+      return next
+    })
+  }
+
   const addLineItem = () => {
     const newLineNumber = Math.max(...lineItems.map((li) => li.line_number), 0) + 1
     setLineItems([
@@ -268,6 +306,7 @@ export function SalesOrderForm() {
       {
         line_number: newLineNumber,
         item_id: '',
+        customer_part_number: '',
         quantity_ordered: 1,
         unit_price: 0,
         tax_amount: 0,
@@ -504,6 +543,23 @@ export function SalesOrderForm() {
             </div>
 
             <div style={fieldGroupStyle}>
+              <label htmlFor="customer_revision_date" style={labelStyle}>
+                Customer Revision Date
+              </label>
+              <input
+                type="date"
+                id="customer_revision_date"
+                name="customer_revision_date"
+                value={formData.customer_revision_date}
+                onChange={handleChange}
+                style={inputStyle}
+              />
+              <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 4 }}>
+                Date the customer last revised their PO (not the internal order date).
+              </span>
+            </div>
+
+            <div style={fieldGroupStyle}>
               <label htmlFor="bill_to_location_id" style={labelStyle}>
                 Bill To Location *
               </label>
@@ -615,32 +671,42 @@ export function SalesOrderForm() {
 
             <div style={fieldGroupStyle}>
               <label htmlFor="freight_terms" style={labelStyle}>
-                Freight Terms
+                Freight Terms / Incoterms
               </label>
-              <input
-                type="text"
+              <select
                 id="freight_terms"
                 name="freight_terms"
                 value={formData.freight_terms}
                 onChange={handleChange}
                 style={inputStyle}
-                placeholder="e.g., FOB"
-              />
+              >
+                <option value="">Select Incoterm</option>
+                {withCurrentOption(INCOTERM_OPTIONS, formData.freight_terms).map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={fieldGroupStyle}>
               <label htmlFor="shipping_method" style={labelStyle}>
                 Shipping Method
               </label>
-              <input
-                type="text"
+              <select
                 id="shipping_method"
                 name="shipping_method"
                 value={formData.shipping_method}
                 onChange={handleChange}
                 style={inputStyle}
-                placeholder="e.g., Ground"
-              />
+              >
+                <option value="">Select shipping method</option>
+                {withCurrentOption(SHIPPING_METHOD_OPTIONS, formData.shipping_method).map((method) => (
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={fieldGroupStyle}>
@@ -701,7 +767,8 @@ export function SalesOrderForm() {
               <thead>
                 <tr style={theadRowStyle}>
                   <th style={{ ...thStyle, width: '60px' }}>Line #</th>
-                  <th style={thStyle}>Item *</th>
+                  <th style={{ ...thStyle, minWidth: '260px' }}>Internal Part No. *</th>
+                  <th style={{ ...thStyle, width: '180px' }}>Customer P/N</th>
                   <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
                   <th style={{ ...thStyle, width: '130px', textAlign: 'right' }}>Unit Price</th>
                   <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Amount</th>
@@ -713,28 +780,29 @@ export function SalesOrderForm() {
                 {lineItems.map((item, index) => (
                   <tr key={index} style={tbodyRowStyle}>
                     <td style={tdStyle}>{item.line_number}</td>
-                    <td style={tdStyle}>
-                      <select
+                    <td style={{ ...tdStyle, minWidth: '260px', overflow: 'visible' }}>
+                      <ItemLookup
+                        items={items}
                         value={item.item_id}
-                        onChange={(e) =>
-                          handleLineItemChange(index, 'item_id', e.target.value)
-                        }
-                        style={{
-                          ...inputStyle,
-                          width: '100%',
-                          border: errors[`item_${index}_product`] ? '1px solid #f44336' : '1px solid var(--border)',
-                        }}
-                      >
-                        <option value="">Select item</option>
-                        {items.map((catalogItem: Item) => (
-                          <option key={catalogItem.item_id} value={catalogItem.item_id}>
-                            {catalogItem.description || catalogItem.item_id}
-                          </option>
-                        ))}
-                      </select>
+                        error={Boolean(errors[`item_${index}_product`])}
+                        ariaLabel={`Internal part number for line ${item.line_number}`}
+                        placeholder="Type to search or click ▼"
+                        onSelect={(catalog) => selectCatalogItem(index, catalog)}
+                      />
                       {errors[`item_${index}_product`] && (
                         <span style={errorTextStyle}>{errors[`item_${index}_product`]}</span>
                       )}
+                    </td>
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        value={item.customer_part_number}
+                        onChange={(e) =>
+                          handleLineItemChange(index, 'customer_part_number', e.target.value)
+                        }
+                        style={inputStyle}
+                        placeholder="Customer P/N"
+                      />
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <input

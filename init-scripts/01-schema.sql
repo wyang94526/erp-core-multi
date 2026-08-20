@@ -260,7 +260,8 @@ CREATE TABLE SalesOrders (
     
     customer_po_number VARCHAR(50) NOT NULL,   
     po_revision_number INT DEFAULT 0,          
-    order_date DATE NOT NULL,                  
+    order_date DATE NOT NULL,
+    customer_revision_date DATE, 
     
     -- Commercial & Freight Terms
     payment_terms VARCHAR(50),                 
@@ -287,6 +288,7 @@ CREATE TABLE SalesOrderItems (
     sales_order_id VARCHAR(50) REFERENCES SalesOrders(sales_order_id) ON DELETE CASCADE,
     line_number INT NOT NULL,                  
     item_id VARCHAR(50) REFERENCES items(item_id),
+    customer_part_number VARCHAR(50),
     
     quantity_ordered INT NOT NULL,             
     unit_price DECIMAL(10, 4) NOT NULL,        
@@ -436,6 +438,9 @@ DROP TABLE IF EXISTS PurchaseOrders CASCADE;
 CREATE TABLE PurchaseOrders (
     po_number VARCHAR(50) PRIMARY KEY,
     supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+    po_type VARCHAR(20) NOT NULL DEFAULT 'MATERIAL',
+    bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id),
+    sco_number VARCHAR(50) REFERENCES subcontractorders(sco_number),
 
     order_date DATE NOT NULL DEFAULT CURRENT_DATE,
     expected_delivery_date DATE,
@@ -455,7 +460,8 @@ CREATE TABLE PurchaseOrders (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT chk_po_status CHECK (status IN ('Draft', 'Submitted', 'Approved', 'Void')),
-    CONSTRAINT chk_po_discount_type CHECK (discount_type IN ('percentage', 'fixed'))
+    CONSTRAINT chk_po_discount_type CHECK (discount_type IN ('percentage', 'fixed')),
+    CONSTRAINT chk_po_type CHECK (po_type IN ('MATERIAL', 'SUBCONTRACT'))
 );
 
 DROP TABLE IF EXISTS PurchaseOrderItems CASCADE;
@@ -465,6 +471,7 @@ CREATE TABLE PurchaseOrderItems (
     po_number VARCHAR(50) NOT NULL REFERENCES PurchaseOrders(po_number) ON DELETE CASCADE,
 
     sku VARCHAR(100) NOT NULL,
+    bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id),
     quantity NUMERIC(12, 4) NOT NULL DEFAULT 1,
     unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0,
     tax_rate NUMERIC(6, 3) NOT NULL DEFAULT 0,

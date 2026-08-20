@@ -1,6 +1,7 @@
 """Item catalog endpoints (items table is the item master)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -15,6 +16,29 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
+
+
+def _apply_item_query(query, *, search: str | None = None, catalog: str | None = None):
+    kind = (catalog or "").strip().lower()
+    if kind in ("purchase", "purchase_items"):
+        query = query.filter(Item.is_purchase_item.is_(True))
+    elif kind in ("raw", "raw_materials"):
+        query = query.filter(Item.is_raw_material.is_(True))
+    elif kind in ("assembly", "assemblies", "subcontract"):
+        query = query.filter(
+            (Item.is_subcontract_assembly.is_(True)) | (Item.is_outside_processed.is_(True))
+        )
+    term = (search or "").strip()
+    if term:
+        like = f"%{term}%"
+        query = query.filter(
+            or_(
+                Item.item_id.ilike(like),
+                Item.customer_part_number.ilike(like),
+                Item.description.ilike(like),
+            )
+        )
+    return query
 
 
 def _sync_assembly_flags(data: dict) -> dict:
@@ -46,64 +70,50 @@ def _mapping_read(row: VendorItemMapping) -> VendorItemMappingRead:
 def list_purchase_items(
     skip: int = 0,
     limit: int = 100,
+    q: str | None = Query(default=None, description="Search item_id, customer P/N, description"),
     db: Session = Depends(get_db),
 ) -> list[Item]:
-    return (
-        db.query(Item)
-        .filter(Item.is_purchase_item.is_(True))
-        .order_by(Item.item_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    query = _apply_item_query(db.query(Item), search=q, catalog="purchase")
+    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
 
 
 @router.get("/raw-materials", response_model=list[ItemRead])
 def list_raw_materials(
     skip: int = 0,
     limit: int = 100,
+    q: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[Item]:
-    return (
-        db.query(Item)
-        .filter(Item.is_raw_material.is_(True))
-        .order_by(Item.item_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    query = _apply_item_query(db.query(Item), search=q, catalog="raw")
+    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
 
 
 @router.get("/assemblies", response_model=list[ItemRead])
 def list_subcontract_assemblies(
     skip: int = 0,
     limit: int = 100,
+    q: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[Item]:
-    return (
-        db.query(Item)
-        .filter(
-            (Item.is_subcontract_assembly.is_(True))
-            | (Item.is_outside_processed.is_(True))
-        )
-        .order_by(Item.item_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    query = _apply_item_query(db.query(Item), search=q, catalog="assembly")
+    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
 
 
 @router.get("", response_model=list[ItemRead])
 def list_items(
     skip: int = 0,
     limit: int = 100,
+    q: str | None = Query(default=None, description="Search item_id, customer P/N, description"),
     purchase_only: bool | None = Query(default=None),
+    catalog: str | None = Query(
+        default=None,
+        description="Optional catalog filter: purchase | raw | assembly",
+    ),
     db: Session = Depends(get_db),
 ) -> list[Item]:
-    q = db.query(Item)
-    if purchase_only:
-        q = q.filter(Item.is_purchase_item.is_(True))
-    return q.order_by(Item.item_id).offset(skip).limit(limit).all()
+    kind = catalog or ("purchase" if purchase_only else None)
+    query = _apply_item_query(db.query(Item), search=q, catalog=kind)
+    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
 
 
 @router.get("/{item_id}", response_model=ItemRead)

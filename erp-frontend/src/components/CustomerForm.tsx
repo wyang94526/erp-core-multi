@@ -7,7 +7,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { customerService } from '../api/services'
-import type { Customer, CustomerWrite, Location, TaxIdType } from '../types'
+import type { CustomerWrite, Location, TaxIdType } from '../types'
+import { INCOTERM_OPTIONS } from '../data/orderOptions'
 
 type TabId = 'general' | 'billTo' | 'shipTo' | 'certs'
 
@@ -41,7 +42,6 @@ type CertFormRow = {
 const INDUSTRY_OPTIONS = ['Automotive', 'Electronics', 'Industrial', 'Aerospace', 'Medical', 'Energy', 'Other']
 const FACILITY_OPTIONS = ['OEM', 'Tier-1', 'Tier-2', 'Contract Manufacturer', 'Aftermarket', 'Distributor']
 const PAYMENT_OPTIONS = ['NET30', 'NET60', 'NET90', 'ADVANCE', 'Due on Receipt']
-const INCOTERM_OPTIONS = ['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'JPY', 'TWD', 'CNY']
 const STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Active' },
@@ -677,7 +677,7 @@ export function CustomerForm() {
                 name="preferred_incoterms"
                 value={formData.preferred_incoterms}
                 onChange={handleChange}
-                options={INCOTERM_OPTIONS}
+                options={[...INCOTERM_OPTIONS]}
               />
               <SelectField
                 label="Status"

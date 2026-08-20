@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FileDown, Loader2 } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
-import { purchaseOrderService, vendorService, approvalService, itemService } from '../api/services';
-import type { Supplier, PurchaseOrder, Item } from '../types';
+import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService } from '../api/services';
+import type { Supplier, PurchaseOrder, Item, SubcontractOrder } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
@@ -15,8 +15,9 @@ import { ApprovalPanel } from './ApprovalPanel';
 function toApiItems(items: PurchaseOrder['items']) {
   return items
     .filter((item) => item.sku && item.sku.trim() && item.quantity > 0)
-    .map(({ sku, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
+    .map(({ sku, bom_header_id, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
       sku,
+      bom_header_id: bom_header_id || null,
       quantity,
       unit_price,
       tax_rate,
@@ -30,9 +31,12 @@ function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
   return {
     po_number: state.po_number,
     supplier_id: state.supplier_id,
+    po_type: state.po_type || 'MATERIAL',
+    bom_header_id: state.bom_header_id || null,
+    sco_number: state.sco_number || null,
     order_date: state.order_date || undefined,
     expected_delivery_date: state.expected_delivery_date || null,
-    payment_terms: state.payment_terms || null,
+    payment_terms: state.payment_terms || 'Net 30',
     status,
     shipping_fee: state.shipping_fee,
     discount_type: state.discount_type,
@@ -61,6 +65,7 @@ export function PurchaseOrderForm() {
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Item[]>([]);
+  const [subcontractOrders, setSubcontractOrders] = useState<SubcontractOrder[]>([]);
   const [isReadOnly, setIsReadOnly] = useState(!isNew && searchParams.get('edit') !== '1');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(!isNew);
@@ -93,14 +98,23 @@ export function PurchaseOrderForm() {
     };
   };
 
+  const loadCatalog = async (poType: 'MATERIAL' | 'SUBCONTRACT' = 'MATERIAL') => {
+    if (poType === 'SUBCONTRACT') {
+      const assemblies = await itemService.listItems(0, 1000, { catalog: 'assembly' }).catch(() => [] as Item[]);
+      if (assemblies.length > 0) return assemblies;
+    }
+    const purchaseItems = await itemService.listPurchaseItems(0, 1000).catch(() => [] as Item[]);
+    if (purchaseItems.length > 0) return purchaseItems;
+    return itemService.listItems(0, 1000);
+  };
+
   const loadReferenceData = async () => {
-    const [sups, purchaseItems, allProds] = await Promise.all([
+    const [sups, scos] = await Promise.all([
       vendorService.listVendors(),
-      itemService.listPurchaseItems(0, 1000).catch(() => [] as Item[]),
-      itemService.listItems(0, 1000),
+      subcontractOrderService.listSubcontractOrders(0, 500).catch(() => [] as SubcontractOrder[]),
     ]);
     setSuppliers(sups);
-    setProducts(purchaseItems.length > 0 ? purchaseItems : allProds);
+    setSubcontractOrders(scos);
     return sups;
   };
 
@@ -113,6 +127,8 @@ export function PurchaseOrderForm() {
         setErrors({});
         const sups = await loadReferenceData();
         if (cancelled) return;
+        const materialCatalog = await loadCatalog('MATERIAL');
+        if (!cancelled) setProducts(materialCatalog);
 
         if (isNew) {
           resetForm(generateNewPONumber());
@@ -124,6 +140,8 @@ export function PurchaseOrderForm() {
 
         const po = await purchaseOrderService.getPurchaseOrder(poNumberParam!);
         if (cancelled) return;
+        const poCatalog = await loadCatalog(po.po_type || 'MATERIAL');
+        if (!cancelled) setProducts(poCatalog);
         setFullPO(withSupplierName(po, sups));
         setIsExisting(true);
         setIsReadOnly(searchParams.get('edit') !== '1');
@@ -146,6 +164,17 @@ export function PurchaseOrderForm() {
     // Intentionally keyed to route identity
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poNumberParam, isNew]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poType = state.po_type || 'MATERIAL';
+    void loadCatalog(poType).then((catalog) => {
+      if (!cancelled) setProducts(catalog);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.po_type]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -566,6 +595,7 @@ export function PurchaseOrderForm() {
                   setHeader={setHeader}
                   isReadOnly={isReadOnly}
                   suppliers={suppliers}
+                  subcontractOrders={subcontractOrders}
                   errors={errors}
                 />
               </div>
@@ -581,6 +611,7 @@ export function PurchaseOrderForm() {
             <POLineItemsTable
               items={state.items}
               products={products}
+              poType={state.po_type || 'MATERIAL'}
               updateRow={updateRow}
               updateRowFields={updateRowFields}
               deleteRow={deleteRow}

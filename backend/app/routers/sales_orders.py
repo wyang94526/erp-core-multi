@@ -78,9 +78,11 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
 
     # 3. Iterate through the nested items and link them to the newly created parent
     for item_schema in payload.items:
-        # We explicitly exclude sales_order_id from the dump just in case it is 
-        # still present in the schema, and assign it manually from the parent.
         item_data = item_schema.model_dump(exclude={"sales_order_id"})
+        if not item_data.get("customer_part_number"):
+            catalog = db.get(Item, item_data.get("item_id"))
+            if catalog:
+                item_data["customer_part_number"] = catalog.customer_part_number
         item = SalesOrderItem(
             **item_data,
             sales_order_id=order.sales_order_id

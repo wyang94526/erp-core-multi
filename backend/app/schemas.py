@@ -689,6 +689,7 @@ class SalesOrderItemCreate(BaseModel):
     # REMOVED: sales_order_id (The backend will assign this automatically)
     line_number: int
     item_id: str = Field(max_length=50)
+    customer_part_number: str | None = Field(default=None, max_length=50)
     quantity_ordered: int = Field(gt=0)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
@@ -699,6 +700,7 @@ class SalesOrderItemRead(ORMModel):
     sales_order_id: str
     line_number: int
     item_id: str
+    customer_part_number: str | None = None
     quantity_ordered: int
     unit_price: Decimal
     tax_amount: Decimal
@@ -713,6 +715,7 @@ class SalesOrderCreate(BaseModel):
     customer_po_number: str = Field(max_length=50)
     po_revision_number: int = Field(default=0)
     order_date: date
+    customer_revision_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
     freight_terms: str | None = Field(default=None, max_length=50)
     shipping_method: str | None = Field(default=None, max_length=50)
@@ -731,6 +734,7 @@ class SalesOrderUpdate(BaseModel):
     ship_to_location_id: str | None = Field(default=None, max_length=50)
     customer_po_number: str | None = Field(default=None, max_length=50)
     po_revision_number: int | None = None
+    customer_revision_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
     freight_terms: str | None = Field(default=None, max_length=50)
     shipping_method: str | None = Field(default=None, max_length=50)
@@ -748,6 +752,7 @@ class SalesOrderRead(ORMModel):
     customer_po_number: str
     po_revision_number: int
     order_date: date
+    customer_revision_date: date | None = None
     payment_terms: str | None
     freight_terms: str | None
     shipping_method: str | None
@@ -1309,6 +1314,7 @@ class SubcontractOrderRead(ORMModel):
 
 class PurchaseOrderItemCreate(BaseModel):
     sku: str = Field(min_length=1, max_length=100)
+    bom_header_id: int | None = None
     quantity: Decimal = Field(gt=0, decimal_places=4)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=3)
@@ -1318,6 +1324,7 @@ class PurchaseOrderItemCreate(BaseModel):
 
 class PurchaseOrderItemUpdate(BaseModel):
     sku: str | None = Field(default=None, min_length=1, max_length=100)
+    bom_header_id: int | None = None
     quantity: Decimal | None = Field(default=None, gt=0, decimal_places=4)
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     tax_rate: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=3)
@@ -1329,6 +1336,7 @@ class PurchaseOrderItemRead(ORMModel):
     item_id: int
     po_number: str
     sku: str
+    bom_header_id: int | None = None
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
@@ -1340,6 +1348,9 @@ class PurchaseOrderItemRead(ORMModel):
 class PurchaseOrderCreate(BaseModel):
     po_number: str = Field(max_length=50)
     supplier_id: str = Field(max_length=50)
+    po_type: Literal['MATERIAL', 'SUBCONTRACT'] = Field(default='MATERIAL')
+    bom_header_id: int | None = None
+    sco_number: str | None = Field(default=None, max_length=50)
     order_date: date | None = None
     expected_delivery_date: date | None = None
     payment_terms: str | None = Field(default="Net 30", max_length=50)
@@ -1359,6 +1370,9 @@ class PurchaseOrderCreate(BaseModel):
 
 class PurchaseOrderUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=50)
+    po_type: Literal['MATERIAL', 'SUBCONTRACT'] | None = None
+    bom_header_id: int | None = None
+    sco_number: str | None = Field(default=None, max_length=50)
     order_date: date | None = None
     expected_delivery_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
@@ -1379,6 +1393,9 @@ class PurchaseOrderUpdate(BaseModel):
 class PurchaseOrderRead(ORMModel):
     po_number: str
     supplier_id: str
+    po_type: str = 'MATERIAL'
+    bom_header_id: int | None = None
+    sco_number: str | None = None
     order_date: date
     expected_delivery_date: date | None
     payment_terms: str | None

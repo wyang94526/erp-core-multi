@@ -22,6 +22,7 @@ export type POAction =
 const initialRow = (id: string): PurchaseOrderItem => ({
   id,
   sku: '',
+  bom_header_id: null,
   quantity: 1,
   unit_price: 0,
   tax_rate: 0,
@@ -38,6 +39,9 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
     po_number: defaultPoNumber,
     supplier_id: '',
     supplier_name: '',
+    po_type: 'MATERIAL',
+    bom_header_id: null,
+    sco_number: '',
     order_date: today,
     expected_delivery_date: '',
     payment_terms: 'Net 30',
@@ -139,6 +143,17 @@ function poReducer(state: POFormState, action: POAction): POFormState {
           updated.expected_delivery_date = action.payload.value;
         }
       }
+      if (action.payload.field === 'po_type' && action.payload.value !== state.po_type) {
+        const cleared = [initialRow(generateId())];
+        if (action.payload.value === 'MATERIAL') {
+          updated.sco_number = '';
+          updated.bom_header_id = null;
+        }
+        return {
+          ...updated,
+          ...calculateTotals(cleared, state.shipping_fee, state.discount_type, state.discount_value),
+        };
+      }
       return updated;
     }
 
@@ -233,6 +248,9 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         po_number: po.po_number,
         supplier_id: po.supplier_id,
         supplier_name: po.supplier_name || '',
+        po_type: po.po_type || 'MATERIAL',
+        bom_header_id: po.bom_header_id ?? null,
+        sco_number: po.sco_number || '',
         order_date: po.order_date,
         expected_delivery_date: po.expected_delivery_date,
         payment_terms: po.payment_terms,

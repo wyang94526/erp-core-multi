@@ -1,9 +1,13 @@
 import React from 'react';
-import type { Item, PurchaseOrderItem } from '../types';
+import { useQuery } from '@tanstack/react-query';
+import type { Item, ItemBOMHeader, PurchaseOrderItem } from '../types';
+import { itemBomService } from '../api/services';
+import ItemLookup from './ItemLookup';
 
 interface POLineItemsTableProps {
   items: PurchaseOrderItem[];
   products: Item[];
+  poType?: 'MATERIAL' | 'SUBCONTRACT';
   updateRow: (id: string, field: keyof PurchaseOrderItem, value: any) => void;
   updateRowFields: (id: string, fields: Partial<PurchaseOrderItem>) => void;
   deleteRow: (id: string) => void;
@@ -13,9 +17,56 @@ interface POLineItemsTableProps {
   errors: Record<string, string>;
 }
 
+function BomHeaderSelect({
+  itemId,
+  value,
+  disabled,
+  onChange,
+}: {
+  itemId: string;
+  value?: number | null;
+  disabled: boolean;
+  onChange: (headerId: number | null) => void;
+}) {
+  const { data: headers = [], isLoading } = useQuery({
+    queryKey: ['bom-headers', itemId],
+    queryFn: () => itemBomService.listHeaders(itemId),
+    enabled: Boolean(itemId),
+  });
+
+  if (!itemId) {
+    return <span style={{ fontSize: 12, color: 'var(--text)' }}>Select an item first</span>;
+  }
+  if (disabled) {
+    const selected = headers.find((header) => header.bom_header_id === value);
+    return (
+      <div style={readOnlyCellText}>
+        {selected ? `v${selected.version_no} (${selected.status})` : value ? `#${value}` : '—'}
+      </div>
+    );
+  }
+  return (
+    <select
+      aria-label="BOM version"
+      value={value ?? ''}
+      disabled={isLoading}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      style={inputStyle}
+    >
+      <option value="">{isLoading ? 'Loading BOM…' : 'Select BOM version'}</option>
+      {headers.map((header: ItemBOMHeader) => (
+        <option key={header.bom_header_id} value={header.bom_header_id}>
+          v{header.version_no} — {header.status}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function POLineItemsTable({
   items,
   products,
+  poType = 'MATERIAL',
   updateRow,
   updateRowFields,
   deleteRow,
@@ -41,13 +92,25 @@ export function POLineItemsTable({
     return product ? productLabel(product) : sku || 'N/A';
   };
 
-  const handleItemSelect = (rowId: string, catalogItemId: string) => {
-    const product = products.find((p) => p.item_id === catalogItemId);
-    const fields: Partial<PurchaseOrderItem> = { sku: catalogItemId };
-    if (product && product.unit_price != null) {
-      fields.unit_price = Number(product.unit_price);
+  const isSubcontract = poType === 'SUBCONTRACT';
+
+  const handleItemSelect = (rowId: string, catalog: Item | null) => {
+    const fields: Partial<PurchaseOrderItem> = {
+      sku: catalog?.item_id || '',
+      bom_header_id: null,
+    };
+    if (catalog?.unit_price != null) {
+      fields.unit_price = Number(catalog.unit_price);
     }
     updateRowFields(rowId, fields);
+    if (isSubcontract && catalog?.item_id) {
+      void itemBomService.listHeaders(catalog.item_id).then((headers) => {
+        const active = headers.find((header) => String(header.status).toLowerCase() === 'active') || headers[0];
+        if (active) {
+          updateRowFields(rowId, { bom_header_id: active.bom_header_id });
+        }
+      }).catch(() => undefined);
+    }
   };
 
   return (
@@ -83,7 +146,8 @@ export function POLineItemsTable({
           <thead>
             <tr style={theadRowStyle}>
               <th style={{ ...thStyle, width: '40px' }}>#</th>
-              <th style={thStyle}>Item / SKU *</th>
+              <th style={thStyle}>{isSubcontract ? 'Assembly / Part No. *' : 'Item / Part No. *'}</th>
+              {isSubcontract && <th style={{ ...thStyle, width: '180px' }}>BOM Version</th>}
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
               <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Unit Price ($) *</th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
@@ -94,7 +158,6 @@ export function POLineItemsTable({
           <tbody>
             {items.map((item, index) => {
               const rowHasError = errors[`item_${item.id}`] || errors[`sku_${item.id}`] || errors[`qty_${item.id}`] || errors[`price_${item.id}`];
-              const knownSku = products.some((p) => p.item_id === item.sku);
               return (
                 <tr
                   key={item.id}
@@ -106,38 +169,37 @@ export function POLineItemsTable({
                   {/* Row Number */}
                   <td style={tdStyle}>{index + 1}</td>
 
-                  {/* Item / SKU dropdown */}
+                  {/* Item / SKU lookup */}
                   <td style={tdStyle}>
                     {isReadOnly ? (
                       <div style={readOnlyCellText}>{resolveItemLabel(item.sku)}</div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <select
-                          aria-label={`Item / SKU for row ${index + 1}`}
+                        <ItemLookup
+                          items={products}
                           value={item.sku || ''}
-                          onChange={(e) => handleItemSelect(item.id, e.target.value)}
-                          style={{
-                            ...inputStyle,
-                            width: '100%',
-                            border: errors[`sku_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
-                          }}
-                        >
-                          <option value="">Select item / SKU</option>
-                          {!knownSku && item.sku ? (
-                            <option value={item.sku}>{item.sku} (not in catalog)</option>
-                          ) : null}
-                          {products.map((product) => (
-                            <option key={product.item_id} value={product.item_id}>
-                              {productLabel(product)}
-                            </option>
-                          ))}
-                        </select>
+                          catalog={isSubcontract ? 'assembly' : 'all'}
+                          error={Boolean(errors[`sku_${item.id}`])}
+                          ariaLabel={`${isSubcontract ? 'Assembly' : 'Item'} part number for row ${index + 1}`}
+                          placeholder="Search by part number or description"
+                          onSelect={(catalog) => handleItemSelect(item.id, catalog)}
+                        />
                         {errors[`sku_${item.id}`] && (
                           <span style={errorTextStyle}>{errors[`sku_${item.id}`]}</span>
                         )}
                       </div>
                     )}
                   </td>
+                  {isSubcontract && (
+                    <td style={tdStyle}>
+                      <BomHeaderSelect
+                        itemId={item.sku}
+                        value={item.bom_header_id}
+                        disabled={isReadOnly}
+                        onChange={(headerId) => updateRow(item.id, 'bom_header_id', headerId)}
+                      />
+                    </td>
+                  )}
 
                   {/* Quantity */}
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
