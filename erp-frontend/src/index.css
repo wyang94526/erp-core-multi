@@ -851,6 +851,53 @@ code {
   padding-left: 18px;
 }
 
+.ai-markdown h3,
+.ai-markdown h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.ai-markdown .ai-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+
+.ai-markdown .ai-table th,
+.ai-markdown .ai-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.ai-markdown .ai-table thead th {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.ai-markdown .ai-table-total th,
+.ai-markdown .ai-table-total td {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+  font-weight: 700;
+}
+
+.ai-trend-chart {
+  margin: 4px 0 10px;
+}
+
+.ai-trend-chart-plot {
+  width: 100%;
+  height: 210px;
+}
+
+.ai-trend-chart-plot-series {
+  height: 240px;
+}
+
 .ai-markdown code {
   font-size: 12px;
 }

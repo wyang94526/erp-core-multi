@@ -23,11 +23,29 @@ function buildPageContext(pathname: string): Record<string, string | undefined> 
     ctx.entity_id = po[1]
     ctx.entity_type = 'purchase_order'
   }
+  const sco = pathname.match(/^\/subcontract-orders\/([^/]+)/)
+  if (sco && sco[1] !== 'new') {
+    ctx.subcontract_order_id = sco[1]
+    ctx.entity_id = sco[1]
+    ctx.entity_type = 'subcontract_order'
+  }
   const item = pathname.match(/^\/items\/([^/]+)/)
   if (item && item[1] !== 'new') {
     ctx.item_id = item[1]
     ctx.entity_id = item[1]
     ctx.entity_type = 'item'
+  }
+  const customer = pathname.match(/^\/customers\/([^/]+)/)
+  if (customer && customer[1] !== 'new') {
+    ctx.customer_id = customer[1]
+    ctx.entity_id = customer[1]
+    ctx.entity_type = 'customer'
+  }
+  const vendor = pathname.match(/^\/vendors\/([^/]+)/)
+  if (vendor && vendor[1] !== 'new') {
+    ctx.supplier_id = vendor[1]
+    ctx.entity_id = vendor[1]
+    ctx.entity_type = 'vendor'
   }
   return ctx
 }
@@ -44,7 +62,7 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
       id: 'welcome',
       role: 'assistant',
       content:
-        'Hi — I can look up **sales orders**, **inventory**, and ERP docs. Try “list draft sales orders” or “stock for PROD-1001G”.',
+        'Hi — I can look up **the whole ERP**: customers, vendors, items/BOMs, orders, inventory, and finance. Try “How many active customers?” or “How many items with BOM details?”.',
     },
   ])
   const [input, setInput] = useState('')
@@ -152,7 +170,7 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about orders, inventory, or workflows…"
+            placeholder="Ask about customers, BOMs, orders, inventory, finance…"
             rows={2}
             disabled={loading}
             onKeyDown={(e) => {

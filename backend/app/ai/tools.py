@@ -24,6 +24,7 @@ from app.models import (
     Supplier,
     User,
 )
+from app.ai.lookups import LOOKUP_TOOLS
 from app.services.inventory import list_stock_overview
 
 
@@ -579,7 +580,11 @@ def propose_draft_subcontract_order(
 
 @tool
 def search_erp_knowledge(query: str) -> str:
-    """Search ERP documentation and schema knowledge for how modules, statuses, and workflows work."""
+    """Search ERP documentation for how modules, statuses, and workflows work.
+
+    Do NOT use this for "how many" / count questions — those must use get_erp_counts
+    against live data. Schema CREATE TABLE snippets are not an answer to a count.
+    """
     from app.ai.rag import search_knowledge
 
     hits = search_knowledge(query, k=4)
@@ -754,6 +759,7 @@ def execute_confirmed_action(db: Session, user: User, action_type: str, payload:
 
 
 ERP_TOOLS = [
+    *LOOKUP_TOOLS,
     get_sales_orders,
     get_sales_order_detail,
     get_purchase_orders,

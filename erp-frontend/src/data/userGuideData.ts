@@ -120,7 +120,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Use the left sidebar accordion: only one top-level module stays open at a time.',
-      'The AI Assistant (top right) can look up orders and inventory using the page you are on as context.',
+      'The AI Assistant (top right) can count and look up live records across the whole ERP (customers, items/BOMs, orders, inventory, finance), using the page you are on as context. Ask “purchase orders by month”, “account receivable by month”, or “account payable by month by vendor” for a table plus a trend chart.',
     ],
     faqs: [
       {
