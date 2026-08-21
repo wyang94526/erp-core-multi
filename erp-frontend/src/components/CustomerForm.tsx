@@ -8,7 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { customerService } from '../api/services'
 import type { CustomerWrite, Location, TaxIdType } from '../types'
-import { INCOTERM_OPTIONS } from '../data/orderOptions'
+import { INCOTERM_OPTIONS, SHIPPING_METHOD_OPTIONS } from '../data/orderOptions'
 
 type TabId = 'general' | 'billTo' | 'shipTo' | 'certs'
 
@@ -210,6 +210,7 @@ export function CustomerForm() {
     credit_limit: '0.00',
     payment_terms: 'NET30',
     preferred_incoterms: '',
+    preferred_shipping_method: '',
     tax_exempt: false,
     tax_exempt_certificate_id: '',
     status: 'ACTIVE',
@@ -248,6 +249,7 @@ export function CustomerForm() {
       credit_limit: String(customer.credit_limit ?? '0.00'),
       payment_terms: customer.payment_terms || 'NET30',
       preferred_incoterms: customer.preferred_incoterms || '',
+      preferred_shipping_method: customer.preferred_shipping_method || '',
       tax_exempt: Boolean(customer.tax_exempt),
       tax_exempt_certificate_id: customer.tax_exempt_certificate_id || '',
       status: customer.status || 'ACTIVE',
@@ -472,6 +474,7 @@ export function CustomerForm() {
     credit_limit: Number(formData.credit_limit || 0).toFixed(2),
     payment_terms: formData.payment_terms || undefined,
     preferred_incoterms: formData.preferred_incoterms || undefined,
+    preferred_shipping_method: formData.preferred_shipping_method || undefined,
     tax_exempt: formData.tax_exempt,
     tax_exempt_certificate_id: formData.tax_exempt_certificate_id.trim() || undefined,
     status: formData.status,
@@ -678,6 +681,13 @@ export function CustomerForm() {
                 value={formData.preferred_incoterms}
                 onChange={handleChange}
                 options={[...INCOTERM_OPTIONS]}
+              />
+              <SelectField
+                label="Preferred Shipping Method"
+                name="preferred_shipping_method"
+                value={formData.preferred_shipping_method}
+                onChange={handleChange}
+                options={[...SHIPPING_METHOD_OPTIONS]}
               />
               <SelectField
                 label="Status"

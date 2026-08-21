@@ -471,6 +471,7 @@ class CustomerBase(BaseModel):
     credit_limit: Decimal = Field(default=Decimal('0.00'), ge=0, decimal_places=2)
     payment_terms: str | None = Field(default=None, max_length=50)
     preferred_incoterms: str | None = Field(default=None, max_length=10)
+    preferred_shipping_method: str | None = Field(default=None, max_length=50)
     tax_exempt: bool = False
     tax_exempt_certificate_id: str | None = Field(default=None, max_length=100)
     status: str = Field(default='ACTIVE', max_length=32)
@@ -486,6 +487,7 @@ class CustomerBase(BaseModel):
         'primary_phone',
         'payment_terms',
         'preferred_incoterms',
+        'preferred_shipping_method',
         'tax_exempt_certificate_id',
         mode='before',
     )
@@ -553,6 +555,7 @@ class CustomerUpdate(BaseModel):
     credit_limit: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     payment_terms: str | None = Field(default=None, max_length=50)
     preferred_incoterms: str | None = Field(default=None, max_length=10)
+    preferred_shipping_method: str | None = Field(default=None, max_length=50)
     tax_exempt: bool | None = None
     tax_exempt_certificate_id: str | None = Field(default=None, max_length=100)
     status: str | None = Field(default=None, max_length=32)
@@ -568,6 +571,7 @@ class CustomerUpdate(BaseModel):
         'primary_phone',
         'payment_terms',
         'preferred_incoterms',
+        'preferred_shipping_method',
         'tax_exempt_certificate_id',
         mode='before',
     )
@@ -629,6 +633,7 @@ class CustomerRead(ORMModel):
     credit_limit: Decimal = Decimal('0.00')
     payment_terms: str | None = None
     preferred_incoterms: str | None = None
+    preferred_shipping_method: str | None = None
     tax_exempt: bool = False
     tax_exempt_certificate_id: str | None = None
     status: str = 'ACTIVE'

@@ -3,7 +3,7 @@
  * Form for creating and editing sales orders with dynamic line items
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { salesOrderService, customerService, itemService, locationService } from '../api/services'
@@ -24,6 +24,50 @@ interface LineItem {
   unit_price: number
   tax_amount: number
   total_amount: number
+}
+
+const CUSTOMER_DERIVED_FIELDS = [
+  'bill_to_location_id',
+  'ship_to_location_id',
+  'payment_terms',
+  'freight_terms',
+  'shipping_method',
+] as const
+
+type CustomerDerivedField = (typeof CUSTOMER_DERIVED_FIELDS)[number]
+type HeaderDirtyState = Record<CustomerDerivedField, boolean>
+
+const EMPTY_HEADER_DIRTY: HeaderDirtyState = {
+  bill_to_location_id: false,
+  ship_to_location_id: false,
+  payment_terms: false,
+  freight_terms: false,
+  shipping_method: false,
+}
+
+function roundMoney(value: number, digits = 2): number {
+  const factor = 10 ** digits
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor
+}
+
+function calcLineTotal(quantity: number, unitPrice: number, taxAmount: number): number {
+  return roundMoney(Number(quantity) * Number(unitPrice) + Number(taxAmount))
+}
+
+function sumOrderTotal(items: LineItem[]): number {
+  return roundMoney(items.reduce((sum, item) => sum + Number(item.total_amount || 0), 0))
+}
+
+function pickDefaultLocation(locations: Location[]): Location | undefined {
+  return locations.find((loc) => loc.is_default) || locations[0]
+}
+
+function commercialDefaultsFromCustomer(customer: Customer | null | undefined) {
+  return {
+    payment_terms: (customer?.payment_terms || '').trim(),
+    freight_terms: (customer?.preferred_incoterms || '').trim(),
+    shipping_method: (customer?.preferred_shipping_method || '').trim(),
+  }
 }
 
 export function SalesOrderForm() {
@@ -64,11 +108,24 @@ export function SalesOrderForm() {
   ])
 
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [headerDirty, setHeaderDirty] = useState<HeaderDirtyState>(EMPTY_HEADER_DIRTY)
+  const headerDirtyRef = useRef(headerDirty)
+  headerDirtyRef.current = headerDirty
+  const pendingCustomerDefaultsRef = useRef<{
+    applyLocations: boolean
+    overwriteTerms: boolean
+  } | null>(null)
 
   // Fetch customers
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: () => customerService.listCustomers(0, 1000),
+  })
+
+  const { data: selectedCustomer, isFetched: selectedCustomerFetched } = useQuery({
+    queryKey: ['customers', formData.customer_id],
+    queryFn: () => customerService.getCustomer(formData.customer_id),
+    enabled: !!formData.customer_id,
   })
 
   // Fetch products
@@ -78,7 +135,7 @@ export function SalesOrderForm() {
   })
 
   // Locations for the selected customer
-  const { data: customerLocations = [], isFetching: loadingLocations } = useQuery({
+  const { data: customerLocations = [], isPending: locationsPending, isFetching: loadingLocations } = useQuery({
     queryKey: ['customerLocations', formData.customer_id],
     queryFn: () => locationService.listLocationsByCustomer(formData.customer_id),
     enabled: !!formData.customer_id,
@@ -154,6 +211,8 @@ export function SalesOrderForm() {
           }))
         )
       }
+      pendingCustomerDefaultsRef.current = null
+      setHeaderDirty(EMPTY_HEADER_DIRTY)
     }
   }, [salesOrder])
 
@@ -222,76 +281,185 @@ export function SalesOrderForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
-    setFormData((prev) => {
-      const next = {
-        ...prev,
-        [name]: name === 'po_revision_number' ? parseInt(value) || 0 : value,
-      }
-      // Changing customer clears location picks (they belong to the prior customer)
-      if (name === 'customer_id') {
-        next.bill_to_location_id = ''
-        next.ship_to_location_id = ''
-        const customer = customers.find((c: Customer) => c.customer_id === value)
-        if (customer?.preferred_incoterms && !prev.freight_terms) {
-          next.freight_terms = customer.preferred_incoterms
-        }
-      }
-      return next
-    })
-    if (errors[name] || name === 'customer_id') {
+    if (name === 'customer_id') {
+      handleCustomerChange(value)
+      return
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'po_revision_number' ? parseInt(value) || 0 : value,
+    }))
+
+    if ((CUSTOMER_DERIVED_FIELDS as readonly string[]).includes(name)) {
+      setHeaderDirty((prev) => ({ ...prev, [name]: true }))
+    }
+
+    if (errors[name]) {
       setErrors((prev) => {
         const newErrors = { ...prev }
         delete newErrors[name]
-        if (name === 'customer_id') {
-          delete newErrors.bill_to_location_id
-          delete newErrors.ship_to_location_id
-        }
         return newErrors
       })
     }
   }
+
+  const handleCustomerChange = (customerId: string) => {
+    const previousCustomerId = formData.customer_id
+    const dirty = headerDirty
+    const termsDirty = dirty.payment_terms || dirty.freight_terms || dirty.shipping_method
+    const hasTermValues = Boolean(
+      formData.payment_terms || formData.freight_terms || formData.shipping_method
+    )
+
+    if (!customerId) {
+      pendingCustomerDefaultsRef.current = null
+      setFormData((prev) => ({
+        ...prev,
+        customer_id: '',
+        bill_to_location_id: '',
+        ship_to_location_id: '',
+        payment_terms: '',
+        freight_terms: '',
+        shipping_method: '',
+      }))
+      setHeaderDirty(EMPTY_HEADER_DIRTY)
+      setErrors((prev) => {
+        const next = { ...prev }
+        delete next.customer_id
+        delete next.bill_to_location_id
+        delete next.ship_to_location_id
+        return next
+      })
+      return
+    }
+
+    let overwriteTerms = true
+    if (previousCustomerId && previousCustomerId !== customerId && termsDirty && hasTermValues) {
+      overwriteTerms = window.confirm(
+        'Customer changed. Replace Payment Terms, Freight Terms / Incoterms, and Shipping Method with this customer\'s defaults? Locations will always update to the new customer.'
+      )
+    }
+
+    const listed = customers.find((c: Customer) => c.customer_id === customerId)
+    const defaults = commercialDefaultsFromCustomer(listed)
+
+    setFormData((prev) => ({
+      ...prev,
+      customer_id: customerId,
+      bill_to_location_id: '',
+      ship_to_location_id: '',
+      payment_terms: overwriteTerms || !dirty.payment_terms ? defaults.payment_terms : prev.payment_terms,
+      freight_terms: overwriteTerms || !dirty.freight_terms ? defaults.freight_terms : prev.freight_terms,
+      shipping_method:
+        overwriteTerms || !dirty.shipping_method ? defaults.shipping_method : prev.shipping_method,
+    }))
+
+    setHeaderDirty((prev) => ({
+      ...prev,
+      bill_to_location_id: false,
+      ship_to_location_id: false,
+      payment_terms: overwriteTerms ? false : prev.payment_terms,
+      freight_terms: overwriteTerms ? false : prev.freight_terms,
+      shipping_method: overwriteTerms ? false : prev.shipping_method,
+    }))
+
+    pendingCustomerDefaultsRef.current = {
+      applyLocations: true,
+      overwriteTerms,
+    }
+
+    setErrors((prev) => {
+      const next = { ...prev }
+      delete next.customer_id
+      delete next.bill_to_location_id
+      delete next.ship_to_location_id
+      return next
+    })
+  }
+
+  useEffect(() => {
+    const pending = pendingCustomerDefaultsRef.current
+    if (!pending || !formData.customer_id) return
+    if (pending.applyLocations && locationsPending) return
+    if (!selectedCustomerFetched) return
+
+    const listed = customers.find((c: Customer) => c.customer_id === formData.customer_id)
+    const customer =
+      selectedCustomer?.customer_id === formData.customer_id ? selectedCustomer : listed
+    const defaults = commercialDefaultsFromCustomer(customer)
+    const defaultBill = pickDefaultLocation(billToLocations)
+    const defaultShip = pickDefaultLocation(shipToLocations)
+    const dirty = headerDirtyRef.current
+
+    setFormData((prev) => {
+      if (prev.customer_id !== formData.customer_id) return prev
+      const next = { ...prev }
+      if (pending.applyLocations) {
+        next.bill_to_location_id = defaultBill?.location_id || ''
+        next.ship_to_location_id = defaultShip?.location_id || ''
+      }
+      if (pending.overwriteTerms || !dirty.payment_terms) {
+        next.payment_terms = defaults.payment_terms
+      }
+      if (pending.overwriteTerms || !dirty.freight_terms) {
+        next.freight_terms = defaults.freight_terms
+      }
+      if (pending.overwriteTerms || !dirty.shipping_method) {
+        next.shipping_method = defaults.shipping_method
+      }
+      return next
+    })
+
+    pendingCustomerDefaultsRef.current = null
+  }, [
+    formData.customer_id,
+    selectedCustomer,
+    selectedCustomerFetched,
+    customers,
+    locationsPending,
+    billToLocations,
+    shipToLocations,
+  ])
 
   const handleLineItemChange = (
     index: number,
     field: keyof LineItem,
     value: string | number
   ) => {
-    const newItems = [...lineItems]
-    const item = newItems[index]
-
-    if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount') {
-      (item[field] as number) = Number(value)
-    } else if (field === 'item_id' || field === 'customer_part_number') {
-      (item[field] as string) = value as string
-    } else if (field === 'line_number') {
-      (item[field] as number) = Number(value)
-    }
-
-    // Recalculate total_amount
-    item.total_amount = item.quantity_ordered * item.unit_price + item.tax_amount
+    const newItems = lineItems.map((row, i) => {
+      if (i !== index) return row
+      const item = { ...row }
+      if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount') {
+        item[field] = Number(value)
+      } else if (field === 'item_id' || field === 'customer_part_number') {
+        item[field] = value as string
+      } else if (field === 'line_number') {
+        item.line_number = Number(value)
+      }
+      item.total_amount = calcLineTotal(item.quantity_ordered, item.unit_price, item.tax_amount)
+      return item
+    })
 
     setLineItems(newItems)
-
-    // Recalculate order total
-    const newTotal = newItems.reduce((sum, li) => sum + li.total_amount, 0)
     setFormData((prev) => ({
       ...prev,
-      total_amount: newTotal,
+      total_amount: sumOrderTotal(newItems),
     }))
   }
 
   const selectCatalogItem = (index: number, catalog: Item | null) => {
-    const newItems = [...lineItems]
-    const item = newItems[index]
-    item.item_id = catalog?.item_id || ''
-    item.customer_part_number = catalog?.customer_part_number || ''
-    if (catalog?.unit_price != null) {
-      item.unit_price = Number(catalog.unit_price)
-    }
-    item.total_amount = item.quantity_ordered * item.unit_price + item.tax_amount
+    const newItems = lineItems.map((row, i) => {
+      if (i !== index) return row
+      const item = { ...row }
+      item.item_id = catalog?.item_id || ''
+      item.customer_part_number = catalog?.customer_part_number || ''
+      item.unit_price = catalog?.unit_price != null ? Number(catalog.unit_price) : 0
+      item.total_amount = calcLineTotal(item.quantity_ordered, item.unit_price, item.tax_amount)
+      return item
+    })
     setLineItems(newItems)
-    const newTotal = newItems.reduce((sum, li) => sum + li.total_amount, 0)
-    setFormData((prev) => ({ ...prev, total_amount: newTotal }))
+    setFormData((prev) => ({ ...prev, total_amount: sumOrderTotal(newItems) }))
     setErrors((prev) => {
       const next = { ...prev }
       delete next[`item_${index}_product`]
@@ -319,12 +487,9 @@ export function SalesOrderForm() {
     if (lineItems.length > 1) {
       const newItems = lineItems.filter((_, i) => i !== index)
       setLineItems(newItems)
-
-      // Recalculate order total
-      const newTotal = newItems.reduce((sum, li) => sum + li.total_amount, 0)
       setFormData((prev) => ({
         ...prev,
-        total_amount: newTotal,
+        total_amount: sumOrderTotal(newItems),
       }))
     }
   }
@@ -833,6 +998,7 @@ export function SalesOrderForm() {
                         style={{ ...inputStyle, width: '100%', textAlign: 'right' }}
                         step="0.01"
                         min="0"
+                        title="Defaulted from the item catalog; you can override the unit price"
                       />
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>

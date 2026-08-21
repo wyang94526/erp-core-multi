@@ -68,6 +68,7 @@ export interface Customer {
   credit_limit?: number | string
   payment_terms?: string | null
   preferred_incoterms?: string | null
+  preferred_shipping_method?: string | null
   tax_exempt?: boolean
   tax_exempt_certificate_id?: string | null
   status?: CustomerStatus | string
@@ -95,6 +96,7 @@ export type CustomerWrite = {
   credit_limit?: number | string
   payment_terms?: string | null
   preferred_incoterms?: string | null
+  preferred_shipping_method?: string | null
   tax_exempt?: boolean
   tax_exempt_certificate_id?: string | null
   status?: string

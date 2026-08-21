@@ -43,6 +43,7 @@ const CUSTOMER_COLUMNS: (keyof DataImportCustomer)[] = [
   'credit_limit',
   'payment_terms',
   'preferred_incoterms',
+  'preferred_shipping_method',
   'tax_exempt',
   'tax_exempt_certificate_id',
   'status',

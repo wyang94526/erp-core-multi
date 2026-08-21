@@ -159,6 +159,7 @@ def seed_data():
         "credit_limit": "250000.00",
         "payment_terms": "NET30",
         "preferred_incoterms": "FOB",
+        "preferred_shipping_method": "Ground",
         "status": "ACTIVE",
         "locations": [
             {

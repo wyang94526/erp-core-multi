@@ -1337,6 +1337,7 @@ export type DataImportCustomer = {
   credit_limit?: string
   payment_terms?: string | null
   preferred_incoterms?: string | null
+  preferred_shipping_method?: string | null
   tax_exempt?: boolean
   tax_exempt_certificate_id?: string | null
   status: string

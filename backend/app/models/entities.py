@@ -283,6 +283,7 @@ class Customer(Base):
     credit_limit = Column(Numeric(14, 2), nullable=False, server_default=text('0.00'))
     payment_terms = Column(String(50), nullable=True)
     preferred_incoterms = Column(String(10), nullable=True)
+    preferred_shipping_method = Column(String(50), nullable=True)
     tax_exempt = Column(Boolean, nullable=False, server_default=text('false'))
     tax_exempt_certificate_id = Column(String(100), nullable=True)
     status = Column(String(32), nullable=False, server_default=text("'ACTIVE'"))

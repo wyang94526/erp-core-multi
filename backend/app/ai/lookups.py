@@ -1155,6 +1155,7 @@ def get_customer_detail(customer_id: str) -> str:
             "credit_limit": customer.credit_limit,
             "payment_terms": customer.payment_terms,
             "preferred_incoterms": customer.preferred_incoterms,
+            "preferred_shipping_method": customer.preferred_shipping_method,
             "locations": [
                 {
                     "location_id": loc.location_id,
