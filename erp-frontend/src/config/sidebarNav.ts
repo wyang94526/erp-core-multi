@@ -201,7 +201,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
       { kind: 'link', label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
       {
         kind: 'link',
-        label: 'CSV Import Preview',
+        label: 'CSV Import',
         to: '/admin/data-import',
         permission: 'admin:manage',
       },

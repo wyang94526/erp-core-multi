@@ -8,6 +8,7 @@ import { useRef, useState, type RefObject } from 'react'
 import { dataImportService } from '../api/services'
 import type {
   DataImportAccount,
+  DataImportApplyResult,
   DataImportBomLine,
   DataImportCustomer,
   DataImportItem,
@@ -268,6 +269,7 @@ export default function DataImportPreview() {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [applyResult, setApplyResult] = useState<DataImportApplyResult | null>(null)
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['data-import-preview'],
@@ -279,6 +281,7 @@ export default function DataImportPreview() {
     mutationFn: (files: File[]) => dataImportService.upload(files),
     onSuccess: async () => {
       setUploadError(null)
+      setApplyResult(null)
       await queryClient.invalidateQueries({ queryKey: ['data-import-preview'] })
     },
     onError: (err: unknown) => {
@@ -286,10 +289,30 @@ export default function DataImportPreview() {
     },
   })
 
+  const apply = useMutation({
+    mutationFn: (truncate: boolean) => dataImportService.apply({ truncate }),
+    onSuccess: async (result) => {
+      setApplyResult(result)
+      await queryClient.invalidateQueries({ queryKey: ['data-import-preview'] })
+      await queryClient.invalidateQueries({ queryKey: ['customers'] })
+      await queryClient.invalidateQueries({ queryKey: ['items'] })
+      await queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+      await queryClient.invalidateQueries({ queryKey: ['vendors'] })
+    },
+  })
+
+  const handleApply = (truncate: boolean) => {
+    const message = truncate
+      ? 'INITIAL LOAD ONLY. This deletes existing customers, vendors, items, BOM, and chart of accounts, plus related sales/purchase/subcontract orders, inventory, and invoices. Then it reloads from the CSVs. Do not use this once the system is live.'
+      : 'Incrementally upsert mapped customers, vendors, items, BOM lines, and accounts? Existing IDs are updated; new IDs are inserted. Orders and inventory are not deleted.'
+    if (!window.confirm(message)) return
+    apply.mutate(truncate)
+  }
+
   if (!canView) {
     return (
       <div style={pageStyle}>
-        <h2 style={headingStyle}>CSV Import Preview</h2>
+        <h2 style={headingStyle}>CSV Import</h2>
         <p style={subStyle}>You need the admin:manage permission to view this utility.</p>
       </div>
     )
@@ -299,15 +322,33 @@ export default function DataImportPreview() {
     <div style={pageStyle}>
       <div style={headerRow}>
         <div>
-          <h2 style={headingStyle}>CSV Import Preview</h2>
+          <h2 style={headingStyle}>CSV Import</h2>
           <p style={subStyle}>
-            Dry-run of the TIPTOP basic-data loader. Upload the CSVs onto this server, then review
-            the mapped records. Nothing is written to ERP tables.
+            Upload TIPTOP CSVs onto this server, review the mapped records, then load them.
+            Live systems should use incremental upsert. Truncate is only for a first-time rebuild.
           </p>
         </div>
-        <button type="button" style={primaryBtn} onClick={() => refetch()} disabled={isFetching}>
-          {isFetching ? 'Refreshing…' : 'Refresh dry-run'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button type="button" style={secondaryBtn} onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? 'Refreshing…' : 'Refresh preview'}
+          </button>
+          <button
+            type="button"
+            style={dangerBtn}
+            onClick={() => handleApply(true)}
+            disabled={!data?.ready || apply.isPending}
+          >
+            {apply.isPending ? 'Working…' : 'Truncate & reload'}
+          </button>
+          <button
+            type="button"
+            style={primaryBtn}
+            onClick={() => handleApply(false)}
+            disabled={!data?.ready || apply.isPending}
+          >
+            {apply.isPending ? 'Writing…' : 'Incremental upsert'}
+          </button>
+        </div>
       </div>
 
       <UploadPanel
@@ -325,6 +366,13 @@ export default function DataImportPreview() {
       {isError && (
         <p style={errorStyle}>{error instanceof Error ? error.message : 'Failed to load preview'}</p>
       )}
+
+      {apply.isError && (
+        <p style={errorStyle}>
+          {apply.error instanceof Error ? apply.error.message : 'Failed to apply CSV import'}
+        </p>
+      )}
+      {applyResult && <ApplyResultBanner result={applyResult} />}
 
       {data?.ready && <PreviewBody data={data} tab={tab} onTab={setTab} />}
     </div>
@@ -441,7 +489,9 @@ function PreviewBody({
   return (
     <>
       <div style={banner}>
-        <strong>Dry-run only.</strong> Review mapped records below before running the loader.
+        <strong>Preview of mapped records.</strong> Use <strong>Incremental upsert</strong> after
+        go-live (updates existing IDs, inserts new ones, keeps orders). Use{' '}
+        <strong>Truncate &amp; reload</strong> only for an empty or rebuild database.
       </div>
 
       <div style={statRow}>
@@ -764,6 +814,45 @@ function PreviewBody({
   )
 }
 
+function ApplyResultBanner({ result }: { result: DataImportApplyResult }) {
+  const stats = result.stats
+  const keys = [
+    'tables_truncated',
+    'customers_created',
+    'customers_updated',
+    'locations_created',
+    'locations_updated',
+    'suppliers_created',
+    'suppliers_updated',
+    'items_created',
+    'items_updated',
+    'vendor_maps_created',
+    'vendor_maps_updated',
+    'bom_created',
+    'bom_updated',
+    'bom_skipped',
+    'accounts_created',
+    'accounts_updated',
+  ]
+  return (
+    <div style={successBox}>
+      <strong>
+        {result.truncated ? 'Masters truncated, then upsert complete.' : 'Database upsert complete.'}
+      </strong>{' '}
+      Folder <code>{result.data_dir}</code>
+      <ul style={warnList}>
+        {keys
+          .filter((key) => (stats[key] ?? 0) > 0)
+          .map((key) => (
+            <li key={key}>
+              {key.replaceAll('_', ' ')}: {stats[key]}
+            </li>
+          ))}
+      </ul>
+    </div>
+  )
+}
+
 function Stat({
   label,
   value,
@@ -913,5 +1002,24 @@ const primaryBtn: React.CSSProperties = {
   fontWeight: 600,
   fontSize: '13px',
   whiteSpace: 'nowrap',
+}
+const secondaryBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: 'transparent',
+  color: 'var(--text-h)',
+  border: '1px solid var(--border)',
+}
+const dangerBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: '#c62828',
+}
+const successBox: React.CSSProperties = {
+  border: '1px solid #a5d6a7',
+  background: '#e8f5e9',
+  color: '#1b5e20',
+  borderRadius: '8px',
+  padding: '12px 14px',
+  margin: '0 0 16px',
+  fontSize: '13px',
 }
 const errorStyle: React.CSSProperties = { color: '#c62828' }

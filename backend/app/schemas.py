@@ -773,7 +773,7 @@ class SalesOrderRead(ORMModel):
     # NEW: When we fetch an order, return its items too
     items: list[SalesOrderItemRead] = []
 
-class OrderDeliveryScheduleCreate(BaseModel):
+class SalesOrderDeliveryScheduleCreate(BaseModel):
     so_item_id: int
     sub_line_number: str | None = Field(default=None, max_length=10)
     ship_to_location_id: str | None = Field(default=None, max_length=50)
@@ -784,7 +784,7 @@ class OrderDeliveryScheduleCreate(BaseModel):
     tax_flag: str = Field(default="N", max_length=1)
     status: str = Field(default="PENDING", max_length=30)
 
-class OrderDeliveryScheduleRead(ORMModel):
+class SalesOrderDeliveryScheduleRead(ORMModel):
     schedule_id: int
     so_item_id: int
     sub_line_number: str | None
@@ -1313,6 +1313,31 @@ class SubcontractOrderRead(ORMModel):
     finished_goods_receipts: list[FinishedGoodsReceiptRead] = []
 
 
+class SubcontractOrderDeliveryScheduleCreate(BaseModel):
+    sco_number: str = Field(max_length=50)
+    sub_line_number: str | None = Field(default=None, max_length=10)
+    warehouse_id: str | None = Field(default=None, max_length=50)
+    bin_id: str | None = Field(default=None, max_length=50)
+    scheduled_quantity: int = Field(gt=0)
+    needed_return_date: datetime
+    promised_return_date: datetime | None = None
+    requester_name: str | None = Field(default=None, max_length=100)
+    status: str = Field(default="PENDING", max_length=30)
+
+
+class SubcontractOrderDeliveryScheduleRead(ORMModel):
+    schedule_id: int
+    sco_number: str
+    sub_line_number: str | None
+    warehouse_id: str | None
+    bin_id: str | None
+    scheduled_quantity: int
+    needed_return_date: datetime
+    promised_return_date: datetime | None
+    requester_name: str | None
+    status: str
+
+
 # ==========================================
 # PROCUREMENT: PURCHASE ORDER MODELS
 # ==========================================
@@ -1348,6 +1373,31 @@ class PurchaseOrderItemRead(ORMModel):
     line_subtotal: Decimal
     line_tax: Decimal
     line_total: Decimal
+
+
+class PurchaseOrderDeliveryScheduleCreate(BaseModel):
+    po_item_id: int
+    sub_line_number: str | None = Field(default=None, max_length=10)
+    warehouse_id: str | None = Field(default=None, max_length=50)
+    bin_id: str | None = Field(default=None, max_length=50)
+    scheduled_quantity: Decimal = Field(gt=0, decimal_places=4)
+    needed_delivery_date: datetime
+    promised_delivery_date: datetime | None = None
+    requester_name: str | None = Field(default=None, max_length=100)
+    status: str = Field(default="PENDING", max_length=30)
+
+
+class PurchaseOrderDeliveryScheduleRead(ORMModel):
+    schedule_id: int
+    po_item_id: int
+    sub_line_number: str | None
+    warehouse_id: str | None
+    bin_id: str | None
+    scheduled_quantity: Decimal
+    needed_delivery_date: datetime
+    promised_delivery_date: datetime | None
+    requester_name: str | None
+    status: str
 
 
 class PurchaseOrderCreate(BaseModel):

@@ -579,7 +579,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Company profile in the UI is the top-bar title “Grand-Tek Technology USA”. Legal/tax identity for vendors/customers lives on those masters, not in a separate profile screen.',
-      'CSV Import Preview (Administration) dry-runs TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv, before load.',
+      'CSV Import (Administration) maps TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv, then upserts them into the database.',
     ],
     faqs: [
       {
@@ -610,7 +610,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Open your user menu (top right) to see your name, assigned roles, and Change password.',
       'Administrators maintain users, roles, permissions, and approval workflows under Administration → Users & Roles.',
       'Customer Tax ID types (EIN, TIN, VAT, SSN) and vendor W-8 / W-9 / SWIFT details are maintained on those master records, not a global profile page.',
-      'Use Administration → CSV Import Preview when loading TIPTOP master files.',
+      'Use Administration → CSV Import when loading TIPTOP master files.',
     ],
     callouts: [
       { kind: 'important', text: 'There is no separate Company Profile editor. Change legal/tax data on the customer or vendor that owns it.' },
@@ -633,22 +633,23 @@ export const HELP_ARTICLES: HelpArticle[] = [
   {
     id: 'admin-import',
     module: 'admin',
-    title: 'CSV Import Preview',
+    title: 'CSV Import',
     routeMatch: ['/admin/data-import'],
     summary:
-      'Dry-run TIPTOP CSV mapping for customers, suppliers, items, BOM, and chart of accounts before loading into the database.',
+      'Upload TIPTOP CSVs, preview mapped masters, then incrementally upsert. Truncate & reload is only for a first-time rebuild.',
     screenshots: [
       { src: '/guide-screenshots/admin-import.jpg', caption: 'Data import preview tabs' },
     ],
     steps: [
-      'Open Administration → CSV Import Preview.',
-      'Choose the Customers, Suppliers, Items, BOM, or Chart of Accounts tab.',
-      'Review mapped columns (including customer tax_id_type, vendor is_overseas / tax_document_type / SWIFT, and COA account_type).',
-      'Account type is inferred from the account name; the 1xxx–9xxx code range is used only when the name has no type keyword.',
-      'Fix source-file issues called out in warnings, then run the loader from the approved operations process.',
+      'Open Administration → CSV Import.',
+      'Upload the TIPTOP CSVs (or a zip) onto this server. OCI uses the server import folder, not a laptop path.',
+      'Choose the Customers, Suppliers, Items, BOM, or Chart of Accounts tab and review mapped columns.',
+      'Fix source-file issues called out in warnings.',
+      'Click Incremental upsert to insert new IDs and update existing masters (customers, vendors, items, BOM, accounts) without deleting orders.',
+      'Use Truncate & reload only for a first-time or rebuild load. That wipes those masters and related transactional rows, then reloads from the CSVs.',
     ],
     callouts: [
-      { kind: 'important', text: 'This screen is a preview. It does not replace the backend load script / job used to commit rows.' },
+      { kind: 'important', text: 'After go-live, use Incremental upsert only. Truncate & reload deletes customers, vendors, items, BOM, chart of accounts, and related orders/inventory/invoices.' },
     ],
     troubleshooting: [
       {

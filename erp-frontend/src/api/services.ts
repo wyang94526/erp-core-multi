@@ -1482,6 +1482,24 @@ export type DataImportPreview = {
   accounts?: DataImportAccount[]
 }
 
+export type DataImportApplyResult = {
+  dry_run: boolean
+  upsert: boolean
+  truncated?: boolean
+  data_dir: string
+  ready: boolean
+  stats: Record<string, number>
+  counts: {
+    customers: number
+    suppliers: number
+    items: number
+    bom: number
+    accounts?: number
+    warnings: number
+  }
+  warnings: DataImportWarning[]
+}
+
 export const dataImportService = {
   preview() {
     return apiClient.get<DataImportPreview>('/api/v1/admin/data-import/preview')
@@ -1495,6 +1513,11 @@ export const dataImportService = {
       '/api/v1/admin/data-import/files',
       formData,
     )
+  },
+  apply(options?: { truncate?: boolean }) {
+    return apiClient.post<DataImportApplyResult>('/api/v1/admin/data-import/apply', {
+      truncate: Boolean(options?.truncate),
+    })
   },
 };
 

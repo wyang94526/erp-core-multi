@@ -1,7 +1,8 @@
-"""TIPTOP CSV import folder: inspect, upload, and dry-run preview.
+"""TIPTOP CSV import folder: inspect, upload, preview, and upsert.
 
-Files live in GTT_DATA_DIR (default backend/data/imports locally, /data/imports in Docker).
+Files live in GTT_DATA_DIR (default backend/data/imports locally, /data/imports in Docker/OCI).
 Admins upload the master CSVs (or a zip) from the ERP UI so OCI does not need a laptop path.
+Apply uses the same load_gtt_master_data loader as the CLI, including BOM lines.
 """
 
 from __future__ import annotations
@@ -20,7 +21,15 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from load_gtt_master_data import CORE_IMPORT_KEYS, FILE_GLOBS, find_file, preview_from_dir  # noqa: E402
+from load_gtt_master_data import (  # noqa: E402
+    CORE_IMPORT_KEYS,
+    FILE_GLOBS,
+    apply_plan,
+    build_plan,
+    collect_warnings,
+    find_file,
+    preview_from_dir,
+)
 
 CANONICAL_NAMES = {
     "customers": "customers.csv",
@@ -112,6 +121,41 @@ def preview_gtt_import(data_dir: str | Path | None = None) -> dict[str, Any]:
     mapped = preview_from_dir(root.resolve())
     mapped.update(status)
     return mapped
+
+
+def apply_gtt_import(upsert: bool = True, truncate: bool = False) -> dict[str, Any]:
+    """Write mapped TIPTOP CSVs into ERP tables using the same loader as the CLI script.
+
+    Default is incremental upsert. Pass truncate=True only for a first-time / rebuild load.
+    """
+    root = import_root()
+    sources = inspect_sources(root)
+    if not sources["ready"]:
+        missing = ", ".join(sources["missing"]) or "required CSV files"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload the master CSVs before applying. Missing: {missing}",
+        )
+    plan = build_plan(root, {"customers", "suppliers", "items", "bom", "accounts"})
+    stats = apply_plan(plan, upsert=upsert, truncate=truncate)
+    warnings = collect_warnings(plan)
+    return {
+        "dry_run": False,
+        "upsert": upsert,
+        "truncated": bool(truncate),
+        "data_dir": str(root),
+        "stats": dict(stats),
+        "warnings": warnings,
+        "counts": {
+            "customers": len(plan.customers),
+            "suppliers": len(plan.suppliers),
+            "items": len(plan.items),
+            "bom": len(plan.bom),
+            "accounts": len(plan.accounts),
+            "warnings": len(warnings),
+        },
+        **sources,
+    }
 
 
 def _max_bytes() -> int:

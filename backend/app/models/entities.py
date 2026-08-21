@@ -445,30 +445,35 @@ class SalesOrderItem(Base):
     # Relationships
     sales_order = relationship("SalesOrder", back_populates="items")
     item = relationship("Item")
-    schedules = relationship("OrderDeliverySchedule", back_populates="order_item")
+    schedules = relationship(
+        "SalesOrderDeliverySchedule",
+        back_populates="order_item",
+        cascade="all, delete-orphan",
+    )
 
-class OrderDeliverySchedule(Base):
-    __tablename__ = 'orderdeliveryschedules'
+class SalesOrderDeliverySchedule(Base):
+    """Split customer delivery dates for one sales-order line."""
+
+    __tablename__ = 'salesorderdeliveryschedules'
 
     schedule_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    so_item_id = Column(BigInteger, ForeignKey('salesorderitems.so_item_id'))
+    so_item_id = Column(
+        BigInteger,
+        ForeignKey('salesorderitems.so_item_id', ondelete='CASCADE'),
+        nullable=False,
+    )
     sub_line_number = Column(String(10))
-    
-    # Updated ForeignKey reference table
     ship_to_location_id = Column(String(50), ForeignKey('customerlocations.location_id'))
-    
+
     scheduled_quantity = Column(Integer, nullable=False)
     needed_delivery_date = Column(DateTime, nullable=False)
     promised_ship_date = Column(DateTime)
-    
+
     requester_name = Column(String(100))
     tax_flag = Column(CHAR(1), default='N')
     status = Column(String(30), default='PENDING')
 
-    # Relationships
     order_item = relationship("SalesOrderItem", back_populates="schedules")
-    
-    # Updated relationship target class
     location = relationship("CustomerLocation")
 
 class WorkCenter(Base):
@@ -710,10 +715,42 @@ class SubcontractOrder(Base):
     components = relationship("SubcontractOrderComponent", back_populates="subcontract_order", cascade="all, delete-orphan")
     material_issues = relationship("MaterialIssue", back_populates="subcontract_order")
     finished_goods_receipts = relationship("FinishedGoodsReceipt", back_populates="subcontract_order")
+    schedules = relationship(
+        "SubcontractOrderDeliverySchedule",
+        back_populates="subcontract_order",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def bom_version_no(self) -> int | None:
         return self.bom_header.version_no if self.bom_header is not None else None
+
+
+class SubcontractOrderDeliverySchedule(Base):
+    """Split finished-good return dates for one subcontract order."""
+
+    __tablename__ = 'subcontractorderdeliveryschedules'
+
+    schedule_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sco_number = Column(
+        String(50),
+        ForeignKey('subcontractorders.sco_number', ondelete='CASCADE'),
+        nullable=False,
+    )
+    sub_line_number = Column(String(10))
+    warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'))
+    bin_id = Column(String(50), ForeignKey('binlocations.bin_id'))
+
+    scheduled_quantity = Column(Integer, nullable=False)
+    needed_return_date = Column(DateTime, nullable=False)
+    promised_return_date = Column(DateTime)
+
+    requester_name = Column(String(100))
+    status = Column(String(30), default='PENDING')
+
+    subcontract_order = relationship("SubcontractOrder", back_populates="schedules")
+    warehouse = relationship("Warehouse")
+    bin = relationship("BinLocation")
 
 
 class SubcontractOrderComponent(Base):
@@ -900,6 +937,38 @@ class PurchaseOrderItem(Base):
 
     # Relationships
     purchase_order = relationship("PurchaseOrder", back_populates="items")
+    schedules = relationship(
+        "PurchaseOrderDeliverySchedule",
+        back_populates="order_item",
+        cascade="all, delete-orphan",
+    )
+
+
+class PurchaseOrderDeliverySchedule(Base):
+    """Split vendor delivery dates for one purchase-order line."""
+
+    __tablename__ = 'purchaseorderdeliveryschedules'
+
+    schedule_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    po_item_id = Column(
+        BigInteger,
+        ForeignKey('purchaseorderitems.item_id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    sub_line_number = Column(String(10))
+    warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'))
+    bin_id = Column(String(50), ForeignKey('binlocations.bin_id'))
+
+    scheduled_quantity = Column(Numeric(12, 4), nullable=False)
+    needed_delivery_date = Column(DateTime, nullable=False)
+    promised_delivery_date = Column(DateTime)
+
+    requester_name = Column(String(100))
+    status = Column(String(30), default='PENDING')
+
+    order_item = relationship("PurchaseOrderItem", back_populates="schedules")
+    warehouse = relationship("Warehouse")
+    bin = relationship("BinLocation")
 
 
 class CashTransaction(Base):

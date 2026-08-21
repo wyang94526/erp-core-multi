@@ -19,6 +19,7 @@ Load order (FK-safe):
 Usage (venv active, Postgres reachable via .env):
   python backend/scripts/load_gtt_master_data.py --dry-run
   python backend/scripts/load_gtt_master_data.py --upsert
+  python backend/scripts/load_gtt_master_data.py --truncate --upsert
   python backend/scripts/load_gtt_master_data.py --only items,bom --upsert
   python backend/scripts/load_gtt_master_data.py --only accounts --upsert
 
@@ -1279,6 +1280,77 @@ def build_plan(data_dir: Path, include: set[str]) -> LoadPlan:
 # Database upsert
 # ---------------------------------------------------------------------------
 
+# Tables wiped before a full TIPTOP reload. Listed together so PostgreSQL can
+# truncate them as a group; CASCADE covers any remaining FK dependents.
+MASTER_IMPORT_TRUNCATE_TABLES = (
+    "salesorderdeliveryschedules",
+    "item_fulfillment_lines",
+    "item_fulfillments",
+    "sales_invoice_lines",
+    "sales_invoices",
+    "salesorderitems",
+    "salesorders",
+    "ar_invoices",
+    "purchaseorderdeliveryschedules",
+    "purchaseorderitems",
+    "purchaseorders",
+    "subcontractordercomponents",
+    "subcontractorderdeliveryschedules",
+    "componentissuelogs",
+    "materialissuelines",
+    "materialissues",
+    "finishedgoodsreceipts",
+    "subcontractorders",
+    "goods_receipt_lines",
+    "goods_receipts",
+    "supplier_invoice_lines",
+    "supplier_invoices",
+    "ap_bills",
+    "cash_transactions",
+    "ledger_postings",
+    "journal_entries",
+    "inventorystock",
+    "stockmovements",
+    "vendoritemmappings",
+    "itembomcomponents",
+    "itembomheaders",
+    "customer_certifications",
+    "customerlocations",
+    "customers",
+    "suppliers",
+    "items",
+    "chart_of_accounts",
+)
+
+
+def _existing_table_names(db: Any) -> set[str]:
+    from sqlalchemy import text
+
+    rows = db.execute(
+        text(
+            "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = current_schema()"
+        )
+    )
+    return {str(row[0]) for row in rows}
+
+
+def truncate_master_import_tables(db: Any) -> int:
+    """Clear customers, vendors, items, BOM, and chart of accounts (and FK dependents).
+
+    Tables that are not present in this database are skipped so a missing
+    optional table cannot fail the whole reload.
+    """
+    from sqlalchemy import text
+
+    existing = _existing_table_names(db)
+    tables = [name for name in MASTER_IMPORT_TRUNCATE_TABLES if name in existing]
+    if not tables:
+        return 0
+    quoted = ", ".join(f'"{name}"' for name in tables)
+    db.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
+    return len(tables)
+
+
 def _apply_fields(obj: Any, payload: dict[str, Any], skip: Iterable[str] = ()) -> None:
     skip_set = set(skip)
     for key, value in payload.items():
@@ -1471,20 +1543,26 @@ def load_accounts(db: Any, rows: list[MappedAccount], upsert: bool) -> Counter:
     return stats
 
 
-def apply_plan(plan: LoadPlan, upsert: bool) -> Counter:
+def apply_plan(plan: LoadPlan, upsert: bool, truncate: bool = False) -> Counter:
     from app.database import SessionLocal
 
     db = SessionLocal()
     stats: Counter[str] = Counter()
     try:
+        if truncate:
+            stats["tables_truncated"] = truncate_master_import_tables(db)
         if plan.accounts:
             stats.update(load_accounts(db, plan.accounts, upsert))
+            db.flush()
         if plan.customers:
             stats.update(load_customers(db, plan.customers, upsert))
+            db.flush()
         if plan.suppliers:
             stats.update(load_suppliers(db, plan.suppliers, upsert))
+            db.flush()
         if plan.items:
             stats.update(load_items(db, plan.items, upsert))
+            db.flush()
         if plan.bom:
             stats.update(load_bom(db, plan.bom, upsert))
         db.commit()
@@ -1523,6 +1601,11 @@ def main() -> None:
         help="Update existing records (default is insert-only; existing IDs are skipped)",
     )
     parser.add_argument(
+        "--truncate",
+        action="store_true",
+        help="Wipe customers, vendors, items, BOM, chart of accounts (and related orders) before load",
+    )
+    parser.add_argument(
         "--only",
         help="Comma-separated subset: customers,suppliers,items,bom,accounts",
     )
@@ -1533,9 +1616,17 @@ def main() -> None:
         raise SystemExit(f"Data directory not found: {data_dir}")
 
     include = parse_only(args.only)
+    if args.dry_run and args.truncate:
+        raise SystemExit("--truncate cannot be combined with --dry-run")
     print(f"Data dir : {data_dir}")
     print(f"Entities : {', '.join(sorted(include))}")
-    print(f"Mode     : {'DRY-RUN' if args.dry_run else ('UPSERT' if args.upsert else 'INSERT')}")
+    if args.dry_run:
+        mode = "DRY-RUN"
+    elif args.truncate:
+        mode = "TRUNCATE+UPSERT" if args.upsert else "TRUNCATE+INSERT"
+    else:
+        mode = "UPSERT" if args.upsert else "INSERT"
+    print(f"Mode     : {mode}")
 
     plan = build_plan(data_dir, include)
     plan.print_summary()
@@ -1590,7 +1681,7 @@ def main() -> None:
         print("\nDry run complete. Re-run with --upsert to write Postgres.")
         return
 
-    stats = apply_plan(plan, upsert=args.upsert)
+    stats = apply_plan(plan, upsert=args.upsert, truncate=args.truncate)
     print("\n=== Database result ===")
     for key, value in sorted(stats.items()):
         print(f"  {key}: {value}")

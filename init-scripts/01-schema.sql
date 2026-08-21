@@ -298,6 +298,21 @@ CREATE TABLE SalesOrderItems (
     CONSTRAINT unique_line_per_so UNIQUE (sales_order_id, line_number)
 );
 
+DROP TABLE IF EXISTS SalesOrderDeliverySchedules CASCADE;
+-- Split customer deliveries for one sales-order line
+CREATE TABLE SalesOrderDeliverySchedules (
+    schedule_id BIGSERIAL PRIMARY KEY,
+    so_item_id BIGINT NOT NULL REFERENCES SalesOrderItems(so_item_id) ON DELETE CASCADE,
+    sub_line_number VARCHAR(10),
+    ship_to_location_id VARCHAR(50) REFERENCES CustomerLocations(location_id),
+    scheduled_quantity INT NOT NULL,
+    needed_delivery_date TIMESTAMP NOT NULL,
+    promised_ship_date TIMESTAMP,
+    requester_name VARCHAR(100),
+    tax_flag CHAR(1) DEFAULT 'N',
+    status VARCHAR(30) DEFAULT 'PENDING'
+);
+
 -- ========================================================
 -- 4. SUBCONTRACTING / OUTSIDE PROCESSING TABLES
 -- ========================================================
@@ -557,6 +572,36 @@ CREATE TABLE BinLocations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT unique_bin_per_warehouse UNIQUE (warehouse_id, bin_code)
+);
+
+DROP TABLE IF EXISTS PurchaseOrderDeliverySchedules CASCADE;
+-- Split vendor deliveries for one purchase-order line
+CREATE TABLE PurchaseOrderDeliverySchedules (
+    schedule_id BIGSERIAL PRIMARY KEY,
+    po_item_id BIGINT NOT NULL REFERENCES PurchaseOrderItems(item_id) ON DELETE CASCADE,
+    sub_line_number VARCHAR(10),
+    warehouse_id VARCHAR(50) REFERENCES Warehouses(warehouse_id),
+    bin_id VARCHAR(50) REFERENCES BinLocations(bin_id),
+    scheduled_quantity NUMERIC(12, 4) NOT NULL,
+    needed_delivery_date TIMESTAMP NOT NULL,
+    promised_delivery_date TIMESTAMP,
+    requester_name VARCHAR(100),
+    status VARCHAR(30) DEFAULT 'PENDING'
+);
+
+DROP TABLE IF EXISTS SubcontractOrderDeliverySchedules CASCADE;
+-- Split finished-good return dates for one subcontract order
+CREATE TABLE SubcontractOrderDeliverySchedules (
+    schedule_id BIGSERIAL PRIMARY KEY,
+    sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number) ON DELETE CASCADE,
+    sub_line_number VARCHAR(10),
+    warehouse_id VARCHAR(50) REFERENCES Warehouses(warehouse_id),
+    bin_id VARCHAR(50) REFERENCES BinLocations(bin_id),
+    scheduled_quantity INT NOT NULL,
+    needed_return_date TIMESTAMP NOT NULL,
+    promised_return_date TIMESTAMP,
+    requester_name VARCHAR(100),
+    status VARCHAR(30) DEFAULT 'PENDING'
 );
 
 ALTER TABLE work_centers
