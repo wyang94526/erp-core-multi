@@ -64,6 +64,14 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
   doc.setFontSize(14)
   doc.text(`Subcontract Order # ${sco.sco_number}`, marginX, y)
   y += 20
+  if (Number(sco.amendment_number || 0) > 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(`Amendment ${sco.amendment_number}`, marginX, y)
+    y += 16
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+  }
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
@@ -94,11 +102,17 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
   y += 14
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
+  doc.text(`Sales Order: ${sco.sales_order_id || '—'}`, marginX, y)
+  y += 14
   doc.text(`Product Code: ${sco.item_id || '—'}`, marginX, y)
   y += 14
   doc.text(`Product Name: ${productName?.trim() || '—'}`, marginX, y)
   y += 14
   doc.text(`Quantity Ordered: ${formatQty(sco.quantity_ordered)}`, marginX, y)
+  if (sco.document_total != null) {
+    y += 14
+    doc.text(`Document Total: ${Number(sco.document_total).toFixed(2)}`, marginX, y)
+  }
   y += 14
 
   const notes = (sco.notes || '').trim() || 'None'
@@ -153,10 +167,48 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
 
   const finalY =
     (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y + 40
-  y = finalY + 36
+  y = finalY + 24
+  const pageHeight = doc.internal.pageSize.getHeight()
+
+  if (sco.lines?.length) {
+    sco.lines.forEach((line) => {
+      if (y > pageHeight - 160) {
+        doc.addPage()
+        y = 56
+      }
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(30, 30, 30)
+      doc.text(
+        `Assembly ${line.line_number}: ${line.item_id}  qty ${formatQty(line.quantity_ordered)}  unit ${Number(line.unit_price || 0).toFixed(2)}`,
+        marginX,
+        y,
+      )
+      y += 10
+      const chargeBody =
+        line.charges?.length
+          ? line.charges.map((charge) => [
+              String(charge.line_no),
+              charge.name,
+              charge.is_margin ? '—' : String(charge.labor_minutes ?? '—'),
+              charge.is_margin ? '—' : String(charge.sf_rate ?? '—'),
+              Number(charge.cost_per_unit || 0).toFixed(2),
+            ])
+          : [['—', 'No cost sheet', '—', '—', '—']]
+      autoTable(doc, {
+        startY: y,
+        head: [['#', 'Cost Component', 'Minutes', 'SF Rate', 'Cost/Unit']],
+        body: chargeBody,
+        theme: 'grid',
+        styles: { font: 'helvetica', fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [147, 51, 234], textColor: [255, 255, 255] },
+        margin: { left: marginX, right: marginX },
+      })
+      y = ((doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y) + 18
+    })
+  }
 
   // Keep signature block on one page when possible
-  const pageHeight = doc.internal.pageSize.getHeight()
   if (y > pageHeight - 120) {
     doc.addPage()
     y = 56

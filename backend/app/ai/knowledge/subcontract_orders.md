@@ -1,21 +1,24 @@
 # Subcontract Orders
 
-Subcontract orders (SCOs) send an assembly / finished item to a subcontract vendor with a material kit exploded from the item’s Material BOM.
+A subcontract order (SCO) is a vendor document that can cover multiple finished assemblies from one Customer Sales Order. Each SCO line is a Sales Order item. The Material BOM explodes per line. Vendor labor / shipping / admin charges are a flexible cost sheet on that line (minutes × SF rate / 60 + margin).
 
 ## Statuses
-Operational `status` values commonly include: `PLANNED`, `ISSUED`, `PARTIALLY_ISSUED`, `COMPLETED`, `CANCELLED`.
-Approval workflow uses `approval_status` and `current_approval_step` (starts as `DRAFT` on create).
+Operational `status` values commonly include: `PLANNED`, `PARTIALLY_ISSUED`, `MATERIALS_ISSUED`, `PARTIALLY_RECEIVED`, `COMPLETED`, `CANCELLED`.
+Approval workflow uses `approval_status` and `current_approval_step` (starts as `DRAFT` on create). Approval amount is the document total (sum of line totals).
 Billing uses `billing_status` (`UNBILLED`, `PARTIALLY_BILLED`, `FULLY_BILLED`) after supplier invoices.
 
 ## Creating a subcontract order
-Required fields:
-- `sco_number` (unique)
-- `supplier_id` (subcontract vendor)
-- `item_id` (assembly with a Material BOM / subcontract kit)
-- `quantity_ordered` (positive integer)
-- optional `unit_price`, `expected_return_date`, `notes`
+Preferred payload:
+- `sco_number`, `supplier_id`, optional `sales_order_id`
+- `lines[]` each with `so_item_id`, `item_id`, `quantity_ordered`, optional `bom_header_id`, `charges[]`, `components[]`
 
-On create, component lines are auto-built from BOM × quantity (including scrap / yield loss).
+Legacy single-item create (`item_id` + `quantity_ordered`) still works and is stored as one line.
+
+Cost sheet rows are free-text (default template: Receiving/IQC, Assembly, Inventory & Shipment, Admin, Margin). `cost_per_unit = minutes × sf_rate / 60` unless a flat cost is entered.
+
+Cost sheet edits are allowed while `approval_status` is `DRAFT` or `REJECTED`. After approval, `POST /api/v1/subcontract-orders/{sco_number}/amend` (permission `subcontract:submit`) reopens the same SCO as Draft, increments `amendment_number`, and writes an `AMENDED` approval-history row. Linked Material POs stay. Issue materials can continue during the amendment. Supplier invoices still require `APPROVED`. Re-submit the updated cost sheet through the normal approval workflow.
+
+SO-line allocation: remaining = SO qty − SUM(non-cancelled SCO line qty) for that `so_item_id`.
 
 ## Permissions
 - `subcontract:view` — list/detail

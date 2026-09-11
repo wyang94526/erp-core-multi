@@ -36,6 +36,34 @@ export const PO_TYPE_OPTIONS = [
 
 export type PoType = 'MATERIAL' | 'SUBCONTRACT'
 
+export type FreightPaymentTerms = 'PREPAID_ON_PO' | 'THIRD_PARTY_COLLECT' | 'ROUTING_ACCOUNT'
+
+export const FREIGHT_PAYMENT_TERMS_OPTIONS = [
+  {
+    value: 'PREPAID_ON_PO',
+    label: 'Prepaid by Vendor & Added to PO',
+    hint: 'Vendor pays the carrier and bills freight on their invoice.',
+  },
+  {
+    value: 'THIRD_PARTY_COLLECT',
+    label: '3rd-Party / Collect (Landed Cost)',
+    hint: 'Billed directly by 3PL / carrier — not the goods vendor.',
+  },
+  {
+    value: 'ROUTING_ACCOUNT',
+    label: 'Customer / Vendor Routing Account',
+    hint: 'Shipped on a routing account; freight is not on this vendor PO.',
+  },
+] as const
+
+export function includesVendorFreight(freightTerms?: string | null): boolean {
+  return (freightTerms || 'PREPAID_ON_PO') === 'PREPAID_ON_PO'
+}
+
+export function requiresCarrierAccount(freightTerms?: string | null): boolean {
+  return freightTerms === 'THIRD_PARTY_COLLECT' || freightTerms === 'ROUTING_ACCOUNT'
+}
+
 export function withCurrentOption(options: readonly string[], current?: string | null): string[] {
   const value = (current || '').trim()
   if (value && !options.includes(value)) return [...options, value]

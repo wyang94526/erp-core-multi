@@ -192,6 +192,10 @@ def get_purchase_order_detail(po_number: str) -> str:
             "billing_status": getattr(order, "billing_status", None),
             "order_date": order.order_date,
             "payment_terms": order.payment_terms,
+            "incoterms": getattr(order, "incoterms", None),
+            "freight_terms": getattr(order, "freight_terms", None),
+            "carrier_account": getattr(order, "carrier_account", None),
+            "sco_number": getattr(order, "sco_number", None),
             "shipping_fee": order.shipping_fee,
             "subtotal": order.subtotal,
             "total_tax": order.total_tax,
@@ -237,6 +241,7 @@ def propose_draft_purchase_order(
         return denied
 
     from sqlalchemy.orm import joinedload
+    from app.services.po_totals import vendor_freight
 
     mult = Decimal(str(quantity_multiplier or 1))
     if mult <= 0:
@@ -248,6 +253,10 @@ def propose_draft_purchase_order(
     shipping_fee = Decimal("0.00")
     discount_type = "percentage"
     discount_value = Decimal("0")
+    freight_terms = "PREPAID_ON_PO"
+    incoterms = None
+    carrier_account = None
+    sco_number = None
     notes = "Created via AI assistant"
 
     template_id = template_po_number.strip()
@@ -265,6 +274,10 @@ def propose_draft_purchase_order(
         shipping_fee = Decimal(str(template.shipping_fee or 0))
         discount_type = template.discount_type or "percentage"
         discount_value = Decimal(str(template.discount_value or 0))
+        freight_terms = getattr(template, "freight_terms", None) or "PREPAID_ON_PO"
+        incoterms = getattr(template, "incoterms", None)
+        carrier_account = getattr(template, "carrier_account", None)
+        sco_number = getattr(template, "sco_number", None)
         notes = f"Cloned from {template_id} via AI (qty × {mult})"
         if not template.items:
             return _json({"error": f"Template '{template_id}' has no line items"})
@@ -342,7 +355,8 @@ def propose_draft_purchase_order(
     # Scale shipping with multiplier when cloning
     if template_id and mult != 1:
         shipping_fee = (shipping_fee * mult).quantize(Decimal("0.01"))
-    grand_total = (subtotal + total_tax + shipping_fee - discount_amount).quantize(Decimal("0.01"))
+    vendor_shipping = vendor_freight(shipping_fee, freight_terms)
+    grand_total = (subtotal + total_tax + vendor_shipping - discount_amount).quantize(Decimal("0.01"))
     if grand_total < 0:
         grand_total = Decimal("0.00")
 
@@ -353,12 +367,16 @@ def propose_draft_purchase_order(
     payload = {
         "po_number": new_po,
         "supplier_id": vendor_id,
+        "sco_number": sco_number,
         "order_date": date.today().isoformat(),
         "payment_terms": terms,
         "status": "Draft",
         "shipping_fee": str(shipping_fee),
         "discount_type": discount_type,
         "discount_value": str(discount_value),
+        "incoterms": incoterms,
+        "freight_terms": freight_terms,
+        "carrier_account": carrier_account,
         "subtotal": str(subtotal),
         "total_tax": str(total_tax),
         "discount_amount": str(discount_amount),
@@ -409,10 +427,14 @@ def get_subcontract_orders(vendor_id: str = "", status: str = "", limit: int = 2
             "sco_number": o.sco_number,
             "supplier_id": o.supplier_id,
             "item_id": o.item_id,
+            "sales_order_id": getattr(o, "sales_order_id", None),
+            "line_count": getattr(o, "line_count", 0),
             "quantity_ordered": o.quantity_ordered,
             "unit_price": o.unit_price,
+            "document_total": getattr(o, "document_total", None),
             "status": o.status,
             "approval_status": o.approval_status,
+            "amendment_number": getattr(o, "amendment_number", 0),
             "billing_status": getattr(o, "billing_status", None),
             "order_date": o.order_date,
             "expected_return_date": o.expected_return_date,
@@ -445,10 +467,14 @@ def get_subcontract_order_detail(sco_number: str) -> str:
             "sco_number": order.sco_number,
             "supplier_id": order.supplier_id,
             "item_id": order.item_id,
+            "sales_order_id": getattr(order, "sales_order_id", None),
+            "line_count": getattr(order, "line_count", 0),
             "quantity_ordered": order.quantity_ordered,
             "unit_price": order.unit_price,
+            "document_total": getattr(order, "document_total", None),
             "status": order.status,
             "approval_status": order.approval_status,
+            "amendment_number": getattr(order, "amendment_number", 0),
             "billing_status": getattr(order, "billing_status", None),
             "order_date": order.order_date,
             "expected_return_date": order.expected_return_date,

@@ -1,5 +1,6 @@
 import { useReducer, useCallback } from 'react';
-import type { PurchaseOrder, PurchaseOrderItem } from '../types';
+import type { FreightPaymentTerms, PurchaseOrder, PurchaseOrderItem } from '../types';
+import { includesVendorFreight } from '../data/orderOptions';
 
 export interface POFormState extends Omit<PurchaseOrder, 'subtotal' | 'total_tax' | 'discount_amount' | 'grand_total'> {
   subtotal: number;
@@ -15,6 +16,8 @@ export type POAction =
   | { type: 'UPDATE_ROW_FIELDS'; payload: { id: string; fields: Partial<PurchaseOrderItem> } }
   | { type: 'DELETE_ROW'; payload: { id: string } }
   | { type: 'CLEAR_ALL_ROWS' }
+  | { type: 'MERGE_IMPORTED_ROWS'; payload: { rows: PurchaseOrderItem[]; replaceAll?: boolean } }
+  | { type: 'CLEAR_IMPORTED_ROWS' }
   | { type: 'UPDATE_SUMMARY'; payload: { field: 'shipping_fee' | 'discount_type' | 'discount_value'; value: any } }
   | { type: 'SET_FULL_PO'; payload: PurchaseOrder }
   | { type: 'RESET_FORM'; payload?: { defaultPoNumber?: string } };
@@ -22,7 +25,10 @@ export type POAction =
 const initialRow = (id: string): PurchaseOrderItem => ({
   id,
   sku: '',
+  description: '',
+  uom: '',
   bom_header_id: null,
+  sco_component_id: null,
   quantity: 1,
   unit_price: 0,
   tax_rate: 0,
@@ -52,6 +58,9 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
     shipping_fee: 0,
     discount_type: 'percentage',
     discount_value: 0,
+    incoterms: '',
+    freight_terms: 'PREPAID_ON_PO',
+    carrier_account: '',
     subtotal: 0,
     total_tax: 0,
     discount_amount: 0,
@@ -60,29 +69,21 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
   };
 };
 
-/**
- * Clean numeric string parsing to floating number
- */
 const cleanNum = (val: any): number => {
   const parsed = parseFloat(val);
   return isNaN(parsed) ? 0 : parsed;
 };
 
-/**
- * Computes precision-safe rounding to 2 decimal places
- */
 const round2 = (num: number): number => {
   return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-/**
- * Calculates subtotals, tax, and totals for all line items and the summary card.
- */
 export const calculateTotals = (
   items: PurchaseOrderItem[],
   shippingFee: number,
   discountType: 'percentage' | 'fixed',
-  discountValue: number
+  discountValue: number,
+  freightTerms: FreightPaymentTerms | string | null | undefined = 'PREPAID_ON_PO'
 ) => {
   const updatedItems = items.map((item) => {
     const qty = Math.max(0, cleanNum(item.quantity));
@@ -117,7 +118,8 @@ export const calculateTotals = (
   }
 
   const shipping = Math.max(0, cleanNum(shippingFee));
-  const grand_total = Math.max(0, round2(subtotal + total_tax + shipping - discount_amount));
+  const vendorShipping = includesVendorFreight(freightTerms) ? shipping : 0;
+  const grand_total = Math.max(0, round2(subtotal + total_tax + vendorShipping - discount_amount));
 
   return {
     items: updatedItems,
@@ -130,6 +132,13 @@ export const calculateTotals = (
   };
 };
 
+function withTotals(state: POFormState, items: PurchaseOrderItem[]): POFormState {
+  return {
+    ...state,
+    ...calculateTotals(items, state.shipping_fee, state.discount_type, state.discount_value, state.freight_terms),
+  };
+}
+
 function poReducer(state: POFormState, action: POAction): POFormState {
   switch (action.type) {
     case 'SET_HEADER': {
@@ -137,7 +146,6 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         ...state,
         [action.payload.field]: action.payload.value,
       };
-      // Auto-update expected delivery date to be order date if invalid sequence
       if (action.payload.field === 'order_date' && state.expected_delivery_date) {
         if (new Date(action.payload.value) > new Date(state.expected_delivery_date)) {
           updated.expected_delivery_date = action.payload.value;
@@ -145,105 +153,136 @@ function poReducer(state: POFormState, action: POAction): POFormState {
       }
       if (action.payload.field === 'po_type' && action.payload.value !== state.po_type) {
         const cleared = [initialRow(generateId())];
-        if (action.payload.value === 'MATERIAL') {
-          updated.sco_number = '';
-          updated.bom_header_id = null;
+        if (action.payload.value === 'SUBCONTRACT') {
+          updated.incoterms = updated.incoterms || '';
         }
-        return {
-          ...updated,
-          ...calculateTotals(cleared, state.shipping_fee, state.discount_type, state.discount_value),
-        };
+        return withTotals({ ...updated, items: cleared }, cleared);
+      }
+      if (action.payload.field === 'freight_terms') {
+        if (action.payload.value === 'PREPAID_ON_PO') {
+          updated.carrier_account = updated.carrier_account || '';
+        }
+        return withTotals(updated, updated.items);
       }
       return updated;
     }
 
     case 'ADD_ROW': {
-      const newRow = initialRow(generateId());
-      const updatedItems = [...state.items, newRow];
-      return {
-        ...state,
-        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
-      };
+      const updatedItems = [...state.items, initialRow(generateId())];
+      return withTotals(state, updatedItems);
     }
 
     case 'UPDATE_ROW': {
       const updatedItems = state.items.map((item) => {
         if (item.id === action.payload.id) {
-          return {
+          const next = {
             ...item,
             [action.payload.field]: action.payload.value,
           };
+          if (action.payload.field === 'sku') {
+            next.sco_component_id = null;
+          }
+          return next;
         }
         return item;
       });
-      return {
-        ...state,
-        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
-      };
+      return withTotals(state, updatedItems);
     }
 
     case 'UPDATE_ROW_FIELDS': {
       const updatedItems = state.items.map((item) => {
         if (item.id === action.payload.id) {
-          return {
-            ...item,
-            ...action.payload.fields,
-          };
+          const next = { ...item, ...action.payload.fields };
+          if (action.payload.fields.sku != null && action.payload.fields.sku !== item.sku) {
+            if (action.payload.fields.sco_component_id === undefined) {
+              next.sco_component_id = null;
+            }
+          }
+          return next;
         }
         return item;
       });
-      return {
-        ...state,
-        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
-      };
+      return withTotals(state, updatedItems);
     }
 
     case 'DELETE_ROW': {
-      // Keep at least one row, but clear it if only one
       let updatedItems = state.items.filter((item) => item.id !== action.payload.id);
       if (updatedItems.length === 0) {
         updatedItems = [initialRow(generateId())];
       }
-      return {
-        ...state,
-        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
-      };
+      return withTotals(state, updatedItems);
     }
 
     case 'CLEAR_ALL_ROWS': {
-      const updatedItems = [initialRow(generateId())];
-      return {
-        ...state,
-        ...calculateTotals(updatedItems, state.shipping_fee, state.discount_type, state.discount_value),
-      };
+      return withTotals(state, [initialRow(generateId())]);
+    }
+
+    case 'MERGE_IMPORTED_ROWS': {
+      const incoming = action.payload.rows;
+      if (action.payload.replaceAll) {
+        const rows = incoming.length > 0 ? incoming : [initialRow(generateId())];
+        return withTotals(state, rows);
+      }
+      const byComponent = new Map<number, PurchaseOrderItem>();
+      for (const row of incoming) {
+        if (row.sco_component_id) byComponent.set(row.sco_component_id, row);
+      }
+      const kept: PurchaseOrderItem[] = [];
+      const usedComponents = new Set<number>();
+      for (const item of state.items) {
+        if (!item.sku && !item.sco_component_id) {
+          continue;
+        }
+        if (item.sco_component_id && byComponent.has(item.sco_component_id)) {
+          const next = byComponent.get(item.sco_component_id)!;
+          kept.push({ ...item, ...next, id: item.id, tax_rate: item.tax_rate });
+          usedComponents.add(item.sco_component_id);
+        } else {
+          kept.push(item);
+        }
+      }
+      for (const row of incoming) {
+        if (row.sco_component_id && usedComponents.has(row.sco_component_id)) continue;
+        kept.push(row);
+      }
+      return withTotals(state, kept.length > 0 ? kept : [initialRow(generateId())]);
+    }
+
+    case 'CLEAR_IMPORTED_ROWS': {
+      const kept = state.items.filter((item) => !item.sco_component_id);
+      return withTotals(state, kept.length > 0 ? kept : [initialRow(generateId())]);
     }
 
     case 'UPDATE_SUMMARY': {
       const { field, value } = action.payload;
-      const keyMap = {
+      const updatedVal = {
         shipping_fee: state.shipping_fee,
         discount_type: state.discount_type,
         discount_value: state.discount_value,
-      };
-
-      const updatedVal = {
-        ...keyMap,
         [field]: value,
       };
-
       return {
         ...state,
         ...calculateTotals(
           state.items,
           updatedVal.shipping_fee,
           updatedVal.discount_type as 'percentage' | 'fixed',
-          updatedVal.discount_value
+          updatedVal.discount_value,
+          state.freight_terms
         ),
       };
     }
 
     case 'SET_FULL_PO': {
       const po = action.payload;
+      const freightTerms = po.freight_terms || 'PREPAID_ON_PO';
+      const totals = calculateTotals(
+        po.items,
+        po.shipping_fee,
+        po.discount_type,
+        po.discount_value,
+        freightTerms
+      );
       return {
         po_number: po.po_number,
         supplier_id: po.supplier_id,
@@ -257,15 +296,14 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         status: po.status,
         approval_status: po.approval_status || 'DRAFT',
         current_approval_step: po.current_approval_step ?? null,
-        items: po.items,
-        shipping_fee: po.shipping_fee,
+        shipping_fee: totals.shipping_fee,
         discount_type: po.discount_type,
-        discount_value: po.discount_value,
-        subtotal: po.subtotal,
-        total_tax: po.total_tax,
-        discount_amount: po.discount_amount,
-        grand_total: po.grand_total,
+        discount_value: totals.discount_value,
+        incoterms: po.incoterms || '',
+        freight_terms: freightTerms,
+        carrier_account: po.carrier_account || '',
         notes: po.notes || '',
+        ...totals,
       };
     }
 
@@ -305,6 +343,14 @@ export function usePurchaseOrderState(initialPoNumber = '') {
     dispatch({ type: 'CLEAR_ALL_ROWS' });
   }, []);
 
+  const mergeImportedRows = useCallback((rows: PurchaseOrderItem[], replaceAll = false) => {
+    dispatch({ type: 'MERGE_IMPORTED_ROWS', payload: { rows, replaceAll } });
+  }, []);
+
+  const clearImportedRows = useCallback(() => {
+    dispatch({ type: 'CLEAR_IMPORTED_ROWS' });
+  }, []);
+
   const updateSummary = useCallback((field: 'shipping_fee' | 'discount_type' | 'discount_value', value: any) => {
     dispatch({ type: 'UPDATE_SUMMARY', payload: { field, value } });
   }, []);
@@ -325,6 +371,8 @@ export function usePurchaseOrderState(initialPoNumber = '') {
     updateRowFields,
     deleteRow,
     clearAllRows,
+    mergeImportedRows,
+    clearImportedRows,
     updateSummary,
     setFullPO,
     resetForm,

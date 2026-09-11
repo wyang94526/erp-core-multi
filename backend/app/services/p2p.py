@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
     APBill,
@@ -23,6 +23,7 @@ from app.models import (
     VendorItemMapping,
 )
 from app.services import finance, inventory
+from app.services.po_totals import invoice_freight_default
 from app.services.finance import (
     AP_ACCOUNT_CODE,
     AP_ACCOUNT_NAME,
@@ -215,16 +216,37 @@ def _update_billing_status(db: Session, source_type: str, source_order_id: str) 
             "FULLY_BILLED" if fully and any_billed else "PARTIALLY_BILLED" if any_billed else "UNBILLED"
         )
     else:
-        sco = db.get(SubcontractOrder, source_order_id)
+        sco = (
+            db.query(SubcontractOrder)
+            .options(selectinload(SubcontractOrder.lines))
+            .filter(SubcontractOrder.sco_number == source_order_id)
+            .first()
+        )
         if not sco:
             return
-        qty_billed = billed.get(sco.item_id, Decimal("0"))
-        if qty_billed <= 0:
-            sco.billing_status = "UNBILLED"
-        elif qty_billed >= _d(sco.quantity_ordered):
-            sco.billing_status = "FULLY_BILLED"
+        if sco.lines:
+            any_billed = False
+            fully = True
+            for line in sco.lines:
+                qty_billed = billed.get(line.item_id, Decimal("0"))
+                if qty_billed > 0:
+                    any_billed = True
+                if qty_billed < _d(line.quantity_ordered):
+                    fully = False
+            if not any_billed:
+                sco.billing_status = "UNBILLED"
+            elif fully:
+                sco.billing_status = "FULLY_BILLED"
+            else:
+                sco.billing_status = "PARTIALLY_BILLED"
         else:
-            sco.billing_status = "PARTIALLY_BILLED"
+            qty_billed = billed.get(sco.item_id, Decimal("0"))
+            if qty_billed <= 0:
+                sco.billing_status = "UNBILLED"
+            elif qty_billed >= _d(sco.quantity_ordered):
+                sco.billing_status = "FULLY_BILLED"
+            else:
+                sco.billing_status = "PARTIALLY_BILLED"
 
 
 def receive_purchase_order(
@@ -341,15 +363,18 @@ def accrue_subcontract_receipt(
     receipt_date: date | None = None,
     notes: str | None = None,
     external_receipt_id: str | None = None,
+    item_id: str | None = None,
+    source_line_id: int | None = None,
 ) -> dict:
     """Post GRNI accrual when finished goods are received on a subcontract order."""
+    fg_item_id = item_id or sco.item_id
     cost = unit_cost if unit_cost is not None else _d(sco.unit_price)
     if cost <= 0:
         mapping = (
             db.query(VendorItemMapping)
             .filter(
                 VendorItemMapping.supplier_id == sco.supplier_id,
-                VendorItemMapping.item_id == sco.item_id,
+                VendorItemMapping.item_id == fg_item_id,
             )
             .first()
         )
@@ -373,9 +398,9 @@ def accrue_subcontract_receipt(
     db.add(
         GoodsReceiptLine(
             receipt_id=receipt.id,
-            source_line_id=None,
-            item_id=sco.item_id,
-            description=f"Subcontract FG {sco.item_id}",
+            source_line_id=source_line_id,
+            item_id=fg_item_id,
+            description=f"Subcontract FG {fg_item_id}",
             quantity_received=Decimal(quantity_received),
             unit_cost=cost,
             line_amount=line_amount,
@@ -532,7 +557,11 @@ def create_supplier_invoice(
                     )
                 )
         tax = tax_amount if tax_amount is not None else _d(po.total_tax)
-        freight = freight_amount if freight_amount is not None else _d(po.shipping_fee)
+        freight = (
+            freight_amount
+            if freight_amount is not None
+            else invoice_freight_default(po.shipping_fee, getattr(po, "freight_terms", None))
+        )
     else:
         sco = db.get(SubcontractOrder, source_order_id)
         if not sco:

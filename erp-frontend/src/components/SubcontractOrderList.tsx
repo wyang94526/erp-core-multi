@@ -195,6 +195,7 @@ export function SubcontractOrderList() {
                   <tr style={directoryTheadRowStyle}>
                     <SortableTh label="SCO Number" columnKey="sco_number" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Supplier" columnKey="supplier_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Sales Order" columnKey="sales_order_id" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Product" columnKey="item_id" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Qty Ordered" columnKey="quantity_ordered" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
                     <SortableTh label="Order Date" columnKey="order_date" sortConfig={sortConfig} onRequestSort={requestSort} />
@@ -210,7 +211,13 @@ export function SubcontractOrderList() {
                       <tr key={sco.sco_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{sco.sco_number}</td>
                         <td style={directoryTdStyle}>{sco.supplier_id}</td>
-                        <td style={directoryTdStyle}>{sco.item_id}</td>
+                        <td style={directoryTdStyle}>{sco.sales_order_id || '—'}</td>
+                        <td style={directoryTdStyle}>
+                          {sco.item_id}
+                          {(sco.line_count || sco.lines?.length || 0) > 1
+                            ? ` +${(sco.line_count || sco.lines?.length || 1) - 1}`
+                            : ''}
+                        </td>
                         <td style={{ ...directoryTdStyle, textAlign: 'right' }}>{sco.quantity_ordered}</td>
                         <td style={directoryTdStyle}>
                           {sco.order_date ? new Date(sco.order_date).toLocaleDateString() : '-'}
@@ -231,6 +238,9 @@ export function SubcontractOrderList() {
                         </td>
                         <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                           {(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}
+                          {Number(sco.amendment_number || 0) > 0
+                            ? ` · Amd ${sco.amendment_number}`
+                            : ''}
                         </td>
                         <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                           <button

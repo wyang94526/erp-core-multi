@@ -175,14 +175,14 @@ class ApprovalAuditLog(Base):
     document_type = Column(String(50), nullable=False)
     document_id = Column(String(50), nullable=False)
     step_number = Column(Integer, nullable=True)
-    action = Column(String(20), nullable=False)  # SUBMITTED | APPROVED | REJECTED | DELEGATED
+    action = Column(String(20), nullable=False)  # SUBMITTED | APPROVED | REJECTED | DELEGATED | AMENDED
     performed_by_user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
     comments = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
 
     __table_args__ = (
         CheckConstraint(
-            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED')",
+            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED')",
             name='chk_approval_audit_action',
         ),
     )
@@ -427,6 +427,7 @@ class SalesOrder(Base):
     bill_to_location = relationship("CustomerLocation", foreign_keys=[bill_to_location_id])
     ship_to_location = relationship("CustomerLocation", foreign_keys=[ship_to_location_id])
     items = relationship("SalesOrderItem", back_populates="sales_order")
+    subcontract_orders = relationship("SubcontractOrder", back_populates="sales_order")
 
 class SalesOrderItem(Base):
     __tablename__ = 'salesorderitems'
@@ -445,6 +446,7 @@ class SalesOrderItem(Base):
     # Relationships
     sales_order = relationship("SalesOrder", back_populates="items")
     item = relationship("Item")
+    subcontract_lines = relationship("SubcontractOrderItem", back_populates="sales_order_item")
     schedules = relationship(
         "SalesOrderDeliverySchedule",
         back_populates="order_item",
@@ -668,6 +670,11 @@ class ComponentIssueLog(Base):
 
     log_id = Column(BigInteger, primary_key=True, autoincrement=True)
     sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number'), nullable=False)
+    sco_line_id = Column(
+        BigInteger,
+        ForeignKey('subcontractorderitems.sco_line_id', ondelete='SET NULL'),
+        nullable=True,
+    )
     issue_id = Column(String(50), ForeignKey('materialissues.issue_id', ondelete='CASCADE'), nullable=False)
     component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     quantity_issued = Column(Numeric(12, 4), nullable=False)
@@ -688,6 +695,7 @@ class SubcontractOrder(Base):
 
     sco_number = Column(String(50), primary_key=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
+    sales_order_id = Column(String(50), ForeignKey('salesorders.sales_order_id'), nullable=True)
     item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     bom_header_id = Column(
         BigInteger,
@@ -700,6 +708,7 @@ class SubcontractOrder(Base):
     status = Column(String(30), nullable=False, default='PLANNED')
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    amendment_number = Column(Integer, nullable=False, server_default=text("0"))
     billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
 
     order_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
@@ -710,8 +719,15 @@ class SubcontractOrder(Base):
 
     # Relationships
     supplier = relationship("Supplier")
+    sales_order = relationship("SalesOrder", back_populates="subcontract_orders")
     item = relationship("Item")
     bom_header = relationship("ItemBOMHeader")
+    lines = relationship(
+        "SubcontractOrderItem",
+        back_populates="subcontract_order",
+        cascade="all, delete-orphan",
+        order_by="SubcontractOrderItem.line_number",
+    )
     components = relationship("SubcontractOrderComponent", back_populates="subcontract_order", cascade="all, delete-orphan")
     material_issues = relationship("MaterialIssue", back_populates="subcontract_order")
     finished_goods_receipts = relationship("FinishedGoodsReceipt", back_populates="subcontract_order")
@@ -724,6 +740,16 @@ class SubcontractOrder(Base):
     @property
     def bom_version_no(self) -> int | None:
         return self.bom_header.version_no if self.bom_header is not None else None
+
+    @property
+    def document_total(self) -> Decimal:
+        if self.lines:
+            return sum((line.line_total or Decimal("0")) for line in self.lines) or Decimal("0")
+        return (self.unit_price or Decimal("0")) * Decimal(str(self.quantity_ordered or 0))
+
+    @property
+    def line_count(self) -> int:
+        return len(self.lines or [])
 
 
 class SubcontractOrderDeliverySchedule(Base):
@@ -753,22 +779,116 @@ class SubcontractOrderDeliverySchedule(Base):
     bin = relationship("BinLocation")
 
 
+class SubcontractOrderItem(Base):
+    """Finished-good line on a subcontract order, optionally tied to one SO line."""
+
+    __tablename__ = 'subcontractorderitems'
+
+    sco_line_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sco_number = Column(
+        String(50),
+        ForeignKey('subcontractorders.sco_number', ondelete='CASCADE'),
+        nullable=False,
+    )
+    line_number = Column(Integer, nullable=False)
+    so_item_id = Column(BigInteger, ForeignKey('salesorderitems.so_item_id'), nullable=True)
+    item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
+    bom_header_id = Column(
+        BigInteger,
+        ForeignKey("itembomheaders.bom_header_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    quantity_ordered = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
+    margin_percent = Column(Numeric(8, 4), nullable=False, server_default=text('0'))
+    margin_amount = Column(Numeric(12, 2), nullable=False, server_default=text('0'))
+    cost_subtotal = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
+    tax_exempt = Column(Boolean, nullable=False, server_default=text('true'))
+    tax_amount = Column(Numeric(12, 2), nullable=False, server_default=text('0'))
+    line_total = Column(Numeric(12, 2), nullable=False, server_default=text('0'))
+    notes = Column(Text)
+
+    __table_args__ = (
+        UniqueConstraint('sco_number', 'line_number', name='uq_sco_line_number'),
+        CheckConstraint('quantity_ordered > 0', name='chk_sco_line_qty_positive'),
+    )
+
+    subcontract_order = relationship("SubcontractOrder", back_populates="lines")
+    sales_order_item = relationship("SalesOrderItem", back_populates="subcontract_lines")
+    item = relationship("Item")
+    bom_header = relationship("ItemBOMHeader")
+    components = relationship(
+        "SubcontractOrderComponent",
+        back_populates="order_line",
+        cascade="all, delete-orphan",
+    )
+    charges = relationship(
+        "SubcontractOrderLineCharge",
+        back_populates="order_line",
+        cascade="all, delete-orphan",
+        order_by="SubcontractOrderLineCharge.line_no",
+    )
+
+    @property
+    def bom_version_no(self) -> int | None:
+        return self.bom_header.version_no if self.bom_header is not None else None
+
+    @property
+    def so_line_number(self) -> int | None:
+        return self.sales_order_item.line_number if self.sales_order_item is not None else None
+
+
+class SubcontractOrderLineCharge(Base):
+    """Vendor cost-sheet row (labor / shipping / admin / custom / margin) on one SCO line."""
+
+    __tablename__ = 'subcontractorderlinecharges'
+
+    sco_charge_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sco_line_id = Column(
+        BigInteger,
+        ForeignKey('subcontractorderitems.sco_line_id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    line_no = Column(Integer, nullable=False)
+    name = Column(String(150), nullable=False)
+    detail_explanation = Column(Text)
+    labor_minutes = Column(Numeric(8, 2), nullable=True)
+    sf_rate = Column(Numeric(12, 4), nullable=True)
+    cost_per_unit = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
+    margin_percent = Column(Numeric(8, 4), nullable=True)
+    is_margin = Column(Boolean, nullable=False, server_default=text('false'))
+
+    __table_args__ = (
+        UniqueConstraint('sco_line_id', 'line_no', name='uq_sco_charge_line_no'),
+    )
+
+    order_line = relationship("SubcontractOrderItem", back_populates="charges")
+
+
 class SubcontractOrderComponent(Base):
     __tablename__ = 'subcontractordercomponents'
 
     sco_component_id = Column(BigInteger, primary_key=True, autoincrement=True)
     sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number', ondelete='CASCADE'), nullable=False)
+    sco_line_id = Column(
+        BigInteger,
+        ForeignKey('subcontractorderitems.sco_line_id', ondelete='CASCADE'),
+        nullable=False,
+    )
     component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
 
     quantity_required = Column(Numeric(12, 4), nullable=False)
+    quantity_required_bom = Column(Numeric(12, 4), nullable=True)
     quantity_issued = Column(Numeric(12, 4), nullable=False, default=0)
+    is_overridden = Column(Boolean, nullable=False, server_default=text('false'))
+    notes = Column(Text)
 
     __table_args__ = (
-        UniqueConstraint('sco_number', 'component_item_id', name='unique_component_per_sco'),
+        UniqueConstraint('sco_line_id', 'component_item_id', name='unique_component_per_sco_line'),
     )
 
-    # Relationships
     subcontract_order = relationship("SubcontractOrder", back_populates="components")
+    order_line = relationship("SubcontractOrderItem", back_populates="components")
     component_item = relationship("Item")
 
 
@@ -791,6 +911,11 @@ class MaterialIssueLine(Base):
 
     issue_line_id = Column(BigInteger, primary_key=True, autoincrement=True)
     issue_id = Column(String(50), ForeignKey('materialissues.issue_id', ondelete='CASCADE'), nullable=False)
+    sco_line_id = Column(
+        BigInteger,
+        ForeignKey('subcontractorderitems.sco_line_id', ondelete='SET NULL'),
+        nullable=True,
+    )
     component_item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     quantity_issued = Column(Numeric(12, 4), nullable=False)
 
@@ -808,6 +933,11 @@ class FinishedGoodsReceipt(Base):
 
     receipt_id = Column(String(50), primary_key=True)
     sco_number = Column(String(50), ForeignKey('subcontractorders.sco_number'), nullable=False)
+    sco_line_id = Column(
+        BigInteger,
+        ForeignKey('subcontractorderitems.sco_line_id', ondelete='SET NULL'),
+        nullable=True,
+    )
     quantity_received = Column(Integer, nullable=False)
     receipt_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
     notes = Column(Text)
@@ -898,6 +1028,9 @@ class PurchaseOrder(Base):
     shipping_fee = Column(Numeric(12, 2), nullable=False, default=0)
     discount_type = Column(String(20), nullable=False, default='percentage')  # percentage or fixed
     discount_value = Column(Numeric(12, 2), nullable=False, default=0)
+    incoterms = Column(String(10), nullable=True)
+    freight_terms = Column(String(30), nullable=False, server_default=text("'PREPAID_ON_PO'"))
+    carrier_account = Column(String(50), nullable=True)
 
     subtotal = Column(Numeric(12, 2), nullable=False, default=0)
     total_tax = Column(Numeric(12, 2), nullable=False, default=0)
@@ -911,10 +1044,15 @@ class PurchaseOrder(Base):
         CheckConstraint("status IN ('Draft', 'Submitted', 'Approved', 'Void')", name='chk_po_status'),
         CheckConstraint("discount_type IN ('percentage', 'fixed')", name='chk_po_discount_type'),
         CheckConstraint("po_type IN ('MATERIAL', 'SUBCONTRACT')", name='chk_po_type'),
+        CheckConstraint(
+            "freight_terms IN ('PREPAID_ON_PO', 'THIRD_PARTY_COLLECT', 'ROUTING_ACCOUNT')",
+            name='chk_po_freight_terms',
+        ),
     )
 
     # Relationships
     supplier = relationship("Supplier")
+    subcontract_order = relationship("SubcontractOrder", foreign_keys=[sco_number])
     items = relationship("PurchaseOrderItem", back_populates="purchase_order", cascade="all, delete-orphan")
 
 
@@ -926,7 +1064,14 @@ class PurchaseOrderItem(Base):
     po_number = Column(String(50), ForeignKey('purchaseorders.po_number', ondelete='CASCADE'), nullable=False)
 
     sku = Column(String(100), nullable=False)
+    description = Column(String(255), nullable=True)
+    uom = Column(String(20), nullable=True)
     bom_header_id = Column(BigInteger, ForeignKey('itembomheaders.bom_header_id'), nullable=True)
+    sco_component_id = Column(
+        BigInteger,
+        ForeignKey('subcontractordercomponents.sco_component_id', ondelete='SET NULL'),
+        nullable=True,
+    )
     quantity = Column(Numeric(12, 4), nullable=False, default=1)
     unit_price = Column(Numeric(12, 4), nullable=False, default=0)
     tax_rate = Column(Numeric(6, 3), nullable=False, default=0)
@@ -937,6 +1082,7 @@ class PurchaseOrderItem(Base):
 
     # Relationships
     purchase_order = relationship("PurchaseOrder", back_populates="items")
+    sco_component = relationship("SubcontractOrderComponent", foreign_keys=[sco_component_id])
     schedules = relationship(
         "PurchaseOrderDeliverySchedule",
         back_populates="order_item",

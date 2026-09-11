@@ -10,6 +10,24 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _clip_str(value: Any, max_len: int) -> Any:
+    if isinstance(value, str) and len(value) > max_len:
+        return value[:max_len]
+    return value
+
+
+def _quantize_decimal(value: Any, places: int) -> Any:
+    if value is None or value == '':
+        return value
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        return value
+    if not amount.is_finite():
+        return Decimal('0')
+    return amount.quantize(Decimal('1').scaleb(-places))
+
+
 # ==========================================
 # BASE & SYSTEM MODELS
 # ==========================================
@@ -1218,12 +1236,22 @@ class ItemBOMComponentRead(ORMModel):
     created_at: datetime
 
 
+class SubcontractOrderComponentOverride(BaseModel):
+    component_item_id: str = Field(max_length=50)
+    quantity_required: Decimal = Field(gt=0, decimal_places=4)
+    notes: str | None = None
+
+
 class SubcontractOrderComponentRead(ORMModel):
     sco_component_id: int
     sco_number: str
+    sco_line_id: int | None = None
     component_item_id: str
     quantity_required: Decimal
+    quantity_required_bom: Decimal | None = None
     quantity_issued: Decimal
+    is_overridden: bool = False
+    notes: str | None = None
     quantity_remaining: Decimal | None = None
     on_hand_quantity: int | None = None
     primary_vendor_id: str | None = None
@@ -1231,13 +1259,74 @@ class SubcontractOrderComponentRead(ORMModel):
     description: str | None = None
 
 
+class SubcontractChargeInput(BaseModel):
+    line_no: int | None = None
+    name: str = Field(min_length=1, max_length=150)
+    detail_explanation: str | None = None
+    labor_minutes: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    sf_rate: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    cost_per_unit: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    margin_percent: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    is_margin: bool = False
+
+
+class SubcontractChargeRead(ORMModel):
+    sco_charge_id: int | None = None
+    sco_line_id: int | None = None
+    line_no: int
+    name: str
+    detail_explanation: str | None = None
+    labor_minutes: Decimal | None = None
+    sf_rate: Decimal | None = None
+    cost_per_unit: Decimal = Decimal("0")
+    margin_percent: Decimal | None = None
+    is_margin: bool = False
+
+
+class SubcontractOrderLineCreate(BaseModel):
+    so_item_id: int | None = None
+    item_id: str = Field(max_length=50)
+    quantity_ordered: int = Field(gt=0)
+    bom_header_id: int | None = None
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=4)
+    tax_exempt: bool = True
+    tax_amount: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    notes: str | None = None
+    charges: list[SubcontractChargeInput] | None = None
+    components: list[SubcontractOrderComponentOverride] | None = None
+
+
+class SubcontractOrderLineRead(ORMModel):
+    sco_line_id: int
+    sco_number: str
+    line_number: int
+    so_item_id: int | None = None
+    so_line_number: int | None = None
+    item_id: str
+    bom_header_id: int | None = None
+    bom_version_no: int | None = None
+    quantity_ordered: int
+    unit_price: Decimal = Decimal("0")
+    margin_percent: Decimal = Decimal("0")
+    margin_amount: Decimal = Decimal("0")
+    cost_subtotal: Decimal = Decimal("0")
+    tax_exempt: bool = True
+    tax_amount: Decimal = Decimal("0")
+    line_total: Decimal = Decimal("0")
+    notes: str | None = None
+    components: list[SubcontractOrderComponentRead] = []
+    charges: list[SubcontractChargeRead] = []
+
+
 class MaterialIssueLineCreate(BaseModel):
     component_item_id: str = Field(max_length=50)
     quantity_issued: Decimal = Field(gt=0, decimal_places=4)
+    sco_line_id: int | None = None
 
 class MaterialIssueLineRead(ORMModel):
     issue_line_id: int
     issue_id: str
+    sco_line_id: int | None = None
     component_item_id: str
     quantity_issued: Decimal
 
@@ -1263,10 +1352,12 @@ class FinishedGoodsReceiptCreate(BaseModel):
     receipt_date: date | None = None
     notes: str | None = None
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    sco_line_id: int | None = None
 
 class FinishedGoodsReceiptRead(ORMModel):
     receipt_id: str
     sco_number: str
+    sco_line_id: int | None = None
     quantity_received: int
     receipt_date: date
     notes: str | None
@@ -1276,13 +1367,32 @@ class FinishedGoodsReceiptRead(ORMModel):
 class SubcontractOrderCreate(BaseModel):
     sco_number: str = Field(max_length=50)
     supplier_id: str = Field(max_length=50)
-    item_id: str = Field(max_length=50)
-    quantity_ordered: int = Field(gt=0)
+    item_id: str | None = Field(default=None, max_length=50)
+    quantity_ordered: int | None = Field(default=None, gt=0)
     unit_price: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=4)
+    sales_order_id: str | None = Field(default=None, max_length=50)
     order_date: date | None = None
     expected_return_date: date | None = None
     notes: str | None = None
     bom_header_id: int | None = None
+    lines: list[SubcontractOrderLineCreate] | None = None
+
+    @model_validator(mode="after")
+    def _require_lines_or_legacy_item(self) -> "SubcontractOrderCreate":
+        if self.lines:
+            return self
+        if not self.item_id or not self.quantity_ordered:
+            raise ValueError("Provide lines[] or item_id + quantity_ordered")
+        return self
+
+class SubcontractOrderLineChargesUpdate(BaseModel):
+    sco_line_id: int
+    charges: list[SubcontractChargeInput] = Field(default_factory=list)
+
+
+class SubcontractOrderAmendRequest(BaseModel):
+    comments: str | None = Field(default=None, max_length=2000)
+
 
 class SubcontractOrderUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=50)
@@ -1291,26 +1401,87 @@ class SubcontractOrderUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=30)
     expected_return_date: date | None = None
     notes: str | None = None
+    lines: list[SubcontractOrderLineChargesUpdate] | None = None
 
 class SubcontractOrderRead(ORMModel):
     sco_number: str
     supplier_id: str
+    sales_order_id: str | None = None
     item_id: str
     bom_header_id: int | None = None
     bom_version_no: int | None = None
     quantity_ordered: int
     unit_price: Decimal = Decimal("0")
+    document_total: Decimal = Decimal("0")
+    line_count: int = 0
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    amendment_number: int = 0
     billing_status: str = 'UNBILLED'
     order_date: date
     expected_return_date: date | None
     notes: str | None
     created_at: datetime
+    lines: list[SubcontractOrderLineRead] = []
     components: list[SubcontractOrderComponentRead] = []
     material_issues: list[MaterialIssueRead] = []
     finished_goods_receipts: list[FinishedGoodsReceiptRead] = []
+
+
+class EligibleSalesOrderRead(BaseModel):
+    sales_order_id: str
+    customer_id: str | None = None
+    customer_name: str | None = None
+    customer_po_number: str | None = None
+    order_date: date | None = None
+    status: str | None = None
+    approval_status: str | None = None
+    open_line_count: int = 0
+
+
+class SalesOrderSubcontractLineRead(BaseModel):
+    so_item_id: int
+    line_number: int
+    item_id: str
+    item_description: str | None = None
+    customer_part_number: str | None = None
+    quantity_ordered: int
+    quantity_subcontracted: int
+    quantity_remaining: int
+    has_active_bom: bool
+    active_bom_header_id: int | None = None
+    active_bom_version_no: int | None = None
+    bom_status: str | None = None
+    is_subcontract_assembly: bool = False
+
+
+class PreviewComponentLine(BaseModel):
+    so_item_id: int | None = None
+    item_id: str
+    quantity_ordered: int
+    bom_header_id: int | None = None
+    bom_header_id_resolved: int | None = None
+    bom_version_no: int | None = None
+    bom_status: str | None = None
+    quantity_remaining_on_so_line: int | None = None
+    charges: list[SubcontractChargeRead] = []
+    unit_price: Decimal = Decimal("0")
+    line_total: Decimal = Decimal("0")
+    components: list["CalculatedComponentLine"] = []
+
+
+class PreviewComponentsRequest(BaseModel):
+    sales_order_id: str | None = None
+    lines: list[SubcontractOrderLineCreate] = Field(min_length=1)
+
+
+class PreviewComponentsResponse(BaseModel):
+    can_create: bool
+    warnings: list[dict] = []
+    default_charges: list[SubcontractChargeRead] = []
+    lines: list[PreviewComponentLine] = []
+    consolidated_components: list["CalculatedComponentLine"] = []
 
 
 class SubcontractOrderDeliveryScheduleCreate(BaseModel):
@@ -1344,7 +1515,10 @@ class SubcontractOrderDeliveryScheduleRead(ORMModel):
 
 class PurchaseOrderItemCreate(BaseModel):
     sku: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=255)
+    uom: str | None = Field(default=None, max_length=20)
     bom_header_id: int | None = None
+    sco_component_id: int | None = None
     quantity: Decimal = Field(gt=0, decimal_places=4)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=3)
@@ -1352,9 +1526,37 @@ class PurchaseOrderItemCreate(BaseModel):
     line_tax: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
     line_total: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
 
+    @field_validator('description', mode='before')
+    @classmethod
+    def clip_po_item_description(cls, value: Any) -> Any:
+        return _clip_str(value, 255)
+
+    @field_validator('uom', mode='before')
+    @classmethod
+    def clip_po_item_uom(cls, value: Any) -> Any:
+        return _clip_str(value, 20) if value else value
+
+    @field_validator('quantity', 'unit_price', mode='before')
+    @classmethod
+    def quantize_po_item_4(cls, value: Any) -> Any:
+        return _quantize_decimal(value, 4)
+
+    @field_validator('tax_rate', mode='before')
+    @classmethod
+    def quantize_po_item_tax(cls, value: Any) -> Any:
+        return _quantize_decimal(value, 3)
+
+    @field_validator('line_subtotal', 'line_tax', 'line_total', mode='before')
+    @classmethod
+    def quantize_po_item_money(cls, value: Any) -> Any:
+        return _quantize_decimal(value, 2)
+
 class PurchaseOrderItemUpdate(BaseModel):
     sku: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=255)
+    uom: str | None = Field(default=None, max_length=20)
     bom_header_id: int | None = None
+    sco_component_id: int | None = None
     quantity: Decimal | None = Field(default=None, gt=0, decimal_places=4)
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     tax_rate: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=3)
@@ -1366,7 +1568,10 @@ class PurchaseOrderItemRead(ORMModel):
     item_id: int
     po_number: str
     sku: str
+    description: str | None = None
+    uom: str | None = None
     bom_header_id: int | None = None
+    sco_component_id: int | None = None
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
@@ -1414,6 +1619,11 @@ class PurchaseOrderCreate(BaseModel):
     shipping_fee: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
     discount_type: Literal['percentage', 'fixed'] = Field(default='percentage')
     discount_value: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    incoterms: str | None = Field(default=None, max_length=10)
+    freight_terms: Literal['PREPAID_ON_PO', 'THIRD_PARTY_COLLECT', 'ROUTING_ACCOUNT'] = Field(
+        default='PREPAID_ON_PO'
+    )
+    carrier_account: str | None = Field(default=None, max_length=50)
 
     subtotal: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
     total_tax: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
@@ -1422,6 +1632,21 @@ class PurchaseOrderCreate(BaseModel):
 
     notes: str | None = None
     items: list[PurchaseOrderItemCreate] = Field(min_length=1)
+
+    @field_validator('incoterms', 'carrier_account', mode='before')
+    @classmethod
+    def blank_po_logistics(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return None
+        cleaned = value.strip() if isinstance(value, str) else value
+        return cleaned
+
+    @field_validator('incoterms', mode='after')
+    @classmethod
+    def normalize_po_incoterms(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return str(value).strip().upper()
 
 class PurchaseOrderUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=50)
@@ -1436,6 +1661,9 @@ class PurchaseOrderUpdate(BaseModel):
     shipping_fee: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     discount_type: Literal['percentage', 'fixed'] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    incoterms: str | None = Field(default=None, max_length=10)
+    freight_terms: Literal['PREPAID_ON_PO', 'THIRD_PARTY_COLLECT', 'ROUTING_ACCOUNT'] | None = None
+    carrier_account: str | None = Field(default=None, max_length=50)
 
     subtotal: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     total_tax: Decimal | None = Field(default=None, ge=0, decimal_places=2)
@@ -1444,6 +1672,20 @@ class PurchaseOrderUpdate(BaseModel):
 
     notes: str | None = None
     items: list[PurchaseOrderItemCreate] | None = None
+
+    @field_validator('incoterms', 'carrier_account', mode='before')
+    @classmethod
+    def blank_po_logistics_update(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            return None
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator('incoterms', mode='after')
+    @classmethod
+    def normalize_po_incoterms_update(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return str(value).strip().upper()
 
 class PurchaseOrderRead(ORMModel):
     po_number: str
@@ -1462,6 +1704,9 @@ class PurchaseOrderRead(ORMModel):
     shipping_fee: Decimal
     discount_type: str
     discount_value: Decimal
+    incoterms: str | None = None
+    freight_terms: str = 'PREPAID_ON_PO'
+    carrier_account: str | None = None
 
     subtotal: Decimal
     total_tax: Decimal
@@ -1471,6 +1716,39 @@ class PurchaseOrderRead(ORMModel):
     notes: str | None
     created_at: datetime | None
     items: list[PurchaseOrderItemRead] = []
+
+
+class EligibleMaterialPoScoRead(BaseModel):
+    sco_number: str
+    supplier_id: str
+    supplier_name: str | None = None
+    item_id: str
+    fg_description: str | None = None
+    expected_return_date: date | None = None
+    status: str
+    quantity_ordered: int
+    open_component_line_count: int = 0
+
+
+class UnfulfilledScoComponentRead(BaseModel):
+    sco_component_id: int
+    sco_line_id: int | None = None
+    component_item_id: str
+    description: str | None = None
+    uom: str | None = None
+    quantity_required: Decimal
+    quantity_already_ordered: Decimal
+    quantity_on_draft_pos: Decimal = Decimal("0")
+    quantity_remaining: Decimal
+    unit_cost: Decimal | None = None
+    price_source: Literal[
+        'VENDOR_MAPPING',
+        'PRIMARY_VENDOR',
+        'LAST_PO_VENDOR',
+        'LAST_PO',
+        'CATALOG',
+        'NONE',
+    ] = 'NONE'
 
 
 # ==========================================
@@ -1893,6 +2171,7 @@ class SubcontractBOMRead(ORMModel):
 class CalculatedComponentLine(BaseModel):
     component_item_id: str
     description: str | None = None
+    uom: str | None = None
     quantity_per: Decimal
     scrap_factor: Decimal = Decimal("0")
     yield_loss_percentage: Decimal = Decimal("0")
@@ -1900,9 +2179,14 @@ class CalculatedComponentLine(BaseModel):
     quantity_issued: Decimal = Decimal("0")
     quantity_remaining: Decimal = Decimal("0")
     on_hand_quantity: int = 0
+    available_to_promise: int = 0
+    stock_shortfall: Decimal = Decimal("0")
     primary_vendor_id: str | None = None
     primary_vendor_sku: str | None = None
     unit_cost: Decimal | None = None
+    sco_line_id: int | None = None
+    notes: str | None = None
+    is_overridden: bool = False
 
 
 class CalculateComponentsResponse(BaseModel):
@@ -1912,6 +2196,12 @@ class CalculateComponentsResponse(BaseModel):
     bom_header_id: int | None = None
     bom_version_no: int | None = None
     components: list[CalculatedComponentLine]
+    lines: list[PreviewComponentLine] = []
+
+
+PreviewComponentLine.model_rebuild()
+PreviewComponentsResponse.model_rebuild()
+CalculateComponentsResponse.model_rebuild()
 
 
 class ComponentIssueLogRead(ORMModel):

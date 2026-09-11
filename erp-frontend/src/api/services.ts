@@ -18,6 +18,8 @@ import type {
   ProductBOMComponent,
   ItemBOMHeader,
   SubcontractOrder,
+  EligibleMaterialPoSco,
+  UnfulfilledScoComponent,
   MaterialIssue,
   FinishedGoodsReceipt,
   ARInvoice,
@@ -690,7 +692,10 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
       return {
         id: String(row.item_id ?? row.id ?? `row-${idx}`),
         sku: String(row.sku || ''),
+        description: row.description == null ? '' : String(row.description),
+        uom: row.uom == null ? '' : String(row.uom),
         bom_header_id: row.bom_header_id == null ? null : Number(row.bom_header_id),
+        sco_component_id: row.sco_component_id == null ? null : Number(row.sco_component_id),
         quantity: Number(row.quantity ?? 0),
         unit_price: Number(row.unit_price ?? 0),
         tax_rate: Number(row.tax_rate ?? 0),
@@ -702,13 +707,20 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
     po_type: po.po_type || 'MATERIAL',
     bom_header_id: po.bom_header_id ?? null,
     sco_number: po.sco_number || '',
+    incoterms: po.incoterms || '',
+    freight_terms: po.freight_terms || 'PREPAID_ON_PO',
+    carrier_account: po.carrier_account || '',
   };
 }
 
 export const purchaseOrderService = {
-  async listPurchaseOrders(skip: number = 0, limit: number = 100): Promise<PurchaseOrder[]> {
+  async listPurchaseOrders(
+    skip: number = 0,
+    limit: number = 100,
+    filters?: { sco_number?: string }
+  ): Promise<PurchaseOrder[]> {
     const rows = await apiClient.get<PurchaseOrder[]>('/api/v1/purchase-orders', {
-      params: { skip, limit },
+      params: { skip, limit, sco_number: filters?.sco_number || undefined },
     });
     return rows.map(mapPurchaseOrderFromApi);
   },
@@ -731,6 +743,9 @@ export const purchaseOrderService = {
     shipping_fee: number;
     discount_type: PurchaseOrder['discount_type'];
     discount_value: number;
+    incoterms?: string | null;
+    freight_terms?: PurchaseOrder['freight_terms'];
+    carrier_account?: string | null;
     subtotal: number;
     total_tax: number;
     discount_amount: number;
@@ -738,7 +753,10 @@ export const purchaseOrderService = {
     notes?: string | null;
     items: Array<{
       sku: string;
+      description?: string | null;
+      uom?: string | null;
       bom_header_id?: number | null;
+      sco_component_id?: number | null;
       quantity: number;
       unit_price: number;
       tax_rate: number;
@@ -765,6 +783,9 @@ export const purchaseOrderService = {
       shipping_fee?: number;
       discount_type?: PurchaseOrder['discount_type'];
       discount_value?: number;
+      incoterms?: string | null;
+      freight_terms?: PurchaseOrder['freight_terms'];
+      carrier_account?: string | null;
       subtotal?: number;
       total_tax?: number;
       discount_amount?: number;
@@ -772,7 +793,10 @@ export const purchaseOrderService = {
       notes?: string | null;
       items?: Array<{
         sku: string;
+        description?: string | null;
+        uom?: string | null;
         bom_header_id?: number | null;
+        sco_component_id?: number | null;
         quantity: number;
         unit_price: number;
         tax_rate: number;
@@ -914,6 +938,39 @@ export const subcontractOrderService = {
     });
   },
 
+  async listEligibleForMaterialPo(
+    q: string = '',
+    skip: number = 0,
+    limit: number = 40
+  ): Promise<EligibleMaterialPoSco[]> {
+    return apiClient.get<EligibleMaterialPoSco[]>(
+      '/api/v1/subcontract-orders/eligible-for-material-po',
+      { params: { q, skip, limit } }
+    );
+  },
+
+  async listUnfulfilledComponents(
+    scoNumber: string,
+    params?: {
+      supplier_id?: string;
+      exclude_po_number?: string;
+      include_fully_covered?: boolean;
+    }
+  ): Promise<UnfulfilledScoComponent[]> {
+    const rows = await apiClient.get<UnfulfilledScoComponent[]>(
+      `/api/v1/subcontract-orders/${encodeURIComponent(scoNumber)}/unfulfilled-components`,
+      { params }
+    );
+    return rows.map((row) => ({
+      ...row,
+      quantity_required: Number(row.quantity_required ?? 0),
+      quantity_already_ordered: Number(row.quantity_already_ordered ?? 0),
+      quantity_on_draft_pos: Number(row.quantity_on_draft_pos ?? 0),
+      quantity_remaining: Number(row.quantity_remaining ?? 0),
+      unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
+    }));
+  },
+
   /**
    * Fetch a single subcontract order by SCO number
    */
@@ -928,14 +985,80 @@ export const subcontractOrderService = {
   async createSubcontractOrder(data: {
     sco_number: string;
     supplier_id: string;
-    item_id: string;
-    quantity_ordered: number;
+    item_id?: string;
+    quantity_ordered?: number;
+    sales_order_id?: string | null;
     order_date?: string;
     expected_return_date?: string;
     notes?: string;
     bom_header_id?: number | null;
+    unit_price?: number;
+    lines?: Array<{
+      so_item_id?: number | null;
+      item_id: string;
+      quantity_ordered: number;
+      bom_header_id?: number | null;
+      unit_price?: number;
+      tax_exempt?: boolean;
+      tax_amount?: number;
+      notes?: string;
+      charges?: Array<{
+        line_no?: number;
+        name: string;
+        detail_explanation?: string | null;
+        labor_minutes?: number | null;
+        sf_rate?: number | null;
+        cost_per_unit?: number | null;
+        margin_percent?: number | null;
+        is_margin?: boolean;
+      }>;
+      components?: Array<{
+        component_item_id: string;
+        quantity_required: number;
+        notes?: string | null;
+      }>;
+    }>;
   }): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>('/api/v1/subcontract-orders', data);
+  },
+
+  async listEligibleSalesOrders(q = '', skip = 0, limit = 50) {
+    return apiClient.get<import('../types').EligibleSalesOrder[]>(
+      '/api/v1/subcontract-orders/eligible-sales-orders',
+      { params: { q, skip, limit } },
+    );
+  },
+
+  async listSalesOrderLines(salesOrderId: string) {
+    return apiClient.get<import('../types').SalesOrderSubcontractLine[]>(
+      `/api/v1/subcontract-orders/sales-order-lines/${encodeURIComponent(salesOrderId)}`,
+    );
+  },
+
+  async previewComponents(data: {
+    sales_order_id?: string | null;
+    lines: Array<{
+      so_item_id?: number | null;
+      item_id: string;
+      quantity_ordered: number;
+      bom_header_id?: number | null;
+      unit_price?: number;
+      charges?: Array<{
+        line_no?: number;
+        name: string;
+        detail_explanation?: string | null;
+        labor_minutes?: number | null;
+        sf_rate?: number | null;
+        cost_per_unit?: number | null;
+        margin_percent?: number | null;
+        is_margin?: boolean;
+      }>;
+    }>;
+  }) {
+    return apiClient.post<import('../types').PreviewComponentsResponse>(
+      '/api/v1/subcontract-orders/preview-components',
+      data,
+    );
   },
 
   /**
@@ -949,6 +1072,19 @@ export const subcontractOrderService = {
       status: string;
       expected_return_date: string;
       notes: string;
+      lines: Array<{
+        sco_line_id: number;
+        charges: Array<{
+          line_no?: number;
+          name: string;
+          detail_explanation?: string | null;
+          labor_minutes?: number | null;
+          sf_rate?: number | null;
+          cost_per_unit?: number | null;
+          margin_percent?: number | null;
+          is_margin?: boolean;
+        }>;
+      }>;
     }>
   ): Promise<SubcontractOrder> {
     return apiClient.patch<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}`, data);
@@ -963,7 +1099,7 @@ export const subcontractOrderService = {
       issue_id: string;
       issue_date?: string;
       notes?: string;
-      lines: Array<{ component_item_id: string; quantity_issued: number }>;
+      lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }>;
     }
   ): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>(
@@ -983,6 +1119,7 @@ export const subcontractOrderService = {
       receipt_date?: string;
       notes?: string;
       unit_cost?: number;
+      sco_line_id?: number;
     }
   ): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>(
@@ -997,6 +1134,18 @@ export const subcontractOrderService = {
   async cancelSubcontractOrder(scoNumber: string): Promise<SubcontractOrder> {
     return apiClient.patch<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}`, {
       status: 'CANCELLED',
+    });
+  },
+
+  /**
+   * Reopen an approved SCO so the vendor cost sheet can be revised and re-submitted.
+   */
+  async amendSubcontractOrder(
+    scoNumber: string,
+    comments?: string,
+  ): Promise<SubcontractOrder> {
+    return apiClient.post<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}/amend`, {
+      comments: comments || null,
     });
   },
 

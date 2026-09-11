@@ -203,7 +203,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Sales & Procurement → Purchase Orders → New.',
       'Choose PO Type: Material PO, or Subcontract / outside processing (外發加工單).',
       'Select the vendor. Currency, payment terms, and incoterms default from the vendor master when set.',
+      'For a Material PO buying kit parts, check Purchase for Subcontract Order, link the 外發加工單, then Import Subcontract Components. Remaining qty subtracts other open Material POs (including drafts).',
       'For a subcontract PO, optionally link an existing Subcontract Order so the PO is tied to that BOM / work order. Material issue still happens on the subcontract order.',
+      'Set Freight Payment Terms. Prepaid shipping is added to the vendor Grand Total. 3rd-party / collect freight is estimated landed cost only and excluded from the vendor invoice total.',
       'Search and add item lines by internal part number (type to search the catalog). Save Draft anytime.',
       'Submit for approval. Approvers follow the purchasing workflow (amount bands).',
       'When the PO is Approved, open it and click Receive Goods to post a receipt (GRNI).',
@@ -211,7 +213,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     callouts: [
       { kind: 'required', text: 'Vendor and at least one line item are required to submit (empty lines are allowed only on Draft).' },
-      { kind: 'important', text: 'Receiving posts GRNI. Do not invoice the vendor until goods (or a partial receipt) are recorded.' },
+      { kind: 'important', text: '3rd-party freight must not appear on the goods vendor bill. Confirm Freight Payment Terms before submit; carrier account is required when freight is collect or routing.' },
     ],
     tips: [
       'Use PDF print for vendor confirmation.',
@@ -297,16 +299,23 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Issue materials to the vendor when the kit is picked.',
       'When finished goods return, record a receipt (Receipt ID + quantity). GRNI is posted for the value received.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you.',
+      'To change vendor charges after approval, open the SCO and click Amend cost sheet. Edit the sheet, then submit for approval again. Linked purchase orders stay on the same SCO.',
     ],
     callouts: [
       { kind: 'required', text: 'Assembly item must be flagged as a subcontract assembly (or outside processed) with a BOM.' },
       { kind: 'important', text: 'Status moves with materials issued and goods received. Do not invoice before a finished-goods receipt if you match to GRNI.' },
+      { kind: 'important', text: 'After approval, use Amend cost sheet to change vendor charges. Do not cancel and recreate the SCO if a Material PO is already linked.' },
     ],
     tips: [
       'Use the SCO PDF for the pack-out list sent with the kit.',
       'If BOM lines change, create/activate a new BOM version on the item before opening a new SCO.',
     ],
     faqs: [
+      {
+        question: 'How do I change the cost sheet after the SCO is approved?',
+        answer:
+          'Do not cancel the SCO. Click Amend cost sheet, update the charges, and submit for approval again. Linked purchase orders stay. Issue/receive can continue. Wait for re-approval before creating a new subcontractor bill.',
+      },
       {
         question: 'How do I track status?',
         answer:
@@ -315,8 +324,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     troubleshooting: [
       {
-        issue: 'No BOM / components on the new SCO',
-        fix: 'Open Inventory → Items → the assembly → BOM. Confirm an active version with components, then recreate the SCO.',
+        issue: 'Cannot edit the cost sheet on an approved SCO',
+        fix: 'Use Amend cost sheet (not Cancel). That reopens approval to Draft on the same SCO. Linked POs stay. Re-submit after you save the charges.',
       },
     ],
   },

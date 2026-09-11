@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, Supplier
+from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, SubcontractOrderComponent, Supplier
 from app.schemas import (
     GoodsReceiptCreate,
     GoodsReceiptRead,
@@ -11,31 +12,91 @@ from app.schemas import (
     PurchaseOrderUpdate,
 )
 from app.services import p2p
+from app.services.po_totals import apply_po_totals, requires_carrier_account
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 
+_CLOSED_SCO_STATUSES = {"COMPLETED", "CANCELLED"}
+
+
+def _po_integrity_message(exc: IntegrityError) -> str:
+    raw = str(getattr(exc, "orig", exc)).lower()
+    if "sco_component" in raw:
+        return (
+            "An imported component is no longer on the linked subcontract order. "
+            "Re-import the lines and try again."
+        )
+    if "sco_number" in raw or "subcontract" in raw:
+        return "The linked subcontract order is invalid or was removed."
+    if "purchaseorderitems" in raw:
+        return "Could not save PO line items. Check SKU, quantity, and imported component links."
+    return "Could not save the purchase order. Check vendor, lines, and the linked subcontract order."
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return str(value).strip()
+
 
 def _validate_po_links(db: Session, po_type: str | None, sco_number: str | None, items) -> None:
-    if sco_number and db.get(SubcontractOrder, sco_number) is None:
-        raise HTTPException(status_code=400, detail=f"Subcontract order '{sco_number}' not found")
-    if (po_type or "MATERIAL") != "SUBCONTRACT" or not items:
-        return
-    for item in items or []:
-        sku = item.get("sku") if isinstance(item, dict) else getattr(item, "sku", None)
-        if not sku:
-            continue
-        catalog = db.get(Item, sku)
-        if catalog is None:
-            raise HTTPException(status_code=400, detail=f"Item '{sku}' not found")
-        if not (catalog.is_subcontract_assembly or catalog.is_outside_processed or catalog.is_purchase_item):
+    if sco_number:
+        sco = db.get(SubcontractOrder, sco_number)
+        if sco is None:
+            raise HTTPException(status_code=400, detail=f"Subcontract order '{sco_number}' not found")
+        if (sco.status or "").upper() in _CLOSED_SCO_STATUSES:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Item '{sku}' is not flagged as a subcontract assembly or purchase item. "
-                    "Mark it on the item master before adding it to a subcontract PO."
-                ),
+                detail=f"Subcontract order '{sco_number}' is {sco.status} and cannot be linked",
             )
+    if (po_type or "MATERIAL") == "SUBCONTRACT" and items:
+        for item in items or []:
+            sku = item.get("sku") if isinstance(item, dict) else getattr(item, "sku", None)
+            if not sku:
+                continue
+            catalog = db.get(Item, sku)
+            if catalog is None:
+                raise HTTPException(status_code=400, detail=f"Item '{sku}' not found")
+            if not (catalog.is_subcontract_assembly or catalog.is_outside_processed or catalog.is_purchase_item):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Item '{sku}' is not flagged as a subcontract assembly or purchase item. "
+                        "Mark it on the item master before adding it to a subcontract PO."
+                    ),
+                )
+    if not items:
+        return
+    for item in items or []:
+        component_id = (
+            item.get("sco_component_id")
+            if isinstance(item, dict)
+            else getattr(item, "sco_component_id", None)
+        )
+        if not component_id:
+            continue
+        if not sco_number:
+            raise HTTPException(
+                status_code=400,
+                detail="sco_component_id requires a linked subcontract order",
+            )
+        component = db.get(SubcontractOrderComponent, component_id)
+        if component is None or component.sco_number != sco_number:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Component {component_id} does not belong to subcontract order '{sco_number}'",
+            )
+
+
+def _validate_freight(freight_terms: str | None, carrier_account: str | None, status_value: str | None) -> None:
+    if (status_value or "Draft") == "Draft":
+        return
+    if requires_carrier_account(freight_terms) and not _blank_to_none(carrier_account):
+        raise HTTPException(
+            status_code=400,
+            detail="Carrier / 3PL account is required for 3rd-party or routing freight terms",
+        )
 
 
 def _load_po(db: Session, po_number: str) -> PurchaseOrder | None:
@@ -49,12 +110,16 @@ def _load_po(db: Session, po_number: str) -> PurchaseOrder | None:
 
 @router.get("", response_model=list[PurchaseOrderRead])
 def list_purchase_orders(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    sco_number: str | None = None,
+    db: Session = Depends(get_db),
 ) -> list[PurchaseOrder]:
+    query = db.query(PurchaseOrder).options(selectinload(PurchaseOrder.items))
+    if sco_number and sco_number.strip():
+        query = query.filter(PurchaseOrder.sco_number == sco_number.strip())
     return (
-        db.query(PurchaseOrder)
-        .options(selectinload(PurchaseOrder.items))
-        .order_by(PurchaseOrder.created_at.desc())
+        query.order_by(PurchaseOrder.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
@@ -70,22 +135,34 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
         raise HTTPException(status_code=400, detail="Supplier not found")
 
     _validate_po_links(db, payload.po_type, payload.sco_number, payload.items)
+    _validate_freight(payload.freight_terms, payload.carrier_account, payload.status)
 
     data = payload.model_dump(exclude={"items"})
-    if not data.get("sco_number"):
-        data["sco_number"] = None
+    data["sco_number"] = _blank_to_none(data.get("sco_number"))
+    data["carrier_account"] = _blank_to_none(data.get("carrier_account"))
+    data["incoterms"] = _blank_to_none(data.get("incoterms"))
     items = payload.items
 
     po = PurchaseOrder(**data)
     for item in items:
-        po.items.append(PurchaseOrderItem(**item.model_dump()))
+        row = item.model_dump()
+        if not row.get("sco_component_id"):
+            row["sco_component_id"] = None
+        if row.get("description"):
+            row["description"] = str(row["description"])[:255]
+        po.items.append(PurchaseOrderItem(**row))
 
+    apply_po_totals(po)
     db.add(po)
     db.flush()
 
     # Operational Approved must go through the approval workflow.
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=_po_integrity_message(exc)) from exc
     return _load_po(db, po.po_number)
 
 
@@ -111,12 +188,21 @@ def update_purchase_order(
         if db.get(Supplier, data["supplier_id"]) is None:
             raise HTTPException(status_code=400, detail="Supplier not found")
 
-    if "sco_number" in data and not data.get("sco_number"):
-        data["sco_number"] = None
+    if "sco_number" in data:
+        data["sco_number"] = _blank_to_none(data.get("sco_number"))
+    if "carrier_account" in data:
+        data["carrier_account"] = _blank_to_none(data.get("carrier_account"))
+    if "incoterms" in data:
+        data["incoterms"] = _blank_to_none(data.get("incoterms"))
 
     po_type = data.get("po_type", po.po_type)
     sco_number = data.get("sco_number", po.sco_number)
     _validate_po_links(db, po_type, sco_number, payload.items)
+    _validate_freight(
+        data.get("freight_terms", po.freight_terms),
+        data.get("carrier_account", po.carrier_account),
+        data.get("status", po.status),
+    )
 
     for key, value in data.items():
         setattr(po, key, value)
@@ -125,11 +211,22 @@ def update_purchase_order(
         po.items.clear()
         db.flush()
         for item in payload.items:
-            po.items.append(PurchaseOrderItem(po_number=po.po_number, **item.model_dump()))
+            row = item.model_dump()
+            if not row.get("sco_component_id"):
+                row["sco_component_id"] = None
+            if row.get("description"):
+                row["description"] = str(row["description"])[:255]
+            po.items.append(PurchaseOrderItem(po_number=po.po_number, **row))
+
+    apply_po_totals(po)
 
     # AP bill creation happens when approval workflow finalizes APPROVED.
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=_po_integrity_message(exc)) from exc
     return _load_po(db, po.po_number)
 
 

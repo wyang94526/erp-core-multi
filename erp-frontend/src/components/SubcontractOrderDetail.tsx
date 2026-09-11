@@ -6,22 +6,27 @@
  */
 
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileDown, Loader2 } from 'lucide-react'
-import { itemService, subcontractOrderService, vendorService } from '../api/services'
+import { itemService, purchaseOrderService, subcontractOrderService, vendorService } from '../api/services'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
+import { defaultCostSheet } from '../utils/scoCostSheet'
+import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
-import type { CalculatedComponentLine } from '../types'
+import ScoCostSheet from './ScoCostSheet'
+import type { CalculatedComponentLine, SubcontractCharge } from '../types'
 
 export function SubcontractOrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  const { hasPermission } = useAuth()
   const [showIssueForm, setShowIssueForm] = useState(false)
   const [showReceiveForm, setShowReceiveForm] = useState(false)
+  const [showAmendModal, setShowAmendModal] = useState(false)
 
   const [issueForm, setIssueForm] = useState({
     issue_id: '',
@@ -32,6 +37,7 @@ export function SubcontractOrderDetail() {
 
   const [receiveForm, setReceiveForm] = useState({
     receipt_id: '',
+    sco_line_id: '',
     quantity_received: '',
     receipt_date: new Date().toISOString().split('T')[0],
     notes: '',
@@ -41,6 +47,8 @@ export function SubcontractOrderDetail() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [editingCostSheet, setEditingCostSheet] = useState(false)
+  const [draftCharges, setDraftCharges] = useState<Record<number, SubcontractCharge[]>>({})
 
   if (!id) {
     return (
@@ -66,6 +74,12 @@ export function SubcontractOrderDetail() {
     queryKey: ['subcontractOrders', id, 'calculate-components'],
     queryFn: () => subcontractOrderService.calculateComponents(id),
     enabled: !!id && !!sco,
+  })
+
+  const { data: linkedPurchaseOrders = [] } = useQuery({
+    queryKey: ['purchaseOrders', 'bySco', id],
+    queryFn: () => purchaseOrderService.listPurchaseOrders(0, 50, { sco_number: id }),
+    enabled: !!id,
   })
 
   const issueMutation = useMutation({
@@ -97,6 +111,7 @@ export function SubcontractOrderDetail() {
       receipt_date?: string
       notes?: string
       unit_cost?: number
+      sco_line_id?: number
     }) => subcontractOrderService.receiveGoods(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
@@ -104,6 +119,7 @@ export function SubcontractOrderDetail() {
       setShowReceiveForm(false)
       setReceiveForm({
         receipt_id: '',
+        sco_line_id: '',
         quantity_received: '',
         receipt_date: new Date().toISOString().split('T')[0],
         notes: '',
@@ -120,6 +136,79 @@ export function SubcontractOrderDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+    },
+  })
+
+  const amendMutation = useMutation({
+    mutationFn: (comments: string) => subcontractOrderService.amendSubcontractOrder(id, comments),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+      setShowAmendModal(false)
+      const lines =
+        updated.lines && updated.lines.length > 0
+          ? updated.lines
+          : [
+              {
+                sco_line_id: 0,
+                charges: [] as SubcontractCharge[],
+              },
+            ]
+      const next: Record<number, SubcontractCharge[]> = {}
+      for (const line of lines) {
+        next[line.sco_line_id] = line.charges?.length
+          ? line.charges.map((row) => ({ ...row }))
+          : defaultCostSheet()
+      }
+      setDraftCharges(next)
+      setEditingCostSheet(true)
+      setFormErrors((prev) => {
+        const copy = { ...prev }
+        delete copy.amend
+        delete copy.costSheet
+        return copy
+      })
+    },
+    onError: (err: Error) => {
+      setFormErrors((prev) => ({
+        ...prev,
+        amend: err.message || 'Failed to amend subcontract order',
+      }))
+    },
+  })
+
+  const costSheetMutation = useMutation({
+    mutationFn: (lines: Array<{ sco_line_id: number; charges: SubcontractCharge[] }>) =>
+      subcontractOrderService.updateSubcontractOrder(id, {
+        lines: lines.map((line) => ({
+          sco_line_id: line.sco_line_id,
+          charges: line.charges.map((charge) => ({
+            line_no: charge.line_no,
+            name: charge.name,
+            detail_explanation: charge.detail_explanation,
+            labor_minutes: charge.labor_minutes,
+            sf_rate: charge.sf_rate,
+            cost_per_unit: charge.cost_per_unit,
+            margin_percent: charge.margin_percent,
+            is_margin: charge.is_margin,
+          })),
+        })),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+      setEditingCostSheet(false)
+      setFormErrors((prev) => {
+        const next = { ...prev }
+        delete next.costSheet
+        return next
+      })
+    },
+    onError: (err: Error) => {
+      setFormErrors((prev) => ({
+        ...prev,
+        costSheet: err.message || 'Failed to save cost sheet',
+      }))
     },
   })
 
@@ -163,6 +252,65 @@ export function SubcontractOrderDetail() {
   const statusColors = getStatusColors(sco.status)
   const isCancellable = sco.status !== 'COMPLETED' && sco.status !== 'CANCELLED'
   const isApproved = (sco.approval_status || 'DRAFT').toUpperCase() === 'APPROVED'
+  const approvalStatus = (sco.approval_status || 'DRAFT').toUpperCase()
+  const amendmentNumber = Number(sco.amendment_number || 0)
+  const isAmending =
+    amendmentNumber > 0 &&
+    (approvalStatus === 'DRAFT' || approvalStatus === 'REJECTED' || approvalStatus === 'PENDING_APPROVAL') &&
+    isCancellable
+  const canEditCostSheet =
+    (approvalStatus === 'DRAFT' || approvalStatus === 'REJECTED') &&
+    sco.status !== 'COMPLETED' &&
+    sco.status !== 'CANCELLED'
+  const canAmend =
+    isApproved &&
+    isCancellable &&
+    hasPermission('subcontract:submit')
+  const canOperateKit = isCancellable && (isApproved || isAmending)
+
+  const assemblyLines =
+    sco.lines && sco.lines.length > 0
+      ? sco.lines
+      : [
+          {
+            sco_line_id: 0,
+            sco_number: sco.sco_number,
+            line_number: 1,
+            so_item_id: null,
+            so_line_number: null,
+            item_id: sco.item_id,
+            bom_header_id: sco.bom_header_id ?? null,
+            quantity_ordered: sco.quantity_ordered,
+            unit_price: Number(sco.unit_price || 0),
+            line_total: Number(sco.unit_price || 0) * Number(sco.quantity_ordered || 0),
+            charges: [],
+            components: [],
+          },
+        ]
+
+  const enterCostSheetEdit = () => {
+    const next: Record<number, SubcontractCharge[]> = {}
+    for (const line of assemblyLines) {
+      next[line.sco_line_id] = line.charges?.length
+        ? line.charges.map((row) => ({ ...row }))
+        : defaultCostSheet()
+    }
+    setDraftCharges(next)
+    setEditingCostSheet(true)
+    setFormErrors((prev) => {
+      const copy = { ...prev }
+      delete copy.costSheet
+      return copy
+    })
+  }
+
+  const saveCostSheet = () => {
+    const lines = assemblyLines.map((line) => ({
+      sco_line_id: line.sco_line_id,
+      charges: draftCharges[line.sco_line_id] || line.charges || [],
+    }))
+    costSheetMutation.mutate(lines)
+  }
 
   const kitLines: CalculatedComponentLine[] =
     kitBreakdown?.components?.length
@@ -211,8 +359,8 @@ export function SubcontractOrderDetail() {
     }
   }
 
-  const handleIssueLineChange = (componentProductId: string, value: string) => {
-    setIssueLines((prev) => ({ ...prev, [componentProductId]: value }))
+  const handleIssueLineChange = (key: string, value: string) => {
+    setIssueLines((prev) => ({ ...prev, [key]: value }))
   }
 
   const handleIssueSubmit = (e: React.FormEvent) => {
@@ -224,12 +372,18 @@ export function SubcontractOrderDetail() {
       return
     }
 
-    const lines = Object.entries(issueLines)
-      .filter(([, qty]) => qty && Number(qty) > 0)
-      .map(([component_item_id, qty]) => ({
-        component_item_id,
-        quantity_issued: Number(qty),
-      }))
+    const lines = sco.components
+      .map((component) => {
+        const key = `${component.sco_line_id || 'line'}:${component.component_item_id}`
+        const qty = issueLines[key]
+        if (!qty || Number(qty) <= 0) return null
+        return {
+          component_item_id: component.component_item_id,
+          quantity_issued: Number(qty),
+          sco_line_id: component.sco_line_id || undefined,
+        }
+      })
+      .filter((line): line is { component_item_id: string; quantity_issued: number; sco_line_id?: number } => line != null)
 
     if (lines.length === 0) {
       setFormErrors({ issue: 'Enter a quantity for at least one component' })
@@ -263,6 +417,7 @@ export function SubcontractOrderDetail() {
       receipt_date: receiveForm.receipt_date || undefined,
       notes: receiveForm.notes || undefined,
       unit_cost: receiveForm.unit_cost ? Number(receiveForm.unit_cost) : undefined,
+      sco_line_id: receiveForm.sco_line_id ? Number(receiveForm.sco_line_id) : undefined,
     })
   }
 
@@ -271,11 +426,56 @@ export function SubcontractOrderDetail() {
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Subcontract Order Details</h2>
-          <p style={pageSubStyle}>Viewing SCO {sco.sco_number}</p>
+          <p style={pageSubStyle}>
+            Viewing SCO {sco.sco_number}
+            {amendmentNumber > 0 ? ` · Amendment ${amendmentNumber}` : ''}
+          </p>
         </div>
-        <button onClick={() => navigate('/subcontract-orders')} style={secondaryButtonStyle}>
-          Back to Subcontract Orders
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {canAmend && !editingCostSheet && (
+            <button type="button" onClick={() => setShowAmendModal(true)} style={amendButtonStyle}>
+              Amend cost sheet
+            </button>
+          )}
+          {canEditCostSheet && !editingCostSheet && (
+            <button type="button" onClick={enterCostSheetEdit} style={primaryButtonStyle}>
+              Edit cost sheet
+            </button>
+          )}
+          {editingCostSheet && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCostSheet(false)
+                  setFormErrors((prev) => {
+                    const copy = { ...prev }
+                    delete copy.costSheet
+                    return copy
+                  })
+                }}
+                style={secondaryButtonStyle}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveCostSheet}
+                disabled={costSheetMutation.isPending}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: costSheetMutation.isPending ? 0.7 : 1,
+                  cursor: costSheetMutation.isPending ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {costSheetMutation.isPending ? 'Saving…' : 'Save cost sheet'}
+              </button>
+            </>
+          )}
+          <button type="button" onClick={() => navigate('/subcontract-orders')} style={secondaryButtonStyle}>
+            Back to Subcontract Orders
+          </button>
+        </div>
       </header>
 
       <ApprovalPanel
@@ -288,6 +488,38 @@ export function SubcontractOrderDetail() {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
         }}
       />
+
+      {canEditCostSheet && !editingCostSheet && (
+        <div style={draftEditBarStyle}>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Vendor cost sheet
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              {isAmending
+                ? `Amendment ${amendmentNumber} is open. Update labor, shipping, and admin charges, then submit for approval. Linked purchase orders stay. Issue / receive can continue; do not create the subcontractor bill until this amendment is approved.`
+                : `Approval is ${approvalStatus.replace(/_/g, ' ')}. Update labor, shipping, and admin charges before submitting for approval.`}
+            </div>
+          </div>
+          <button type="button" onClick={enterCostSheetEdit} style={primaryButtonStyle}>
+            Edit cost sheet
+          </button>
+        </div>
+      )}
+
+      {isAmending && approvalStatus === 'PENDING_APPROVAL' && (
+        <div style={draftEditBarStyle}>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Cost sheet amendment {amendmentNumber}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              The revised cost sheet is waiting for approval. Linked purchase orders stay.
+              Issue / receive can continue. Create the subcontractor bill after approval.
+            </div>
+          </div>
+        </div>
+      )}
 
       {isApproved && (
         <div style={exportBarStyle}>
@@ -355,6 +587,20 @@ export function SubcontractOrderDetail() {
         </div>
       )}
 
+      {isAmending && (
+        <div style={{ ...draftEditBarStyle, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+              Supplier invoice on hold
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Re-approve amendment {amendmentNumber} before creating the subcontractor bill.
+              Existing bills are not changed automatically.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Order Header Information */}
       <div style={cardStyle}>
         <h3 style={sectionHeadingStyle}>Order Data</h3>
@@ -368,8 +614,56 @@ export function SubcontractOrderDetail() {
             <p style={valueStyle}>{sco.supplier_id}</p>
           </div>
           <div>
+            <label style={labelStyle}>Sales Order</label>
+            <p style={valueStyle}>
+              {sco.sales_order_id ? (
+                <Link
+                  to={`/sales-orders/${encodeURIComponent(sco.sales_order_id)}`}
+                  style={documentLinkStyle}
+                  title={`Open sales order ${sco.sales_order_id}`}
+                >
+                  {sco.sales_order_id}
+                </Link>
+              ) : (
+                '—'
+              )}
+            </p>
+          </div>
+          <div>
+            <label style={labelStyle}>Purchase Order</label>
+            <p style={valueStyle}>
+              {linkedPurchaseOrders.length > 0 ? (
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                  {linkedPurchaseOrders.map((po) => (
+                    <Link
+                      key={po.po_number}
+                      to={`/purchase-orders/${encodeURIComponent(po.po_number)}`}
+                      style={documentLinkStyle}
+                      title={`Open purchase order ${po.po_number}`}
+                    >
+                      {po.po_number}
+                      {po.po_type === 'SUBCONTRACT'
+                        ? ' · Subcontract'
+                        : po.po_type === 'MATERIAL'
+                          ? ' · Material'
+                          : ''}
+                      {po.status ? ` · ${po.status}` : ''}
+                    </Link>
+                  ))}
+                </span>
+              ) : (
+                '—'
+              )}
+            </p>
+          </div>
+          <div>
             <label style={labelStyle}>Product</label>
-            <p style={valueStyle}>{sco.item_id}</p>
+            <p style={valueStyle}>
+              {sco.item_id}
+              {(sco.line_count || sco.lines?.length || 0) > 1
+                ? ` (${sco.line_count || sco.lines?.length} assemblies)`
+                : ''}
+            </p>
           </div>
           <div>
             <label style={labelStyle}>BOM Version</label>
@@ -400,7 +694,10 @@ export function SubcontractOrderDetail() {
           </div>
           <div>
             <label style={labelStyle}>Approval Status</label>
-            <p style={valueStyle}>{(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}</p>
+            <p style={valueStyle}>
+              {(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}
+              {amendmentNumber > 0 ? ` · Amendment ${amendmentNumber}` : ''}
+            </p>
           </div>
           <div>
             <label style={labelStyle}>Order Date</label>
@@ -418,6 +715,114 @@ export function SubcontractOrderDetail() {
           </div>
         </div>
       </div>
+
+      <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ ...sectionHeadingStyle, margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+              Finished assemblies
+            </h3>
+            {canEditCostSheet && !editingCostSheet && (
+              <button type="button" onClick={enterCostSheetEdit} style={primaryButtonStyle}>
+                Edit cost sheet
+              </button>
+            )}
+            {editingCostSheet && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCostSheet(false)
+                    setFormErrors((prev) => {
+                      const copy = { ...prev }
+                      delete copy.costSheet
+                      return copy
+                    })
+                  }}
+                  style={secondaryButtonStyle}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveCostSheet}
+                  disabled={costSheetMutation.isPending}
+                  style={{
+                    ...primaryButtonStyle,
+                    opacity: costSheetMutation.isPending ? 0.7 : 1,
+                    cursor: costSheetMutation.isPending ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {costSheetMutation.isPending ? 'Saving…' : 'Save cost sheet'}
+                </button>
+              </div>
+            )}
+          </div>
+          <p style={{ color: 'var(--muted, #666)', fontSize: 13, margin: '8px 0 12px' }}>
+            {canEditCostSheet
+              ? 'Vendor labor / shipping / admin charges can be updated while this order is Draft or Rejected.'
+              : 'Cost sheet is locked after the subcontract order is submitted for approval.'}
+          </p>
+          {formErrors.costSheet && (
+            <div style={errorAlertStyle}>
+              <span>⚠️ {formErrors.costSheet}</span>
+            </div>
+          )}
+          <table style={tableStyle}>
+            <thead>
+              <tr style={theadRowStyle}>
+                <th style={thStyle}>Line</th>
+                <th style={thStyle}>SO line</th>
+                <th style={thStyle}>Item</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Unit price</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Line total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assemblyLines.map((line) => (
+                <tr key={line.sco_line_id || line.line_number} style={tbodyRowStyle}>
+                  <td style={tdStyle}>{line.line_number}</td>
+                  <td style={tdStyle}>
+                    {sco.sales_order_id && line.so_line_number != null ? (
+                      <Link
+                        to={`/sales-orders/${encodeURIComponent(sco.sales_order_id)}`}
+                        style={documentLinkStyle}
+                        title={`Open sales order ${sco.sales_order_id}`}
+                      >
+                        {line.so_line_number}
+                      </Link>
+                    ) : (
+                      (line.so_line_number ?? '—')
+                    )}
+                  </td>
+                  <td style={tdStyle}>{line.item_id}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_ordered}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(line.unit_price || 0).toFixed(2)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{Number(line.line_total || 0).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {assemblyLines.map((line) => (
+            <div key={`charges-${line.sco_line_id || line.line_number}`} style={{ marginTop: 16 }}>
+              <h4 style={{ margin: '0 0 8px', color: 'var(--text-h)' }}>
+                Vendor cost sheet · {line.item_id}
+              </h4>
+              <ScoCostSheet
+                quantity={line.quantity_ordered}
+                charges={
+                  editingCostSheet
+                    ? draftCharges[line.sco_line_id] || defaultCostSheet()
+                    : line.charges || []
+                }
+                onChange={(charges) =>
+                  setDraftCharges((prev) => ({ ...prev, [line.sco_line_id]: charges }))
+                }
+                readOnly={!editingCostSheet}
+              />
+            </div>
+          ))}
+        </div>
 
       <DocumentAttachmentsPanel documentType="SUBCONTRACT_ORDER" documentId={sco.sco_number} />
 
@@ -454,7 +859,7 @@ export function SubcontractOrderDetail() {
                 </thead>
                 <tbody>
                   {lines.map((c) => (
-                    <tr key={c.component_item_id} style={tbodyRowStyle}>
+                    <tr key={`${c.sco_line_id || 'all'}-${c.component_item_id}`} style={tbodyRowStyle}>
                       <td style={tdStyle}>
                         <div>{c.component_item_id}</div>
                         {c.description && (
@@ -501,7 +906,7 @@ export function SubcontractOrderDetail() {
       <div style={cardStyle}>
         <div style={tableHeaderContainerStyle}>
           <h3 style={sectionHeadingStyleNoBorder}>Material Issues</h3>
-          {isCancellable && isApproved && (
+          {isCancellable && canOperateKit && (
             <button
               type="button"
               onClick={() => setShowIssueForm((v) => !v)}
@@ -512,7 +917,7 @@ export function SubcontractOrderDetail() {
           )}
         </div>
 
-        {isCancellable && !isApproved && (
+        {isCancellable && !canOperateKit && (
           <p style={{ color: '#e65100', fontSize: '13px', marginBottom: '12px' }}>
             Approve this subcontract order before issuing materials.
           </p>
@@ -559,7 +964,7 @@ export function SubcontractOrderDetail() {
               <table style={tableStyle}>
                 <thead>
                   <tr style={theadRowStyle}>
-                    <th style={thStyle}>Component Product ID</th>
+                    <th style={thStyle}>Assembly / Component</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Remaining Required</th>
                     <th style={{ ...thStyle, textAlign: 'right', width: '160px' }}>Qty to Issue</th>
                   </tr>
@@ -569,15 +974,25 @@ export function SubcontractOrderDetail() {
                     const remaining = Number(c.quantity_required) - Number(c.quantity_issued)
                     return (
                       <tr key={c.sco_component_id} style={tbodyRowStyle}>
-                        <td style={tdStyle}>{c.component_item_id}</td>
+                        <td style={tdStyle}>
+                          {c.sco_line_id
+                            ? `Line ${sco.lines?.find((line) => line.sco_line_id === c.sco_line_id)?.line_number ?? ''} · `
+                            : ''}
+                          {c.component_item_id}
+                        </td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{remaining.toFixed(4)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>
                           <input
                             type="number"
                             min="0"
                             step="0.0001"
-                            value={issueLines[c.component_item_id] || ''}
-                            onChange={(e) => handleIssueLineChange(c.component_item_id, e.target.value)}
+                            value={issueLines[`${c.sco_line_id || 'line'}:${c.component_item_id}`] || ''}
+                            onChange={(e) =>
+                              handleIssueLineChange(
+                                `${c.sco_line_id || 'line'}:${c.component_item_id}`,
+                                e.target.value,
+                              )
+                            }
                             style={{ ...inputStyle, width: '140px', textAlign: 'right' }}
                           />
                         </td>
@@ -670,6 +1085,23 @@ export function SubcontractOrderDetail() {
                   placeholder="e.g. RCV-0001"
                 />
               </div>
+              {(sco.lines || []).length > 1 && (
+                <div style={fieldGroupStyle}>
+                  <label style={labelStyle}>Assembly line *</label>
+                  <select
+                    value={receiveForm.sco_line_id}
+                    onChange={(e) => setReceiveForm((prev) => ({ ...prev, sco_line_id: e.target.value }))}
+                    style={inputStyle}
+                  >
+                    <option value="">Select a line</option>
+                    {sco.lines!.map((line) => (
+                      <option key={line.sco_line_id} value={line.sco_line_id}>
+                        Line {line.line_number} · {line.item_id} · qty {line.quantity_ordered}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Quantity Received *</label>
                 <input
@@ -783,6 +1215,24 @@ export function SubcontractOrderDetail() {
           Back to Subcontract Orders
         </button>
       </div>
+
+      {showAmendModal && (
+        <AmendCostSheetModal
+          busy={amendMutation.isPending}
+          error={formErrors.amend}
+          amendmentNumber={amendmentNumber + 1}
+          onClose={() => {
+            if (amendMutation.isPending) return
+            setShowAmendModal(false)
+            setFormErrors((prev) => {
+              const copy = { ...prev }
+              delete copy.amend
+              return copy
+            })
+          }}
+          onConfirm={(comments) => amendMutation.mutate(comments)}
+        />
+      )}
     </div>
   )
 }
@@ -801,6 +1251,71 @@ function getStatusColors(status: string): { bg: string; text: string } {
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
   }
   return statusColors[status] || { bg: '#f5f5f5', text: '#616161' }
+}
+
+function AmendCostSheetModal({
+  busy,
+  error,
+  amendmentNumber,
+  onClose,
+  onConfirm,
+}: {
+  busy: boolean
+  error?: string
+  amendmentNumber: number
+  onClose: () => void
+  onConfirm: (comments: string) => void
+}) {
+  return (
+    <div style={amendOverlayStyle} role="dialog" aria-modal="true" aria-labelledby="amend-sco-title">
+      <form
+        style={amendModalStyle}
+        onSubmit={(event) => {
+          event.preventDefault()
+          const comments = String(new FormData(event.currentTarget).get('comments') || '')
+          onConfirm(comments)
+        }}
+      >
+        <h3 id="amend-sco-title" style={{ margin: '0 0 8px', fontSize: 18, color: 'var(--text-h)' }}>
+          Amend cost sheet
+        </h3>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+          This starts amendment {amendmentNumber} on the same subcontract order. Approval returns to
+          Draft so you can update vendor charges and re-submit. Linked purchase orders stay. Issue
+          and receive can continue. Do not create a new subcontractor bill until the amendment is
+          approved. Existing bills are not changed automatically.
+        </p>
+        <textarea
+          name="comments"
+          rows={4}
+          placeholder="Reason for the cost-sheet change (optional)…"
+          style={amendTextareaStyle}
+          autoFocus
+        />
+        {error && (
+          <p style={{ color: '#c62828', fontSize: 13, margin: '8px 0 0' }} role="alert">
+            {error}
+          </p>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={onClose} disabled={busy} style={secondaryButtonStyle}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              ...amendButtonStyle,
+              opacity: busy ? 0.7 : 1,
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {busy ? 'Opening amendment…' : 'Start amendment'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
 }
 
 const containerStyle: React.CSSProperties = {
@@ -906,6 +1421,12 @@ const valueStyle: React.CSSProperties = {
   fontSize: '14px',
 }
 
+const documentLinkStyle: React.CSSProperties = {
+  color: 'var(--accent)',
+  fontWeight: 600,
+  textDecoration: 'underline',
+}
+
 const inputStyle: React.CSSProperties = {
   padding: '10px 12px',
   borderRadius: '6px',
@@ -969,6 +1490,44 @@ const primaryButtonStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
+const amendButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  backgroundColor: '#ef6c00',
+}
+
+const amendOverlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: 16,
+}
+
+const amendModalStyle: React.CSSProperties = {
+  background: 'var(--bg)',
+  borderRadius: 10,
+  padding: '20px 24px',
+  width: 'min(480px, 100%)',
+  boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+  border: '1px solid var(--border)',
+}
+
+const amendTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: 10,
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  fontFamily: 'inherit',
+  fontSize: 13,
+  resize: 'vertical',
+  backgroundColor: 'var(--bg)',
+  color: 'var(--text-h)',
+}
+
 const exportBarStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -981,6 +1540,21 @@ const exportBarStyle: React.CSSProperties = {
   border: '1px solid rgba(147, 51, 234, 0.28)',
   background:
     'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
+  boxShadow: 'var(--shadow)',
+}
+
+const draftEditBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  padding: '16px 18px',
+  marginBottom: 16,
+  borderRadius: 10,
+  border: '1px solid rgba(25, 118, 210, 0.35)',
+  background:
+    'linear-gradient(135deg, rgba(25, 118, 210, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
   boxShadow: 'var(--shadow)',
 }
 

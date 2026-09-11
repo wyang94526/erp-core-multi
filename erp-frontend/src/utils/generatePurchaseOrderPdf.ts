@@ -86,6 +86,18 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
   doc.text(`Expected Delivery: ${formatDate(po.expected_delivery_date)}`, pageWidth / 2, y)
   y += 14
   doc.text(`Payment Terms: ${(po.payment_terms || '').trim() || '—'}`, marginX, y)
+  doc.text(`Incoterms: ${(po.incoterms || '').trim() || '—'}`, pageWidth / 2, y)
+  y += 14
+  const freightLabel =
+    (po.freight_terms || 'PREPAID_ON_PO') === 'PREPAID_ON_PO'
+      ? 'Prepaid by vendor (on this PO)'
+      : po.freight_terms === 'ROUTING_ACCOUNT'
+        ? 'Routing account (excluded from vendor total)'
+        : '3rd-party / collect (excluded from vendor total)'
+  doc.text(`Freight: ${freightLabel}`, marginX, y)
+  if (po.sco_number) {
+    doc.text(`Linked SCO: ${po.sco_number}`, pageWidth / 2, y)
+  }
   y += 28
 
   // Vendor / Supplier
@@ -114,17 +126,18 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
     po.items?.length > 0
       ? po.items.map((item) => [
           item.sku || '—',
-          itemDescriptions[item.sku]?.trim() || '—',
+          (item.description || itemDescriptions[item.sku] || '').trim() || '—',
+          item.uom || '—',
           formatQty(item.quantity),
           formatMoney(item.unit_price),
           formatPercent(item.tax_rate),
           formatMoney(item.line_subtotal),
         ])
-      : [['—', 'No line items', '—', '—', '—', '—']]
+      : [['—', 'No line items', '—', '—', '—', '—', '—']]
 
   autoTable(doc, {
     startY: y,
-    head: [['Item / SKU', 'Description', 'Quantity', 'Unit Price ($)', 'Tax Rate (%)', 'Line Subtotal ($)']],
+    head: [['Item / SKU', 'Description', 'UOM', 'Quantity', 'Unit Price ($)', 'Tax Rate (%)', 'Line Subtotal ($)']],
     body: lineRows,
     theme: 'grid',
     styles: {
@@ -144,10 +157,10 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
       fillColor: [248, 246, 252],
     },
     columnStyles: {
-      2: { halign: 'right' },
       3: { halign: 'right' },
       4: { halign: 'right' },
-      5: {halign: 'right' },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
     },
     margin: { left: marginX, right: marginX },
   })
@@ -159,15 +172,19 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
   // Order summary
   const summaryWidth = 220
   const summaryX = pageWidth - marginX - summaryWidth
+  const vendorFreight = (po.freight_terms || 'PREPAID_ON_PO') === 'PREPAID_ON_PO'
   const summaryRows: Array<[string, string, boolean?]> = [
     ['Subtotal (Excl. Tax)', formatMoney(po.subtotal)],
     ['Total Tax', formatMoney(po.total_tax)],
-    ['Shipping & Handling', formatMoney(po.shipping_fee)],
+    [
+      vendorFreight ? 'Shipping & Handling' : 'Est. 3rd-Party Freight (not on vendor total)',
+      formatMoney(po.shipping_fee),
+    ],
   ]
   if (Number(po.discount_amount) > 0) {
     summaryRows.push(['Discount', `-${formatMoney(po.discount_amount)}`])
   }
-  summaryRows.push(['Grand Total', formatMoney(po.grand_total), true])
+  summaryRows.push([vendorFreight ? 'Grand Total' : 'Vendor Invoice Total', formatMoney(po.grand_total), true])
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)

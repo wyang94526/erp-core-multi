@@ -362,6 +362,15 @@ export function SalesOrderDetail() {
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <button
           type="button"
+          onClick={() =>
+            navigate(`/subcontract-orders/new?sales_order_id=${encodeURIComponent(order.sales_order_id)}`)
+          }
+          style={{ ...primaryButtonStyle, backgroundColor: '#6a1b9a' }}
+        >
+          Create Subcontract Order
+        </button>
+        <button
+          type="button"
           onClick={() => navigate(`/sales-orders/${id}/fulfill`)}
           style={{
             ...primaryButtonStyle,

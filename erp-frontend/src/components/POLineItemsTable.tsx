@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Item, ItemBOMHeader, PurchaseOrderItem } from '../types';
-import { itemBomService } from '../api/services';
+import { itemBomService, itemService } from '../api/services';
 import ItemLookup from './ItemLookup';
+import { ImportScoComponentsDialog } from './ImportScoComponentsDialog';
 
 interface POLineItemsTableProps {
   items: PurchaseOrderItem[];
@@ -15,6 +16,10 @@ interface POLineItemsTableProps {
   clearAllRows: () => void;
   isReadOnly: boolean;
   errors: Record<string, string>;
+  scoNumber?: string | null;
+  supplierId?: string;
+  excludePoNumber?: string;
+  onImportComponents?: (rows: PurchaseOrderItem[], replaceAll: boolean) => void;
 }
 
 function BomHeaderSelect({
@@ -74,6 +79,10 @@ export function POLineItemsTable({
   clearAllRows,
   isReadOnly,
   errors,
+  scoNumber,
+  supplierId,
+  excludePoNumber,
+  onImportComponents,
 }: POLineItemsTableProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -93,16 +102,36 @@ export function POLineItemsTable({
   };
 
   const isSubcontract = poType === 'SUBCONTRACT';
+  const canImportComponents = poType === 'MATERIAL' && Boolean(scoNumber) && !isReadOnly;
+  const [importOpen, setImportOpen] = useState(false);
 
   const handleItemSelect = (rowId: string, catalog: Item | null) => {
     const fields: Partial<PurchaseOrderItem> = {
       sku: catalog?.item_id || '',
+      description: catalog?.description || '',
+      uom: catalog?.uom || '',
       bom_header_id: null,
+      sco_component_id: null,
     };
-    if (catalog?.unit_price != null) {
+    if (catalog?.unit_price != null && Number(catalog.unit_price) > 0) {
       fields.unit_price = Number(catalog.unit_price);
     }
     updateRowFields(rowId, fields);
+    if (catalog?.item_id) {
+      void itemService.listItemVendors(catalog.item_id).then((mappings) => {
+        const forVendor = supplierId
+          ? mappings.find((row) => row.supplier_id === supplierId && Number(row.unit_cost) > 0)
+          : undefined;
+        const priced =
+          forVendor ||
+          mappings.find((row) => row.is_primary_vendor && Number(row.unit_cost) > 0) ||
+          mappings.find((row) => Number(row.unit_cost) > 0);
+        const cost = Number(priced?.unit_cost);
+        if (Number.isFinite(cost) && cost > 0) {
+          updateRowFields(rowId, { unit_price: cost });
+        }
+      }).catch(() => undefined);
+    }
     if (isSubcontract && catalog?.item_id) {
       void itemBomService.listHeaders(catalog.item_id).then((headers) => {
         const active = headers.find((header) => String(header.status).toLowerCase() === 'active') || headers[0];
@@ -119,6 +148,25 @@ export function POLineItemsTable({
         <h3 style={sectionHeadingStyle}>Line Items</h3>
         {!isReadOnly && (
           <div style={tableActionGroupStyle}>
+            {poType === 'MATERIAL' && (
+              <button
+                type="button"
+                onClick={() => setImportOpen(true)}
+                disabled={!canImportComponents}
+                title={
+                  scoNumber
+                    ? 'Import remaining subcontract components'
+                    : 'Link a subcontract order to import components'
+                }
+                style={{
+                  ...addButtonStyle,
+                  backgroundColor: canImportComponents ? '#2e7d32' : '#9e9e9e',
+                  cursor: canImportComponents ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Import Subcontract Components
+              </button>
+            )}
             <button
               type="button"
               onClick={clearAllRows}
@@ -148,6 +196,7 @@ export function POLineItemsTable({
               <th style={{ ...thStyle, width: '40px' }}>#</th>
               <th style={thStyle}>{isSubcontract ? 'Assembly / Part No. *' : 'Item / Part No. *'}</th>
               {isSubcontract && <th style={{ ...thStyle, width: '180px' }}>BOM Version</th>}
+              {!isSubcontract && <th style={{ ...thStyle, width: '80px' }}>UOM</th>}
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
               <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Unit Price ($) *</th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
@@ -187,6 +236,9 @@ export function POLineItemsTable({
                         {errors[`sku_${item.id}`] && (
                           <span style={errorTextStyle}>{errors[`sku_${item.id}`]}</span>
                         )}
+                        {item.description ? (
+                          <span style={{ fontSize: 11, color: '#666', marginTop: 4 }}>{item.description}</span>
+                        ) : null}
                       </div>
                     )}
                   </td>
@@ -198,6 +250,12 @@ export function POLineItemsTable({
                         disabled={isReadOnly}
                         onChange={(headerId) => updateRow(item.id, 'bom_header_id', headerId)}
                       />
+                    </td>
+                  )}
+
+                  {!isSubcontract && (
+                    <td style={tdStyle}>
+                      <div style={readOnlyCellText}>{item.uom || products.find((p) => p.item_id === item.sku)?.uom || '—'}</div>
                     </td>
                   )}
 
@@ -320,6 +378,18 @@ export function POLineItemsTable({
         <div style={emptyStateStyle}>
           No items added. Click "+ Add Item Row" to add a purchase line item.
         </div>
+      )}
+
+      {onImportComponents && (
+        <ImportScoComponentsDialog
+          open={importOpen}
+          scoNumber={scoNumber || ''}
+          supplierId={supplierId}
+          excludePoNumber={excludePoNumber}
+          products={products}
+          onClose={() => setImportOpen(false)}
+          onImport={onImportComponents}
+        />
       )}
     </div>
   );

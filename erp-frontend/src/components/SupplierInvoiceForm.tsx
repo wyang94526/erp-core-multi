@@ -65,7 +65,10 @@ export function SupplierInvoiceForm() {
         source_order_id: sourceOrderId,
         vendor_invoice_number: vendorInvoiceNumber || null,
         invoice_date: invoiceDate || null,
-        freight_amount: poQuery.data?.shipping_fee ?? null,
+        freight_amount:
+          poQuery.data && (poQuery.data.freight_terms || 'PREPAID_ON_PO') !== 'PREPAID_ON_PO'
+            ? 0
+            : poQuery.data?.shipping_fee ?? null,
         tax_amount: poQuery.data?.total_tax ?? null,
         lines,
       })

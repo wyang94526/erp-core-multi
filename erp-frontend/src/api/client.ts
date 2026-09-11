@@ -98,16 +98,27 @@ async function request<T>(
     (defaultHeaders as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
+  const signal =
+    fetchOptions.signal ??
+    (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(45_000)
+      : undefined);
+
   let response: Response;
   try {
     response = await fetch(url, {
       ...fetchOptions,
+      signal,
       headers: {
         ...defaultHeaders,
         ...fetchOptions.headers,
       },
     });
   } catch (err) {
+    const name = err instanceof DOMException || err instanceof Error ? err.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      throw new Error('The server took too long to respond. Try again, or save as Draft first.');
+    }
     const message =
       err instanceof TypeError
         ? 'Cannot reach the API. Check that the backend is running (port 8000).'

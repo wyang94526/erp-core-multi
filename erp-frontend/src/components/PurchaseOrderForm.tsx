@@ -5,6 +5,7 @@ import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
+import { requiresCarrierAccount } from '../data/orderOptions';
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
@@ -12,18 +13,26 @@ import { POSummaryCard } from './POSummaryCard';
 import { POActionToolbar } from './POActionToolbar';
 import { ApprovalPanel } from './ApprovalPanel';
 
+function roundTo(value: number, places: number) {
+  const factor = 10 ** places;
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
+}
+
 function toApiItems(items: PurchaseOrder['items']) {
   return items
     .filter((item) => item.sku && item.sku.trim() && item.quantity > 0)
-    .map(({ sku, bom_header_id, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
+    .map(({ sku, description, uom, bom_header_id, sco_component_id, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
       sku,
+      description: description ? String(description).slice(0, 255) : null,
+      uom: uom ? String(uom).slice(0, 20) : null,
       bom_header_id: bom_header_id || null,
-      quantity,
-      unit_price,
-      tax_rate,
-      line_subtotal,
-      line_tax,
-      line_total,
+      sco_component_id: sco_component_id || null,
+      quantity: roundTo(quantity, 4),
+      unit_price: roundTo(unit_price, 4),
+      tax_rate: roundTo(tax_rate, 3),
+      line_subtotal: roundTo(line_subtotal, 2),
+      line_tax: roundTo(line_tax, 2),
+      line_total: roundTo(line_total, 2),
     }));
 }
 
@@ -41,6 +50,9 @@ function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
     shipping_fee: state.shipping_fee,
     discount_type: state.discount_type,
     discount_value: state.discount_value,
+    incoterms: state.incoterms || null,
+    freight_terms: state.freight_terms || 'PREPAID_ON_PO',
+    carrier_account: state.carrier_account || null,
     subtotal: state.subtotal,
     total_tax: state.total_tax,
     discount_amount: state.discount_amount,
@@ -85,6 +97,8 @@ export function PurchaseOrderForm() {
     updateRowFields,
     deleteRow,
     clearAllRows,
+    mergeImportedRows,
+    clearImportedRows,
     updateSummary,
     setFullPO,
     resetForm,
@@ -109,12 +123,8 @@ export function PurchaseOrderForm() {
   };
 
   const loadReferenceData = async () => {
-    const [sups, scos] = await Promise.all([
-      vendorService.listVendors(),
-      subcontractOrderService.listSubcontractOrders(0, 500).catch(() => [] as SubcontractOrder[]),
-    ]);
+    const sups = await vendorService.listVendors();
     setSuppliers(sups);
-    setSubcontractOrders(scos);
     return sups;
   };
 
@@ -176,6 +186,21 @@ export function PurchaseOrderForm() {
     };
   }, [state.po_type]);
 
+  useEffect(() => {
+    if ((state.po_type || 'MATERIAL') !== 'SUBCONTRACT') return;
+    if (subcontractOrders.length > 0) return;
+    let cancelled = false;
+    void subcontractOrderService
+      .listSubcontractOrders(0, 200)
+      .then((rows) => {
+        if (!cancelled) setSubcontractOrders(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [state.po_type, subcontractOrders.length]);
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
@@ -195,6 +220,10 @@ export function PurchaseOrderForm() {
       new Date(state.order_date) > new Date(state.expected_delivery_date)
     ) {
       newErrors.expected_delivery_date = 'Expected delivery date must be on or after Order Date';
+    }
+
+    if (requiresCarrierAccount(state.freight_terms) && !(state.carrier_account || '').trim()) {
+      newErrors.carrier_account = 'Carrier / 3PL account is required for 3rd-party or routing freight';
     }
 
     if (state.items.length === 0) {
@@ -294,10 +323,10 @@ export function PurchaseOrderForm() {
 
     try {
       const saved = await persistPO('Draft');
-      setIsExisting(true);
       await approvalService.submit('purchase-orders', saved.po_number);
       const refreshed = await purchaseOrderService.getPurchaseOrder(saved.po_number);
       setFullPO(withSupplierName(refreshed, suppliers));
+      setIsExisting(true);
       setErrors({});
       setSuccessMessage(
         `Purchase order ${saved.po_number} submitted for approval successfully!`
@@ -480,8 +509,7 @@ export function PurchaseOrderForm() {
         </div>
       )}
 
-      {!errors.form && (
-        <>
+      <>
           <POActionToolbar
             isReadOnly={isReadOnly}
             onToggleMode={handleToggleMode}
@@ -597,6 +625,8 @@ export function PurchaseOrderForm() {
                   suppliers={suppliers}
                   subcontractOrders={subcontractOrders}
                   errors={errors}
+                  hasImportedLines={state.items.some((item) => Boolean(item.sco_component_id))}
+                  onClearImportedLines={clearImportedRows}
                 />
               </div>
               <div style={summaryColumnStyle}>
@@ -619,6 +649,10 @@ export function PurchaseOrderForm() {
               clearAllRows={clearAllRows}
               isReadOnly={isReadOnly}
               errors={errors}
+              scoNumber={state.sco_number}
+              supplierId={state.supplier_id}
+              excludePoNumber={isExisting ? state.po_number : undefined}
+              onImportComponents={mergeImportedRows}
             />
 
             <div style={notesCardStyle}>
@@ -644,7 +678,6 @@ export function PurchaseOrderForm() {
             />
           </div>
         </>
-      )}
     </div>
   );
 }

@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import type { SubcontractOrder, Supplier } from '../types';
+import { useQuery } from '@tanstack/react-query';
+import type { EligibleMaterialPoSco, SubcontractOrder, Supplier } from '../types';
 import type { POFormState } from '../hooks/usePurchaseOrderState';
-import { PO_TYPE_OPTIONS } from '../data/orderOptions';
+import {
+  FREIGHT_PAYMENT_TERMS_OPTIONS,
+  INCOTERM_OPTIONS,
+  PO_TYPE_OPTIONS,
+  requiresCarrierAccount,
+  withCurrentOption,
+} from '../data/orderOptions';
+import { subcontractOrderService } from '../api/services';
+import { SubcontractOrderLookup } from './SubcontractOrderLookup';
 
 interface POHeaderProps {
   state: POFormState;
@@ -11,6 +20,8 @@ interface POHeaderProps {
   suppliers: Supplier[];
   subcontractOrders?: SubcontractOrder[];
   errors: Record<string, string>;
+  hasImportedLines?: boolean;
+  onClearImportedLines?: () => void;
 }
 
 export function POHeader({
@@ -20,12 +31,17 @@ export function POHeader({
   suppliers,
   subcontractOrders = [],
   errors,
+  hasImportedLines = false,
+  onClearImportedLines,
 }: POHeaderProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [purchaseForSco, setPurchaseForSco] = useState(Boolean(state.sco_number));
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Sync search term with state.supplier_id/supplier_name on load or when state changes
+  useEffect(() => {
+    if (state.sco_number) setPurchaseForSco(true);
+  }, [state.sco_number]);
   useEffect(() => {
     if (state.supplier_id) {
       const matched = suppliers.find((s) => s.supplier_id === state.supplier_id);
@@ -58,11 +74,33 @@ export function POHeader({
   const handleSupplierSelect = (supplier: Supplier) => {
     setHeader('supplier_id', supplier.supplier_id);
     setHeader('supplier_name', supplier.company_name);
+    if (!state.incoterms && supplier.incoterms) {
+      setHeader('incoterms', supplier.incoterms);
+    }
     setSearchTerm(supplier.company_name);
     setShowDropdown(false);
   };
 
+  const confirmScoChange = (nextSco: string) => {
+    if (hasImportedLines && state.sco_number && nextSco !== state.sco_number) {
+      const ok = window.confirm(
+        'Changing the linked subcontract order will remove imported component lines. Continue?'
+      );
+      if (!ok) return false;
+      onClearImportedLines?.();
+    }
+    return true;
+  };
+
+  const handleMaterialScoSelect = (sco: EligibleMaterialPoSco | null) => {
+    const next = sco?.sco_number || '';
+    if (!confirmScoChange(next)) return;
+    setHeader('sco_number', next);
+    if (!next) setPurchaseForSco(false);
+  };
+
   const handleScoSelect = (scoNumber: string) => {
+    if (!confirmScoChange(scoNumber)) return;
     setHeader('sco_number', scoNumber);
     if (!scoNumber) {
       setHeader('bom_header_id', null);
@@ -114,6 +152,16 @@ export function POHeader({
   };
 
   const statusColors = getStatusColor(state.status);
+  const showCarrier = requiresCarrierAccount(state.freight_terms);
+  const { data: linkedSco } = useQuery({
+    queryKey: ['po-linked-sco', state.sco_number],
+    queryFn: () => subcontractOrderService.getSubcontractOrder(state.sco_number!),
+    enabled: Boolean(state.sco_number) && (state.po_type || 'MATERIAL') === 'MATERIAL',
+  });
+  const linkedSubcontractor =
+    linkedSco &&
+    (suppliers.find((s) => s.supplier_id === linkedSco.supplier_id)?.company_name ||
+      linkedSco.supplier_id);
 
   return (
     <div style={containerStyle}>
@@ -162,11 +210,80 @@ export function POHeader({
           )}
         </div>
 
+        {(state.po_type || 'MATERIAL') === 'MATERIAL' && (
+          <div style={{ ...fieldGroupStyle, gridColumn: '1 / -1' }}>
+            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={purchaseForSco}
+                disabled={isReadOnly}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  if (!checked && state.sco_number) {
+                    if (!confirmScoChange('')) return;
+                    setHeader('sco_number', '');
+                  }
+                  setPurchaseForSco(checked);
+                }}
+              />
+              Purchase for Subcontract Order (外發加工單)
+            </label>
+            {purchaseForSco && (
+              <div style={{ marginTop: 10 }}>
+                <label style={labelStyle} htmlFor="material_sco_number">
+                  Linked Subcontract Order
+                </label>
+                {isReadOnly ? (
+                  <LinkedSubcontractOrderValue scoNumber={state.sco_number} />
+                ) : (
+                  <SubcontractOrderLookup
+                    value={state.sco_number || ''}
+                    onSelect={handleMaterialScoSelect}
+                    error={Boolean(errors.sco_number)}
+                  />
+                )}
+                {errors.sco_number && <span style={errorTextStyle}>{errors.sco_number}</span>}
+                {state.sco_number && linkedSco && (
+                  <div style={metaCardStyle}>
+                    <div>
+                      <span style={metaLabel}>Subcontractor</span>
+                      <div>{linkedSubcontractor}</div>
+                    </div>
+                    <div>
+                      <span style={metaLabel}>Target FG SKU</span>
+                      <div>
+                        {linkedSco.item_id}
+                        {linkedSco.lines?.[0]?.item_id && linkedSco.lines.length > 1
+                          ? ` (+${linkedSco.lines.length - 1} more)`
+                          : ''}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={metaLabel}>Target return date</span>
+                      <div>{linkedSco.expected_return_date || '—'}</div>
+                    </div>
+                    <div>
+                      <span style={metaLabel}>Status</span>
+                      <div>{linkedSco.status}</div>
+                    </div>
+                  </div>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 6 }}>
+                  Vendor on this PO is the material supplier, not the subcontractor.{' '}
+                  <Link to="/subcontract-orders/new" style={{ color: 'var(--accent)' }}>
+                    Create 外發加工單
+                  </Link>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {state.po_type === 'SUBCONTRACT' && (
           <div style={fieldGroupStyle}>
             <label style={labelStyle} htmlFor="sco_number">Linked Subcontract Order (外發加工單)</label>
             {isReadOnly ? (
-              <div style={readOnlyValueStyle}>{state.sco_number || 'Not linked'}</div>
+              <LinkedSubcontractOrderValue scoNumber={state.sco_number} />
             ) : (
               <select
                 id="sco_number"
@@ -306,6 +423,77 @@ export function POHeader({
           )}
         </div>
 
+        <div style={fieldGroupStyle}>
+          <label style={labelStyle} htmlFor="incoterms">Incoterms</label>
+          {isReadOnly ? (
+            <div style={readOnlyValueStyle}>{state.incoterms || '—'}</div>
+          ) : (
+            <select
+              id="incoterms"
+              value={state.incoterms || ''}
+              onChange={(e) => setHeader('incoterms', e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Select incoterms</option>
+              {withCurrentOption(INCOTERM_OPTIONS, state.incoterms).map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div style={fieldGroupStyle}>
+          <label style={labelStyle} htmlFor="freight_terms">Freight Payment Terms</label>
+          {isReadOnly ? (
+            <div style={readOnlyValueStyle}>
+              {FREIGHT_PAYMENT_TERMS_OPTIONS.find((opt) => opt.value === state.freight_terms)?.label ||
+                state.freight_terms ||
+                'Prepaid by Vendor & Added to PO'}
+            </div>
+          ) : (
+            <select
+              id="freight_terms"
+              value={state.freight_terms || 'PREPAID_ON_PO'}
+              onChange={(e) => setHeader('freight_terms', e.target.value)}
+              style={inputStyle}
+            >
+              {FREIGHT_PAYMENT_TERMS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 6 }}>
+            {FREIGHT_PAYMENT_TERMS_OPTIONS.find((opt) => opt.value === (state.freight_terms || 'PREPAID_ON_PO'))
+              ?.hint}
+          </span>
+        </div>
+
+        {showCarrier && (
+          <div style={fieldGroupStyle}>
+            <label style={labelStyle} htmlFor="carrier_account">Carrier / 3PL Account #</label>
+            {isReadOnly ? (
+              <div style={readOnlyValueStyle}>{state.carrier_account || '—'}</div>
+            ) : (
+              <input
+                id="carrier_account"
+                type="text"
+                value={state.carrier_account || ''}
+                onChange={(e) => setHeader('carrier_account', e.target.value)}
+                placeholder="Account billed by the carrier / 3PL"
+                style={{
+                  ...inputStyle,
+                  border: errors.carrier_account ? '1px solid #f44336' : '1px solid var(--border)',
+                }}
+              />
+            )}
+            {errors.carrier_account && <span style={errorTextStyle}>{errors.carrier_account}</span>}
+          </div>
+        )}
+
         {/* Status Badge */}
         <div style={fieldGroupStyle}>
           <label style={labelStyle}>PO Status</label>
@@ -346,6 +534,24 @@ export function POHeader({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LinkedSubcontractOrderValue({ scoNumber }: { scoNumber?: string | null }) {
+  const value = (scoNumber || '').trim();
+  if (!value) {
+    return <div style={readOnlyValueStyle}>Not linked</div>;
+  }
+  return (
+    <div style={readOnlyValueStyle}>
+      <Link
+        to={`/subcontract-orders/${encodeURIComponent(value)}`}
+        style={scoLinkStyle}
+        title={`Open subcontract order ${value}`}
+      >
+        {value}
+      </Link>
     </div>
   );
 }
@@ -416,6 +622,12 @@ const readOnlyValueStyle: React.CSSProperties = {
   alignItems: 'center',
 };
 
+const scoLinkStyle: React.CSSProperties = {
+  color: 'var(--accent)',
+  fontWeight: 600,
+  textDecoration: 'underline',
+};
+
 const dropdownListStyle: React.CSSProperties = {
   position: 'absolute',
   top: '100%',
@@ -444,4 +656,24 @@ const errorTextStyle: React.CSSProperties = {
   fontSize: '12px',
   marginTop: '4px',
   fontWeight: '500',
+};
+
+const metaCardStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+  gap: 12,
+  marginTop: 10,
+  padding: 12,
+  borderRadius: 8,
+  backgroundColor: 'var(--social-bg)',
+  border: '1px solid var(--border)',
+  fontSize: 13,
+};
+
+const metaLabel: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  color: 'var(--text)',
+  marginBottom: 2,
+  fontWeight: 600,
 };

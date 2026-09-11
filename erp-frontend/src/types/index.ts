@@ -195,6 +195,7 @@ export interface SubcontractBOM {
 export interface CalculatedComponentLine {
   component_item_id: string;
   description?: string | null;
+  uom?: string | null;
   quantity_per: number;
   scrap_factor: number;
   yield_loss_percentage: number;
@@ -202,9 +203,105 @@ export interface CalculatedComponentLine {
   quantity_issued: number;
   quantity_remaining: number;
   on_hand_quantity: number;
+  available_to_promise?: number;
+  stock_shortfall?: number;
   primary_vendor_id?: string | null;
   primary_vendor_sku?: string | null;
   unit_cost?: number | null;
+  sco_line_id?: number | null;
+  notes?: string | null;
+  is_overridden?: boolean;
+}
+
+export interface SubcontractCharge {
+  sco_charge_id?: number | null;
+  sco_line_id?: number | null;
+  line_no: number;
+  name: string;
+  detail_explanation?: string | null;
+  labor_minutes?: number | null;
+  sf_rate?: number | null;
+  cost_per_unit: number;
+  margin_percent?: number | null;
+  is_margin: boolean;
+}
+
+export interface SubcontractOrderLine {
+  sco_line_id: number;
+  sco_number: string;
+  line_number: number;
+  so_item_id?: number | null;
+  so_line_number?: number | null;
+  item_id: string;
+  bom_header_id?: number | null;
+  bom_version_no?: number | null;
+  quantity_ordered: number;
+  unit_price: number;
+  margin_percent?: number;
+  margin_amount?: number;
+  cost_subtotal?: number;
+  tax_exempt?: boolean;
+  tax_amount?: number;
+  line_total: number;
+  notes?: string | null;
+  components: SubcontractOrderComponent[];
+  charges: SubcontractCharge[];
+}
+
+export interface EligibleSalesOrder {
+  sales_order_id: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  customer_po_number?: string | null;
+  order_date?: string | null;
+  status?: string | null;
+  approval_status?: string | null;
+  open_line_count: number;
+}
+
+export interface SalesOrderSubcontractLine {
+  so_item_id: number;
+  line_number: number;
+  item_id: string;
+  item_description?: string | null;
+  customer_part_number?: string | null;
+  quantity_ordered: number;
+  quantity_subcontracted: number;
+  quantity_remaining: number;
+  has_active_bom: boolean;
+  active_bom_header_id?: number | null;
+  active_bom_version_no?: number | null;
+  bom_status?: string | null;
+  is_subcontract_assembly?: boolean;
+}
+
+export interface PreviewComponentLine {
+  so_item_id?: number | null;
+  item_id: string;
+  quantity_ordered: number;
+  bom_header_id?: number | null;
+  bom_header_id_resolved?: number | null;
+  bom_version_no?: number | null;
+  bom_status?: string | null;
+  quantity_remaining_on_so_line?: number | null;
+  charges: SubcontractCharge[];
+  unit_price: number;
+  line_total: number;
+  components: CalculatedComponentLine[];
+}
+
+export interface PreviewComponentsResponse {
+  can_create: boolean;
+  warnings: Array<{
+    code: string;
+    message: string;
+    so_item_id?: number;
+    item_id?: string;
+    component_item_id?: string;
+  }>;
+  default_charges: SubcontractCharge[];
+  lines: PreviewComponentLine[];
+  consolidated_components: CalculatedComponentLine[];
 }
 
 export interface CalculateComponentsResponse {
@@ -212,6 +309,7 @@ export interface CalculateComponentsResponse {
   assembly_item_id: string;
   quantity_ordered: number;
   components: CalculatedComponentLine[];
+  lines?: PreviewComponentLine[];
 }
 
 
@@ -430,7 +528,10 @@ export type Vendor = Supplier;
 export interface PurchaseOrderItem {
   id: string; // React-friendly unique row id (maps to backend item_id)
   sku: string;
+  description?: string | null;
+  uom?: string | null;
   bom_header_id?: number | null;
+  sco_component_id?: number | null;
   quantity: number;
   unit_price: number;
   tax_rate: number; // e.g., 5 for 5%
@@ -438,6 +539,8 @@ export interface PurchaseOrderItem {
   line_tax: number; // line_subtotal * (tax_rate / 100)
   line_total: number; // line_subtotal + line_tax
 }
+
+export type FreightPaymentTerms = 'PREPAID_ON_PO' | 'THIRD_PARTY_COLLECT' | 'ROUTING_ACCOUNT';
 
 export interface PurchaseOrder {
   po_number: string;
@@ -457,11 +560,46 @@ export interface PurchaseOrder {
   shipping_fee: number;
   discount_type: 'percentage' | 'fixed';
   discount_value: number;
+  incoterms?: string | null;
+  freight_terms?: FreightPaymentTerms;
+  carrier_account?: string | null;
   subtotal: number;
   total_tax: number;
   discount_amount: number;
   grand_total: number;
   notes?: string;
+}
+
+export interface EligibleMaterialPoSco {
+  sco_number: string;
+  supplier_id: string;
+  supplier_name?: string | null;
+  item_id: string;
+  fg_description?: string | null;
+  expected_return_date?: string | null;
+  status: string;
+  quantity_ordered: number;
+  open_component_line_count: number;
+}
+
+export interface UnfulfilledScoComponent {
+  sco_component_id: number;
+  sco_line_id?: number | null;
+  component_item_id: string;
+  description?: string | null;
+  uom?: string | null;
+  quantity_required: number;
+  quantity_already_ordered: number;
+  quantity_on_draft_pos: number;
+  quantity_remaining: number;
+  unit_cost?: number | null;
+  price_source?:
+    | 'VENDOR_MAPPING'
+    | 'PRIMARY_VENDOR'
+    | 'LAST_PO_VENDOR'
+    | 'LAST_PO'
+    | 'CATALOG'
+    | 'NONE';
 }
 
 // ==========================================
@@ -496,14 +634,19 @@ export interface ProductBOMComponent {
 export interface SubcontractOrderComponent {
   sco_component_id: number;
   sco_number: string;
+  sco_line_id?: number | null;
   component_item_id: string;
   quantity_required: number;
+  quantity_required_bom?: number | null;
   quantity_issued: number;
+  is_overridden?: boolean;
+  notes?: string | null;
 }
 
 export interface MaterialIssueLine {
   issue_line_id: number;
   issue_id: string;
+  sco_line_id?: number | null;
   component_item_id: string;
   quantity_issued: number;
 }
@@ -520,6 +663,7 @@ export interface MaterialIssue {
 export interface FinishedGoodsReceipt {
   receipt_id: string;
   sco_number: string;
+  sco_line_id?: number | null;
   quantity_received: number;
   receipt_date: string;
   notes: string | null;
@@ -537,19 +681,24 @@ export type SubcontractOrderStatus =
 export interface SubcontractOrder {
   sco_number: string;
   supplier_id: string;
+  sales_order_id?: string | null;
   item_id: string;
   bom_header_id?: number | null;
   bom_version_no?: number | null;
   quantity_ordered: number;
   unit_price?: number;
+  document_total?: number;
+  line_count?: number;
   status: SubcontractOrderStatus | string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  amendment_number?: number;
   billing_status?: string;
   order_date: string;
   expected_return_date: string | null;
   notes: string | null;
   created_at: string;
+  lines?: SubcontractOrderLine[];
   components: SubcontractOrderComponent[];
   material_issues: MaterialIssue[];
   finished_goods_receipts: FinishedGoodsReceipt[];

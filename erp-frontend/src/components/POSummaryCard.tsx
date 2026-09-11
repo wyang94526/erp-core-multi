@@ -1,5 +1,6 @@
 import React from 'react';
 import type { POFormState } from '../hooks/usePurchaseOrderState';
+import { includesVendorFreight } from '../data/orderOptions';
 
 interface POSummaryCardProps {
   state: POFormState;
@@ -15,26 +16,26 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
     }).format(value);
   };
 
+  const vendorFreight = includesVendorFreight(state.freight_terms);
+  const shippingLabel = vendorFreight ? 'Shipping & Handling:' : 'Estimated 3rd-Party Freight:';
+
   return (
     <div style={containerStyle}>
       <h3 style={sectionHeadingStyle}>Order Summary</h3>
 
       <div style={totalsListStyle}>
-        {/* Subtotal */}
         <div style={rowStyle}>
           <span style={labelStyle}>Line Subtotal (Excl. Tax):</span>
           <span style={valueStyle}>{formatCurrency(state.subtotal)}</span>
         </div>
 
-        {/* Total Tax */}
         <div style={rowStyle}>
           <span style={labelStyle}>Total Tax:</span>
           <span style={valueStyle}>{formatCurrency(state.total_tax)}</span>
         </div>
 
-        {/* Shipping & Handling Fee */}
-        <div style={rowStyle}>
-          <span style={labelStyle}>Shipping & Handling:</span>
+        <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
+          <span style={labelStyle}>{shippingLabel}</span>
           {isReadOnly ? (
             <span style={valueStyle}>{formatCurrency(state.shipping_fee)}</span>
           ) : (
@@ -42,7 +43,7 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
               <span style={prefixStyle}>$</span>
               <input
                 type="number"
-                aria-label="Shipping & Handling Fee"
+                aria-label={vendorFreight ? 'Shipping & Handling Fee' : 'Estimated 3rd-Party Freight'}
                 min="0"
                 step="0.01"
                 value={state.shipping_fee === 0 ? '' : state.shipping_fee}
@@ -53,8 +54,14 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
             </div>
           )}
         </div>
+        {vendorFreight ? (
+          <div style={hintStyle}>Billed by this vendor on their invoice.</div>
+        ) : (
+          <div style={badgeStyle}>
+            Paid directly to 3PL / Carrier — Excluded from Vendor Invoice Total
+          </div>
+        )}
 
-        {/* Optional Discount Type & Value */}
         <div style={rowStyle}>
           <span style={labelStyle}>Discount Option:</span>
           {isReadOnly ? (
@@ -90,7 +97,6 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
           )}
         </div>
 
-        {/* Discount Amount Saved */}
         {state.discount_amount > 0 && (
           <div style={{ ...rowStyle, color: '#2e7d32' }}>
             <span style={{ ...labelStyle, color: '#2e7d32' }}>Discount Saved:</span>
@@ -98,9 +104,8 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
           </div>
         )}
 
-        {/* Grand Total */}
         <div style={grandTotalRowStyle}>
-          <span>Grand Total:</span>
+          <span>{vendorFreight ? 'Grand Total:' : 'Vendor Invoice Total:'}</span>
           <span style={grandTotalValueStyle}>{formatCurrency(state.grand_total)}</span>
         </div>
       </div>
@@ -108,7 +113,6 @@ export function POSummaryCard({ state, updateSummary, isReadOnly }: POSummaryCar
   );
 }
 
-// Styling definitions
 const containerStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -151,6 +155,23 @@ const labelStyle: React.CSSProperties = {
 const valueStyle: React.CSSProperties = {
   color: 'var(--text-h)',
   fontWeight: '600',
+};
+
+const hintStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--text)',
+  marginTop: -6,
+};
+
+const badgeStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#e65100',
+  background: '#fff3e0',
+  border: '1px solid #ffe0b2',
+  borderRadius: 6,
+  padding: '6px 8px',
+  marginTop: -4,
 };
 
 const inputContainerStyle: React.CSSProperties = {

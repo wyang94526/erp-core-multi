@@ -163,7 +163,7 @@ BEGIN
         SELECT 1 FROM pg_constraint WHERE conname = 'chk_approval_audit_action'
     ) THEN
         ALTER TABLE approval_audit_log ADD CONSTRAINT chk_approval_audit_action
-            CHECK (action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED'));
+            CHECK (action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED'));
     END IF;
 END $$;
 

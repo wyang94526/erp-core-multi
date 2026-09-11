@@ -120,7 +120,12 @@ def _po_amount(doc: PurchaseOrder) -> Decimal:
 
 
 def _sco_amount(doc: SubcontractOrder) -> Decimal:
-    return Decimal(str(doc.quantity_ordered or 0))
+    total = getattr(doc, "document_total", None)
+    if total is not None:
+        return Decimal(str(total or 0))
+    return (Decimal(str(doc.unit_price or 0)) * Decimal(str(doc.quantity_ordered or 0))).quantize(
+        Decimal("0.01")
+    )
 
 
 def _ar_amount(doc: ARInvoice) -> Decimal:
@@ -623,3 +628,40 @@ def require_approved(doc: Any, label: str = "Document") -> None:
             status_code=400,
             detail=f"{label} must be APPROVED before this action (current: {status_val})",
         )
+
+
+def amend_subcontract_order(
+    db: Session,
+    document_id: str,
+    user: User,
+    comments: str | None = None,
+) -> dict[str, Any]:
+    """Reopen an approved SCO to Draft so the vendor cost sheet can be revised."""
+    from app.services.subcontract import assert_can_amend_cost_sheet
+
+    canonical = "SUBCONTRACT_ORDER"
+    _assert_permission(user, SUBMIT_PERMISSION[canonical])
+    doc = _load_document(db, canonical, document_id)
+    assert_can_amend_cost_sheet(doc)
+
+    next_rev = int(getattr(doc, "amendment_number", 0) or 0) + 1
+    doc.amendment_number = next_rev
+    doc.approval_status = "DRAFT"
+    doc.current_approval_step = None
+    note = (comments or "").strip() or f"Cost sheet amendment {next_rev}"
+    _record_audit(
+        db,
+        document_type=LEGACY_MODULES[canonical],
+        document_id=document_id,
+        action="AMENDED",
+        user=user,
+        comments=note,
+    )
+    db.commit()
+    db.refresh(doc)
+    return _doc_snapshot(
+        canonical,
+        document_id,
+        doc,
+        message=f"Reopened as Draft for cost sheet amendment {next_rev}",
+    )

@@ -376,7 +376,8 @@ DROP TABLE IF EXISTS SubcontractOrders CASCADE;
 CREATE TABLE SubcontractOrders (
     sco_number VARCHAR(50) PRIMARY KEY,
     supplier_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
-    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),  -- The finished good being subcontracted
+    sales_order_id VARCHAR(50) REFERENCES salesorders(sales_order_id),
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),  -- First / shim finished good
     bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id) ON DELETE SET NULL,
 
     quantity_ordered INT NOT NULL,
@@ -391,15 +392,55 @@ CREATE TABLE SubcontractOrders (
 
 DROP TABLE IF EXISTS SubcontractOrderComponents CASCADE;
 -- 9. Subcontract Order Components — auto-populated from the BOM at SCO creation time
+DROP TABLE IF EXISTS SubcontractOrderItems CASCADE;
+CREATE TABLE SubcontractOrderItems (
+    sco_line_id BIGSERIAL PRIMARY KEY,
+    sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number) ON DELETE CASCADE,
+    line_number INT NOT NULL,
+    so_item_id BIGINT REFERENCES salesorderitems(so_item_id),
+    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id) ON DELETE SET NULL,
+    quantity_ordered INT NOT NULL CHECK (quantity_ordered > 0),
+    unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    margin_percent NUMERIC(8, 4) NOT NULL DEFAULT 0,
+    margin_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    cost_subtotal NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    tax_exempt BOOLEAN NOT NULL DEFAULT TRUE,
+    tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    line_total NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT,
+    CONSTRAINT uq_sco_line_number UNIQUE (sco_number, line_number)
+);
+CREATE UNIQUE INDEX uq_sco_line_so_item ON SubcontractOrderItems (sco_number, so_item_id) WHERE so_item_id IS NOT NULL;
+
+DROP TABLE IF EXISTS SubcontractOrderLineCharges CASCADE;
+CREATE TABLE SubcontractOrderLineCharges (
+    sco_charge_id BIGSERIAL PRIMARY KEY,
+    sco_line_id BIGINT NOT NULL REFERENCES SubcontractOrderItems(sco_line_id) ON DELETE CASCADE,
+    line_no INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    detail_explanation TEXT,
+    labor_minutes NUMERIC(8, 2),
+    sf_rate NUMERIC(12, 4),
+    cost_per_unit NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    margin_percent NUMERIC(8, 4),
+    is_margin BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT uq_sco_charge_line_no UNIQUE (sco_line_id, line_no)
+);
+
 CREATE TABLE SubcontractOrderComponents (
     sco_component_id BIGSERIAL PRIMARY KEY,
     sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number) ON DELETE CASCADE,
+    sco_line_id BIGINT NOT NULL REFERENCES SubcontractOrderItems(sco_line_id) ON DELETE CASCADE,
     component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
 
-    quantity_required NUMERIC(12, 4) NOT NULL,   -- quantity_per (BOM) * SCO quantity_ordered
+    quantity_required NUMERIC(12, 4) NOT NULL,
+    quantity_required_bom NUMERIC(12, 4),
     quantity_issued NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    is_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+    notes TEXT,
 
-    CONSTRAINT unique_component_per_sco UNIQUE (sco_number, component_item_id)
+    CONSTRAINT unique_component_per_sco_line UNIQUE (sco_line_id, component_item_id)
 );
 
 DROP TABLE IF EXISTS MaterialIssues CASCADE;
@@ -417,6 +458,7 @@ DROP TABLE IF EXISTS MaterialIssueLines CASCADE;
 CREATE TABLE MaterialIssueLines (
     issue_line_id BIGSERIAL PRIMARY KEY,
     issue_id VARCHAR(50) NOT NULL REFERENCES MaterialIssues(issue_id) ON DELETE CASCADE,
+    sco_line_id BIGINT REFERENCES SubcontractOrderItems(sco_line_id) ON DELETE SET NULL,
     component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
     quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0)
 );
@@ -426,6 +468,7 @@ DROP TABLE IF EXISTS ComponentIssueLogs CASCADE;
 CREATE TABLE ComponentIssueLogs (
     log_id BIGSERIAL PRIMARY KEY,
     sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number),
+    sco_line_id BIGINT REFERENCES SubcontractOrderItems(sco_line_id) ON DELETE SET NULL,
     issue_id VARCHAR(50) NOT NULL REFERENCES MaterialIssues(issue_id) ON DELETE CASCADE,
     component_item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
     quantity_issued NUMERIC(12, 4) NOT NULL CHECK (quantity_issued > 0),
@@ -438,6 +481,7 @@ DROP TABLE IF EXISTS FinishedGoodsReceipts CASCADE;
 CREATE TABLE FinishedGoodsReceipts (
     receipt_id VARCHAR(50) PRIMARY KEY,
     sco_number VARCHAR(50) NOT NULL REFERENCES SubcontractOrders(sco_number),
+    sco_line_id BIGINT REFERENCES SubcontractOrderItems(sco_line_id) ON DELETE SET NULL,
     quantity_received INT NOT NULL CHECK (quantity_received > 0),
     receipt_date DATE NOT NULL DEFAULT CURRENT_DATE,
     notes TEXT,
@@ -465,6 +509,9 @@ CREATE TABLE PurchaseOrders (
     shipping_fee NUMERIC(12, 2) NOT NULL DEFAULT 0,
     discount_type VARCHAR(20) NOT NULL DEFAULT 'percentage', -- 'percentage' or 'fixed'
     discount_value NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    incoterms VARCHAR(10),
+    freight_terms VARCHAR(30) NOT NULL DEFAULT 'PREPAID_ON_PO',
+    carrier_account VARCHAR(50),
 
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_tax NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -476,7 +523,10 @@ CREATE TABLE PurchaseOrders (
 
     CONSTRAINT chk_po_status CHECK (status IN ('Draft', 'Submitted', 'Approved', 'Void')),
     CONSTRAINT chk_po_discount_type CHECK (discount_type IN ('percentage', 'fixed')),
-    CONSTRAINT chk_po_type CHECK (po_type IN ('MATERIAL', 'SUBCONTRACT'))
+    CONSTRAINT chk_po_type CHECK (po_type IN ('MATERIAL', 'SUBCONTRACT')),
+    CONSTRAINT chk_po_freight_terms CHECK (
+        freight_terms IN ('PREPAID_ON_PO', 'THIRD_PARTY_COLLECT', 'ROUTING_ACCOUNT')
+    )
 );
 
 DROP TABLE IF EXISTS PurchaseOrderItems CASCADE;
@@ -486,7 +536,10 @@ CREATE TABLE PurchaseOrderItems (
     po_number VARCHAR(50) NOT NULL REFERENCES PurchaseOrders(po_number) ON DELETE CASCADE,
 
     sku VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    uom VARCHAR(20),
     bom_header_id BIGINT REFERENCES itembomheaders(bom_header_id),
+    sco_component_id BIGINT REFERENCES subcontractordercomponents(sco_component_id) ON DELETE SET NULL,
     quantity NUMERIC(12, 4) NOT NULL DEFAULT 1,
     unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0,
     tax_rate NUMERIC(6, 3) NOT NULL DEFAULT 0,
@@ -733,8 +786,15 @@ CREATE TABLE sales_invoice_lines (
 -- ========================================================
 
 ALTER TABLE purchaseorders ADD COLUMN IF NOT EXISTS billing_status VARCHAR(30) NOT NULL DEFAULT 'UNBILLED';
+ALTER TABLE purchaseorders ADD COLUMN IF NOT EXISTS incoterms VARCHAR(10);
+ALTER TABLE purchaseorders ADD COLUMN IF NOT EXISTS freight_terms VARCHAR(30) NOT NULL DEFAULT 'PREPAID_ON_PO';
+ALTER TABLE purchaseorders ADD COLUMN IF NOT EXISTS carrier_account VARCHAR(50);
+ALTER TABLE purchaseorderitems ADD COLUMN IF NOT EXISTS sco_component_id BIGINT;
+ALTER TABLE purchaseorderitems ADD COLUMN IF NOT EXISTS uom VARCHAR(20);
+ALTER TABLE purchaseorderitems ADD COLUMN IF NOT EXISTS description VARCHAR(255);
 ALTER TABLE subcontractorders ADD COLUMN IF NOT EXISTS billing_status VARCHAR(30) NOT NULL DEFAULT 'UNBILLED';
 ALTER TABLE subcontractorders ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 4) NOT NULL DEFAULT 0;
+ALTER TABLE subcontractorders ADD COLUMN IF NOT EXISTS amendment_number INT NOT NULL DEFAULT 0;
 
 ALTER TABLE ap_bills ALTER COLUMN purchase_order_id DROP NOT NULL;
 ALTER TABLE ap_bills ADD COLUMN IF NOT EXISTS supplier_invoice_id INT;
