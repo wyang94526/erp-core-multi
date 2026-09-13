@@ -18,6 +18,8 @@ Cost sheet rows are free-text (default template: Receiving/IQC, Assembly, Invent
 
 Cost sheet edits are allowed while `approval_status` is `DRAFT` or `REJECTED`. After approval, `POST /api/v1/subcontract-orders/{sco_number}/amend` (permission `subcontract:submit`) reopens the same SCO as Draft, increments `amendment_number`, and writes an `AMENDED` approval-history row. Linked Material POs stay. Issue materials can continue during the amendment. Supplier invoices still require `APPROVED`. Re-submit the updated cost sheet through the normal approval workflow.
 
+Receiving finished goods (`POST /{sco_number}/receive-goods`) posts warehouse stock via `inventory.receive_stock` (same path as PO receipts) and GRNI. Sales-order fulfillment issues that warehouse quantity, not the item-master cache.
+
 SO-line allocation: remaining = SO qty − SUM(non-cancelled SCO line qty) for that `so_item_id`.
 
 ## Permissions

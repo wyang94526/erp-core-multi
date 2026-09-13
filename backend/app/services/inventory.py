@@ -22,7 +22,22 @@ def derive_status(on_hand: int, reorder_point: int) -> str:
     return "In Stock"
 
 
+def available_on_hand(db: Session, item_id: str) -> int:
+    """Warehouse stock first; item-master cache only when no stock rows exist."""
+    rows = (
+        db.query(InventoryStock.on_hand_quantity)
+        .filter(InventoryStock.item_id == item_id)
+        .all()
+    )
+    if rows:
+        return int(sum(int(row[0] or 0) for row in rows))
+    item = db.get(Item, item_id)
+    return int(item.on_hand_quantity or 0) if item is not None else 0
+
+
 def sync_item_on_hand(db: Session, item_id: str) -> None:
+    # Session autoflush is off; persist pending warehouse qty before summing.
+    db.flush()
     total = (
         db.query(func.coalesce(func.sum(InventoryStock.on_hand_quantity), 0))
         .filter(InventoryStock.item_id == item_id)
@@ -31,6 +46,26 @@ def sync_item_on_hand(db: Session, item_id: str) -> None:
     item = db.get(Item, item_id)
     if item:
         item.on_hand_quantity = int(total or 0)
+
+
+def apply_live_on_hand(db: Session, items: list[Item]) -> None:
+    """Overwrite item-master on-hand with warehouse totals when stock rows exist."""
+    if not items:
+        return
+    db.flush()
+    ids = [item.item_id for item in items]
+    totals = dict(
+        db.query(
+            InventoryStock.item_id,
+            func.coalesce(func.sum(InventoryStock.on_hand_quantity), 0),
+        )
+        .filter(InventoryStock.item_id.in_(ids))
+        .group_by(InventoryStock.item_id)
+        .all()
+    )
+    for item in items:
+        if item.item_id in totals:
+            item.on_hand_quantity = int(totals[item.item_id] or 0)
 
 
 def _primary_stock_row(rows: list[InventoryStock]) -> InventoryStock:

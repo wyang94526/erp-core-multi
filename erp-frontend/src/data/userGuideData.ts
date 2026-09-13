@@ -296,7 +296,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Choose the subcontractor (vendor type subcontractor or both) and the assembly item.',
       'Select the BOM version when prompted (active version is the default). Quantity and dates drive the kit.',
       'Save the SCO. Open the detail page to review required components.',
-      'Issue materials to the vendor when the kit is picked.',
+      'Issue materials to the vendor when the kit is picked. Print the shipping document from that issue and send it with the kit.',
       'When finished goods return, record a receipt (Receipt ID + quantity). GRNI is posted for the value received.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you.',
       'To change vendor charges after approval, open the SCO and click Amend cost sheet. Edit the sheet, then submit for approval again. Linked purchase orders stay on the same SCO.',
@@ -307,7 +307,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { kind: 'important', text: 'After approval, use Amend cost sheet to change vendor charges. Do not cancel and recreate the SCO if a Material PO is already linked.' },
     ],
     tips: [
-      'Use the SCO PDF for the pack-out list sent with the kit.',
+      'Use Print shipping document on each material issue as the packing list for the subcontractor. The SCO PDF is the order/cost attachment.',
       'If BOM lines change, create/activate a new BOM version on the item before opening a new SCO.',
     ],
     faqs: [

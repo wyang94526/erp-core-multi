@@ -41,7 +41,7 @@ from app.schemas import (
     SubcontractOrderUpdate,
     UnfulfilledScoComponentRead,
 )
-from app.services import approval
+from app.services import approval, inventory
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
@@ -802,26 +802,46 @@ def issue_materials(
         if product is None:
             raise HTTPException(status_code=400, detail=f"Component product {line.component_item_id} not found")
 
-        on_hand = Decimal(product.on_hand_quantity or 0)
-        if line.quantity_issued > on_hand:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient on-hand quantity for {line.component_item_id}: "
-                f"available={product.on_hand_quantity}, requested={line.quantity_issued}",
-            )
-
-        remaining = sco_component.quantity_required - (sco_component.quantity_issued or 0)
-        if line.quantity_issued > remaining:
+        qty_issued = Decimal(str(line.quantity_issued))
+        on_hand = Decimal(inventory.available_on_hand(db, line.component_item_id))
+        if qty_issued > on_hand:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Cannot issue {line.quantity_issued} of {line.component_item_id}; "
+                    f"Insufficient on-hand quantity for {line.component_item_id}: "
+                    f"available={on_hand}, requested={qty_issued}. "
+                    "Receive the material purchase order (or add stock) before issuing the kit."
+                ),
+            )
+
+        remaining = sco_component.quantity_required - (sco_component.quantity_issued or 0)
+        if qty_issued > remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot issue {qty_issued} of {line.component_item_id}; "
                     f"remaining on line={remaining}"
                 ),
             )
 
-        product.on_hand_quantity = int(on_hand - line.quantity_issued)
-        product.wip_quantity = int(Decimal(product.wip_quantity or 0) + line.quantity_issued)
+        if qty_issued != qty_issued.to_integral_value():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Issue quantity for {line.component_item_id} must be a whole number",
+            )
+        try:
+            inventory.issue_stock(
+                db,
+                item_id=line.component_item_id,
+                quantity=int(qty_issued),
+                reference=issue.issue_id,
+                notes=payload.notes or f"Issued to subcontract order {sco_number}",
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            product.on_hand_quantity = int(on_hand - qty_issued)
+        product.wip_quantity = int(Decimal(product.wip_quantity or 0) + qty_issued)
         sco_component.quantity_issued = sco_component.quantity_issued + line.quantity_issued
 
         db.add(
@@ -916,7 +936,6 @@ def receive_goods(
     wip = Decimal(product.wip_quantity or 0)
     deduct = min(wip, Decimal(payload.quantity_received))
     product.wip_quantity = int(wip - deduct)
-    product.on_hand_quantity = int(Decimal(product.on_hand_quantity or 0) + payload.quantity_received)
 
     receipt = FinishedGoodsReceipt(
         receipt_id=payload.receipt_id,
@@ -929,6 +948,14 @@ def receive_goods(
         receipt.receipt_date = payload.receipt_date
     db.add(receipt)
     db.flush()
+
+    inventory.receive_stock(
+        db,
+        item_id=item_id,
+        quantity=int(payload.quantity_received),
+        reference=payload.receipt_id,
+        notes=payload.notes or f"Finished goods from subcontract order {sco_number}",
+    )
 
     from app.services import p2p
 

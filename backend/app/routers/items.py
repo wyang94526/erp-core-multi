@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Item, Supplier, VendorItemMapping
+from app.services import inventory
 from app.schemas import (
     ItemCreate,
     ItemRead,
@@ -74,7 +75,9 @@ def list_purchase_items(
     db: Session = Depends(get_db),
 ) -> list[Item]:
     query = _apply_item_query(db.query(Item), search=q, catalog="purchase")
-    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    inventory.apply_live_on_hand(db, items)
+    return items
 
 
 @router.get("/raw-materials", response_model=list[ItemRead])
@@ -85,7 +88,9 @@ def list_raw_materials(
     db: Session = Depends(get_db),
 ) -> list[Item]:
     query = _apply_item_query(db.query(Item), search=q, catalog="raw")
-    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    inventory.apply_live_on_hand(db, items)
+    return items
 
 
 @router.get("/assemblies", response_model=list[ItemRead])
@@ -96,7 +101,9 @@ def list_subcontract_assemblies(
     db: Session = Depends(get_db),
 ) -> list[Item]:
     query = _apply_item_query(db.query(Item), search=q, catalog="assembly")
-    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    inventory.apply_live_on_hand(db, items)
+    return items
 
 
 @router.get("", response_model=list[ItemRead])
@@ -113,7 +120,9 @@ def list_items(
 ) -> list[Item]:
     kind = catalog or ("purchase" if purchase_only else None)
     query = _apply_item_query(db.query(Item), search=q, catalog=kind)
-    return query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    inventory.apply_live_on_hand(db, items)
+    return items
 
 
 @router.get("/{item_id}", response_model=ItemRead)
@@ -121,6 +130,7 @@ def get_item(item_id: str, db: Session = Depends(get_db)) -> Item:
     item = db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    inventory.apply_live_on_hand(db, [item])
     return item
 
 

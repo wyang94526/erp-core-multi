@@ -5,18 +5,19 @@
  * forms to record new "Issue Materials" and "Receive Goods" transactions.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileDown, Loader2 } from 'lucide-react'
 import { itemService, purchaseOrderService, subcontractOrderService, vendorService } from '../api/services'
+import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { defaultCostSheet } from '../utils/scoCostSheet'
 import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 import ScoCostSheet from './ScoCostSheet'
-import type { CalculatedComponentLine, SubcontractCharge } from '../types'
+import type { CalculatedComponentLine, MaterialIssue, SubcontractCharge, SubcontractOrder } from '../types'
 
 export function SubcontractOrderDetail() {
   const { id } = useParams<{ id: string }>()
@@ -47,6 +48,12 @@ export function SubcontractOrderDetail() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [exportingIssueId, setExportingIssueId] = useState<string | null>(null)
+  const [issueDocError, setIssueDocError] = useState<string | null>(null)
+  const kitLinesRef = useRef<CalculatedComponentLine[]>([])
+  const printIssueShippingDocRef = useRef<
+    ((order: SubcontractOrder, issue: MaterialIssue) => Promise<void>) | null
+  >(null)
   const [editingCostSheet, setEditingCostSheet] = useState(false)
   const [draftCharges, setDraftCharges] = useState<Record<number, SubcontractCharge[]>>({})
 
@@ -89,7 +96,10 @@ export function SubcontractOrderDetail() {
       notes?: string
       lines: Array<{ component_item_id: string; quantity_issued: number }>
     }) => subcontractOrderService.issueMaterials(id, data),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      const created = updated.material_issues?.find(
+        (row) => row.issue_id === issueForm.issue_id,
+      )
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
       queryClient.invalidateQueries({
@@ -98,6 +108,9 @@ export function SubcontractOrderDetail() {
       setShowIssueForm(false)
       setIssueForm({ issue_id: '', issue_date: new Date().toISOString().split('T')[0], notes: '' })
       setIssueLines({})
+      if (created) {
+        void printIssueShippingDocRef.current?.(updated, created)
+      }
     },
     onError: (err: any) => {
       setFormErrors({ issue: err.message || 'Failed to issue materials' })
@@ -332,6 +345,7 @@ export function SubcontractOrderDetail() {
           primary_vendor_sku: null,
           unit_cost: null,
         }))
+  kitLinesRef.current = kitLines
 
   const handleExportVendorPdf = async () => {
     setExportError(null)
@@ -359,8 +373,60 @@ export function SubcontractOrderDetail() {
     }
   }
 
+  const printIssueShippingDoc = async (order: SubcontractOrder, issue: MaterialIssue) => {
+    setExportingIssueId(issue.issue_id)
+    setIssueDocError(null)
+    try {
+      const [supplier, item] = await Promise.all([
+        order.supplier_id
+          ? vendorService.getVendor(order.supplier_id).catch(() => null)
+          : Promise.resolve(null),
+        order.item_id
+          ? itemService.getItem(order.item_id).catch(() => null)
+          : Promise.resolve(null),
+      ])
+      generateMaterialIssueShippingPdf({
+        sco: order,
+        issue,
+        supplier,
+        productName: item?.description ?? null,
+        kitLines,
+      })
+    } catch (err) {
+      setIssueDocError(err instanceof Error ? err.message : 'Failed to create shipping document')
+    } finally {
+      setExportingIssueId(null)
+    }
+  }
+  printIssueShippingDocRef.current = printIssueShippingDoc
+
   const handleIssueLineChange = (key: string, value: string) => {
     setIssueLines((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const openIssueForm = () => {
+    const defaults: Record<string, string> = {}
+    for (const component of sco.components || []) {
+      const remaining = remainingRequiredQty(component, kitLines)
+      const onHand = onHandQty(component, kitLines)
+      const suggested = Math.min(remaining, onHand)
+      if (suggested > 0) {
+        defaults[issueLineKey(component.sco_line_id, component.component_item_id)] =
+          formatIssueQty(suggested)
+      }
+    }
+    setIssueLines(defaults)
+    setShowIssueForm(true)
+    setFormErrors((prev) => {
+      const next = { ...prev }
+      delete next.issue
+      return next
+    })
+  }
+
+  const closeIssueForm = () => {
+    setShowIssueForm(false)
+    setIssueLines({})
   }
 
   const handleIssueSubmit = (e: React.FormEvent) => {
@@ -909,7 +975,7 @@ export function SubcontractOrderDetail() {
           {isCancellable && canOperateKit && (
             <button
               type="button"
-              onClick={() => setShowIssueForm((v) => !v)}
+              onClick={() => (showIssueForm ? closeIssueForm() : openIssueForm())}
               style={addButtonStyle}
             >
               {showIssueForm ? 'Cancel' : '+ Issue Materials'}
@@ -966,12 +1032,16 @@ export function SubcontractOrderDetail() {
                   <tr style={theadRowStyle}>
                     <th style={thStyle}>Assembly / Component</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Remaining Required</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>On Hand</th>
                     <th style={{ ...thStyle, textAlign: 'right', width: '160px' }}>Qty to Issue</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sco.components.map((c) => {
-                    const remaining = Number(c.quantity_required) - Number(c.quantity_issued)
+                    const remaining = remainingRequiredQty(c, kitLines)
+                    const onHand = onHandQty(c, kitLines)
+                    const key = issueLineKey(c.sco_line_id, c.component_item_id)
+                    const short = remaining > onHand
                     return (
                       <tr key={c.sco_component_id} style={tbodyRowStyle}>
                         <td style={tdStyle}>
@@ -981,18 +1051,24 @@ export function SubcontractOrderDetail() {
                           {c.component_item_id}
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{remaining.toFixed(4)}</td>
+                        <td
+                          style={{
+                            ...tdStyle,
+                            textAlign: 'right',
+                            color: short ? '#c62828' : 'var(--text)',
+                            fontWeight: short ? 700 : undefined,
+                          }}
+                        >
+                          {onHand}
+                        </td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>
                           <input
                             type="number"
                             min="0"
                             step="0.0001"
-                            value={issueLines[`${c.sco_line_id || 'line'}:${c.component_item_id}`] || ''}
-                            onChange={(e) =>
-                              handleIssueLineChange(
-                                `${c.sco_line_id || 'line'}:${c.component_item_id}`,
-                                e.target.value,
-                              )
-                            }
+                            max={onHand}
+                            value={issueLines[key] ?? ''}
+                            onChange={(e) => handleIssueLineChange(key, e.target.value)}
                             style={{ ...inputStyle, width: '140px', textAlign: 'right' }}
                           />
                         </td>
@@ -1002,6 +1078,15 @@ export function SubcontractOrderDetail() {
                 </tbody>
               </table>
             </div>
+
+            {(sco.components || []).some(
+              (c) => remainingRequiredQty(c, kitLines) > onHandQty(c, kitLines),
+            ) && (
+              <p style={{ color: '#e65100', fontSize: 13, marginTop: 12 }}>
+                Some components have less on-hand than remaining required. Receive the linked
+                material purchase order (or add stock) before issuing those lines.
+              </p>
+            )}
 
             {formErrors.issue && (
               <div style={{ ...errorAlertStyle, marginTop: '16px' }}>
@@ -1025,32 +1110,84 @@ export function SubcontractOrderDetail() {
           </form>
         )}
 
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        {issueDocError && (
+          <div style={{ ...errorAlertStyle, marginBottom: 12 }}>
+            <span>⚠️ {issueDocError}</span>
+          </div>
+        )}
+
         {sco.material_issues && sco.material_issues.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr style={theadRowStyle}>
-                  <th style={thStyle}>Issue ID</th>
-                  <th style={thStyle}>Issue Date</th>
-                  <th style={thStyle}>Components</th>
-                  <th style={thStyle}>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sco.material_issues.map((mi) => (
-                  <tr key={mi.issue_id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{mi.issue_id}</td>
-                    <td style={tdStyle}>{new Date(mi.issue_date).toLocaleDateString()}</td>
-                    <td style={tdStyle}>
-                      {mi.lines
-                        .map((l) => `${l.component_item_id}: ${Number(l.quantity_issued)}`)
-                        .join(', ')}
-                    </td>
-                    <td style={tdStyle}>{mi.notes || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {sco.material_issues.map((mi) => (
+              <div key={mi.issue_id} style={issueCardStyle}>
+                <div style={issueCardHeaderStyle}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-h)' }}>{mi.issue_id}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 4 }}>
+                      {new Date(mi.issue_date).toLocaleDateString()}
+                      {` · ${mi.lines.length} component${mi.lines.length === 1 ? '' : 's'}`}
+                      {mi.notes ? ` · ${mi.notes}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void printIssueShippingDoc(sco, mi)}
+                    disabled={exportingIssueId === mi.issue_id}
+                    style={{
+                      ...exportButtonStyle,
+                      opacity: exportingIssueId === mi.issue_id ? 0.75 : 1,
+                      cursor: exportingIssueId === mi.issue_id ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {exportingIssueId === mi.issue_id ? (
+                      <>
+                        <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                        Preparing…
+                      </>
+                    ) : (
+                      <>
+                        <FileDown size={16} />
+                        Print shipping document
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ ...tableStyle, marginBottom: 0 }}>
+                    <thead>
+                      <tr style={theadRowStyle}>
+                        <th style={thStyle}>Item</th>
+                        <th style={thStyle}>Description</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Qty Issued</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mi.lines.map((line) => {
+                        const kit = matchKitLine(
+                          {
+                            sco_line_id: line.sco_line_id,
+                            component_item_id: line.component_item_id,
+                          },
+                          kitLines,
+                        )
+                        return (
+                          <tr key={line.issue_line_id} style={tbodyRowStyle}>
+                            <td style={tdStyle}>{line.component_item_id}</td>
+                            <td style={tdStyle}>{kit?.description || '—'}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
+                              {Number(line.quantity_issued).toLocaleString('en-US', {
+                                maximumFractionDigits: 4,
+                              })}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>No materials issued yet.</p>
@@ -1240,6 +1377,52 @@ export function SubcontractOrderDetail() {
 // ==========================================
 // HELPER FUNCTIONS & STYLES
 // ==========================================
+
+function issueLineKey(scoLineId: number | null | undefined, componentItemId: string): string {
+  return `${scoLineId || 'line'}:${componentItemId}`
+}
+
+function formatIssueQty(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return ''
+  return String(Number(value.toFixed(4)))
+}
+
+function matchKitLine(
+  component: { sco_line_id?: number | null; component_item_id: string },
+  kitLines: CalculatedComponentLine[],
+): CalculatedComponentLine | undefined {
+  return kitLines.find(
+    (row) =>
+      row.component_item_id === component.component_item_id &&
+      (row.sco_line_id == null ||
+        component.sco_line_id == null ||
+        row.sco_line_id === component.sco_line_id),
+  )
+}
+
+function onHandQty(
+  component: { sco_line_id?: number | null; component_item_id: string },
+  kitLines: CalculatedComponentLine[],
+): number {
+  const kit = matchKitLine(component, kitLines)
+  return Math.max(Number(kit?.on_hand_quantity ?? 0), 0)
+}
+
+function remainingRequiredQty(
+  component: {
+    sco_line_id?: number | null
+    component_item_id: string
+    quantity_required: number
+    quantity_issued: number
+  },
+  kitLines: CalculatedComponentLine[],
+): number {
+  const kit = matchKitLine(component, kitLines)
+  if (kit != null && kit.quantity_remaining != null) {
+    return Math.max(Number(kit.quantity_remaining) || 0, 0)
+  }
+  return Math.max(Number(component.quantity_required) - Number(component.quantity_issued), 0)
+}
 
 function getStatusColors(status: string): { bg: string; text: string } {
   const statusColors: Record<string, { bg: string; text: string }> = {
@@ -1556,6 +1739,24 @@ const draftEditBarStyle: React.CSSProperties = {
   background:
     'linear-gradient(135deg, rgba(25, 118, 210, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
   boxShadow: 'var(--shadow)',
+}
+
+const issueCardStyle: React.CSSProperties = {
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  overflow: 'hidden',
+  backgroundColor: 'var(--bg)',
+}
+
+const issueCardHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  flexWrap: 'wrap',
+  padding: '12px 14px',
+  borderBottom: '1px solid var(--border)',
+  backgroundColor: 'var(--social-bg)',
 }
 
 const exportButtonStyle: React.CSSProperties = {
