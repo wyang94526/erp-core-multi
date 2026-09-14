@@ -8,6 +8,7 @@ import {
   salesOrderService,
 } from '../api/services'
 import type { PurchaseOrder, SalesOrder } from '../types'
+import type { CashPaymentChoice } from '../components/RecordCashPaymentDialog'
 
 type ConfirmState = {
   mode: 'approve' | 'reject'
@@ -98,11 +99,11 @@ export function useDrillDownActions() {
     await refreshDashboard()
   }
 
-  const recordArPayment = async (invoiceId: string) => {
+  const recordArPayment = async (invoiceId: string, choice?: CashPaymentChoice) => {
     markBusy(invoiceId, true)
     setActionError(null)
     try {
-      await arInvoiceService.receivePayment(invoiceId)
+      await arInvoiceService.receivePayment(invoiceId, choice)
       setActionNotice(`Payment recorded for ${invoiceId}`)
       await refreshDashboard()
     } catch (err) {
@@ -112,11 +113,11 @@ export function useDrillDownActions() {
     }
   }
 
-  const recordApPayment = async (billId: string) => {
+  const recordApPayment = async (billId: string, choice?: CashPaymentChoice) => {
     markBusy(billId, true)
     setActionError(null)
     try {
-      await apBillService.makePayment(billId)
+      await apBillService.makePayment(billId, choice)
       setActionNotice(`Payment recorded for ${billId}`)
       await refreshDashboard()
     } catch (err) {

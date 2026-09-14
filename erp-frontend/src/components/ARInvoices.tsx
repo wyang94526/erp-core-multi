@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { arInvoiceService } from '../api/services'
 import type { ARInvoice } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPaymentDialog'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import ListFilterBar, {
@@ -9,6 +11,7 @@ import ListFilterBar, {
   useListFilterParams,
   type FilterField,
 } from './ListFilterBar'
+import { invoiceDetailHref } from '../utils/cashReference'
 
 const AR_FILTERS: FilterField[] = [
   {
@@ -51,7 +54,10 @@ function ARInvoices() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
+  const [pendingPay, setPendingPay] = useState<ARInvoice | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const focusInvoice = (searchParams.get('invoice') || '').trim()
   const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
     useListFilterParams(AR_FILTERS)
 
@@ -76,6 +82,7 @@ function ARInvoices() {
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
+      if (focusInvoice && inv.invoice_id === focusInvoice) return true
       if (values.status !== 'ALL' && inv.status !== values.status) return false
       if (values.approval !== 'ALL') {
         const approval = (inv.approval_status || 'DRAFT').toUpperCase()
@@ -89,7 +96,7 @@ function ARInvoices() {
       }
       return true
     })
-  }, [invoices, values.status, values.approval, values.due, today])
+  }, [invoices, values.status, values.approval, values.due, today, focusInvoice])
 
   const { items: sortedInvoices, requestSort, sortConfig } = useSortableData(filteredInvoices, {
     columnTypes: {
@@ -98,10 +105,11 @@ function ARInvoices() {
     },
   })
 
-  const handleReceivePayment = async (invoiceId: string) => {
-    setPayingId(invoiceId)
+  const handleReceivePayment = async (invoice: ARInvoice, choice: CashPaymentChoice) => {
+    setPayingId(invoice.invoice_id)
     try {
-      await arInvoiceService.receivePayment(invoiceId)
+      await arInvoiceService.receivePayment(invoice.invoice_id, choice)
+      setPendingPay(null)
       await loadInvoices()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to receive payment')
@@ -165,9 +173,20 @@ function ARInvoices() {
               <tbody>
                 {sortedInvoices.map((inv) => {
                   const colors = getStatusColors(inv.status)
+                  const focused = Boolean(focusInvoice) && inv.invoice_id === focusInvoice
                   return (
-                    <tr key={inv.invoice_id} style={directoryTbodyRowStyle}>
-                      <td style={directoryTdStyle}>{inv.invoice_id}</td>
+                    <tr
+                      key={inv.invoice_id}
+                      style={{
+                        ...directoryTbodyRowStyle,
+                        backgroundColor: focused ? '#e3f2fd' : undefined,
+                      }}
+                    >
+                      <td style={directoryTdStyle}>
+                        <Link to={invoiceDetailHref(inv.invoice_id)} style={idLinkStyle} title="View invoice details">
+                          {inv.invoice_id}
+                        </Link>
+                      </td>
                       <td style={directoryTdStyle}>{inv.sales_order_id}</td>
                       <td style={directoryTdStyle}>{inv.customer_id}</td>
                       <td style={directoryTdStyle}>{formatCurrency(inv.amount)}</td>
@@ -208,7 +227,7 @@ function ARInvoices() {
                               cursor: payingId === inv.invoice_id ? 'not-allowed' : 'pointer',
                             }}
                             disabled={payingId === inv.invoice_id}
-                            onClick={() => handleReceivePayment(inv.invoice_id)}
+                            onClick={() => setPendingPay(inv)}
                           >
                             {payingId === inv.invoice_id ? 'Processing...' : 'Receive Payment'}
                           </button>
@@ -231,6 +250,17 @@ function ARInvoices() {
           onStatusChange={loadInvoices}
         />
       )}
+
+      <RecordCashPaymentDialog
+        open={Boolean(pendingPay)}
+        title={`Receive payment for ${pendingPay?.invoice_id || ''}`}
+        subtitle="Choose the bank account and payment instrument for this deposit."
+        amount={pendingPay?.amount}
+        confirmLabel="Receive Payment"
+        submitting={Boolean(pendingPay && payingId === pendingPay.invoice_id)}
+        onCancel={() => setPendingPay(null)}
+        onConfirm={(choice) => pendingPay && void handleReceivePayment(pendingPay, choice)}
+      />
     </div>
   )
 }
@@ -332,6 +362,12 @@ const statusBadgeStyle: React.CSSProperties = {
   fontSize: '11px',
   fontWeight: 'bold',
   display: 'inline-block',
+}
+
+const idLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  fontWeight: 700,
+  textDecoration: 'none',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

@@ -12,6 +12,11 @@ import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { METRIC_PAGE_TITLES } from '../config/metricRoutes'
 import type { MetricDrillKey } from '../types/dashboard'
+import {
+  invoiceStatusColors,
+  invoiceStatusLabel,
+  salesOrderInvoiceStatus,
+} from '../utils/soBilling'
 
 type DateFilter = 'all' | 'this_month' | 'last_quarter' | 'ytd'
 type ViewFilter = 'all' | 'open'
@@ -100,6 +105,7 @@ export function SalesOrderList() {
       order_date: 'date',
       status: 'string',
       approval_status: 'string',
+      invoice_status: 'string',
       total_amount: 'number',
       items_count: 'number',
     },
@@ -325,6 +331,13 @@ export function SalesOrderList() {
                       align="center"
                     />
                     <SortableTh
+                      label="Billing"
+                      columnKey="invoice_status"
+                      sortConfig={sortConfig}
+                      onRequestSort={requestSort}
+                      align="center"
+                    />
+                    <SortableTh
                       label="Total Amount"
                       columnKey="total_amount"
                       sortConfig={sortConfig}
@@ -346,6 +359,8 @@ export function SalesOrderList() {
                     const statusColors = getStatusColors(order.status)
                     const approvalColors = getApprovalColors(order.approval_status || 'DRAFT')
                     const approval = (order.approval_status || 'DRAFT').replace(/_/g, ' ')
+                    const billingStatus = salesOrderInvoiceStatus(order)
+                    const billingColors = invoiceStatusColors(billingStatus)
                     return (
                       <tr key={order.sales_order_id} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>
@@ -387,6 +402,20 @@ export function SalesOrderList() {
                             }}
                           >
                             {approval}
+                          </span>
+                        </td>
+                        <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
+                          <span
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '12px',
+                              fontSize: '11px',
+                              fontWeight: 'bold',
+                              backgroundColor: billingColors.bg,
+                              color: billingColors.text,
+                            }}
+                          >
+                            {invoiceStatusLabel(billingStatus)}
                           </span>
                         </td>
                         <td style={{ ...directoryTdStyle, textAlign: 'right' }}>
@@ -503,6 +532,8 @@ function getStatusColors(status: string): { bg: string; text: string } {
     PENDING: { bg: '#fffde7', text: '#f9a825' },
     PROCESSING: { bg: '#e3f2fd', text: '#1565c0' },
     APPROVED: { bg: '#e8f5e9', text: '#2e7d32' },
+    FULFILLED: { bg: '#fff3e0', text: '#e65100' },
+    INVOICED: { bg: '#e3f2fd', text: '#1565c0' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },

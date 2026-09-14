@@ -762,6 +762,9 @@ def pay_supplier_invoice(
     *,
     amount: Decimal | None = None,
     bank_account_id: str | None = None,
+    payment_method: str | None = None,
+    instrument_ref_no: str | None = None,
+    payment_date: date | datetime | None = None,
 ) -> dict:
     invoice = _load_invoice(db, invoice_id)
     if invoice.status not in {"APPROVED", "PAID"}:
@@ -778,7 +781,15 @@ def pay_supplier_invoice(
     if not bill:
         raise HTTPException(status_code=400, detail="Linked AP bill not found")
 
-    txn = finance.make_payment(db, bill, amount=amount, bank_account_id=bank_account_id)
+    txn = finance.make_payment(
+        db,
+        bill,
+        amount=amount,
+        bank_account_id=bank_account_id,
+        payment_method=payment_method,
+        instrument_ref_no=instrument_ref_no,
+        payment_date=payment_date,
+    )
     bill = db.get(APBill, invoice.ap_bill_id)
     if bill and bill.status == "Paid":
         invoice.status = "PAID"

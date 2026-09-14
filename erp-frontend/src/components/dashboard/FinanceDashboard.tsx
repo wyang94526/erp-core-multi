@@ -23,6 +23,7 @@ import {
   sectionTitleStyle,
   twoColStyle,
 } from './dashboardStyles'
+import { cashReferenceHref, cashReferenceLabel } from '../../utils/cashReference'
 
 type FinanceDashboardProps = {
   data: DashboardAggregates
@@ -115,7 +116,9 @@ export default function FinanceDashboard({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.recentPayments.map((txn) => (
+                  {data.recentPayments.map((txn) => {
+                    const href = cashReferenceHref(txn)
+                    return (
                     <tr key={txn.transaction_id} style={directoryTbodyRowStyle}>
                       <td style={directoryTdStyle}>
                         {txn.transaction_date
@@ -123,12 +126,21 @@ export default function FinanceDashboard({
                           : '—'}
                       </td>
                       <td style={directoryTdStyle}>{txn.type}</td>
-                      <td style={directoryTdStyle}>{txn.reference_id}</td>
+                      <td style={directoryTdStyle}>
+                        {href ? (
+                          <Link to={href} style={linkStyle} title={cashReferenceLabel(txn)}>
+                            {txn.reference_id}
+                          </Link>
+                        ) : (
+                          txn.reference_id
+                        )}
+                      </td>
                       <td style={{ ...directoryTdStyle, textAlign: 'right' }}>
                         {formatCurrencyPrecise(Number(txn.amount) || 0)}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

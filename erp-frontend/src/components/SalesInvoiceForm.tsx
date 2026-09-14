@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { fulfillmentService, salesInvoiceService, salesOrderService } from '../api/services'
+import { isFullyInvoiced } from '../utils/soBilling'
 
 export function SalesInvoiceForm() {
   const { id } = useParams<{ id: string }>()
@@ -52,7 +53,7 @@ export function SalesInvoiceForm() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['salesInvoices'] })
-      await queryClient.invalidateQueries({ queryKey: ['salesOrders', id] })
+      await queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
       navigate('/sales-invoices')
     },
   })
@@ -79,6 +80,18 @@ export function SalesInvoiceForm() {
   }
 
   const canInvoice = shippedForOrder.length > 0
+  const fullyInvoiced = isFullyInvoiced(order)
+  const remaining = Number(order.remaining_billable_amount ?? order.total_amount ?? 0)
+  const billed = Number(order.billed_amount || 0)
+  const submitBlocked = fullyInvoiced || !canInvoice
+  const formError =
+    mutation.error instanceof Error
+      ? mutation.error.message
+      : mutation.isError
+        ? 'Create failed'
+        : fullyInvoiced
+          ? `Sales Order ${order.sales_order_id} is already fully invoiced.`
+          : null
 
   return (
     <div style={containerStyle}>
@@ -94,7 +107,7 @@ export function SalesInvoiceForm() {
         </button>
       </header>
 
-      {!canInvoice ? (
+      {!canInvoice && !fullyInvoiced ? (
         <div style={{ ...cardStyle, color: '#c62828' }}>
           Ship at least one item fulfillment before creating an invoice.
           <div style={{ marginTop: 12 }}>
@@ -109,6 +122,11 @@ export function SalesInvoiceForm() {
         </div>
       ) : (
         <div style={cardStyle}>
+          {formError ? (
+            <div style={errorBannerStyle} role="alert">
+              {formError}
+            </div>
+          ) : null}
           <h3 style={sectionHeadingStyle}>Invoice source</h3>
           <label style={labelStyle}>
             Fulfillment (optional — defaults to full order lines if blank)
@@ -139,6 +157,8 @@ export function SalesInvoiceForm() {
 
           <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 12 }}>
             Payment terms: {order.payment_terms || 'Net 30'} · Currency: {order.currency}
+            {' · '}
+            Billed {order.currency} {billed.toFixed(2)} · remaining {remaining.toFixed(2)}
           </p>
 
           <label style={{ ...labelStyle, marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -150,18 +170,24 @@ export function SalesInvoiceForm() {
             Approve immediately (post Debit AR / Credit Revenue &amp; Tax to GL)
           </label>
 
-          {mutation.isError ? (
-            <p style={{ color: '#c62828', marginTop: 12 }}>
-              {mutation.error instanceof Error ? mutation.error.message : 'Create failed'}
-            </p>
-          ) : null}
-
           <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
             <button
               type="button"
-              style={primaryButtonStyle}
-              disabled={mutation.isPending}
-              onClick={() => mutation.mutate()}
+              style={{
+                ...primaryButtonStyle,
+                backgroundColor: submitBlocked || mutation.isPending ? '#9e9e9e' : '#1976d2',
+                cursor: submitBlocked || mutation.isPending ? 'not-allowed' : 'pointer',
+              }}
+              disabled={submitBlocked || mutation.isPending}
+              title={
+                fullyInvoiced
+                  ? 'This Sales Order has already been fully billed.'
+                  : 'Create a sales invoice from this sales order'
+              }
+              onClick={() => {
+                if (submitBlocked) return
+                mutation.mutate()
+              }}
             >
               {mutation.isPending
                 ? 'Saving…'
@@ -235,6 +261,16 @@ const primaryButtonStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+const errorBannerStyle: React.CSSProperties = {
+  backgroundColor: '#ffebee',
+  color: '#c62828',
+  border: '1px solid #ef9a9a',
+  borderRadius: 6,
+  padding: '10px 12px',
+  marginBottom: 16,
+  fontSize: 14,
+  fontWeight: 600,
 }
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '10px 18px',

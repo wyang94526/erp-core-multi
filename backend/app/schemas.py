@@ -786,6 +786,9 @@ class SalesOrderRead(ORMModel):
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
     total_amount: Decimal
+    billed_amount: Decimal = Decimal("0.00")
+    remaining_billable_amount: Decimal = Decimal("0.00")
+    invoice_status: str = "UNBILLED"
     created_at: datetime | None
 
     # NEW: When we fetch an order, return its items too
@@ -1766,6 +1769,45 @@ class ARInvoiceRead(ORMModel):
     due_date: date
     created_at: datetime | None
 
+class ARInvoicePaymentRead(BaseModel):
+    payment_date: datetime | date | None = None
+    method: str
+    reference: str
+    amount_applied: Decimal
+    unapplied_balance: Decimal
+
+
+class ARInvoiceLineDetailRead(BaseModel):
+    item_id: str
+    description: str | None = None
+    quantity: int
+    unit_price: Decimal
+    line_subtotal: Decimal
+
+
+class ARInvoiceDetailRead(ARInvoiceRead):
+    customer_name: str | None = None
+    customer_email: str | None = None
+    display_status: str = "Open"
+    issue_date: date | None = None
+    payment_date: date | None = None
+    payment_terms: str | None = None
+    currency: str = "USD"
+    subtotal: Decimal = Decimal("0.00")
+    tax_amount: Decimal = Decimal("0.00")
+    freight_amount: Decimal = Decimal("0.00")
+    total_amount: Decimal = Decimal("0.00")
+    outstanding_balance: Decimal = Decimal("0.00")
+    sales_invoice_id: int | None = None
+    sales_invoice_number: str | None = None
+    sales_invoice_status: str | None = None
+    lines: list[ARInvoiceLineDetailRead] = Field(default_factory=list)
+    payments: list[ARInvoicePaymentRead] = Field(default_factory=list)
+    can_create_credit_memo: bool = False
+    credit_memo_reason: str | None = None
+    duplicate_invoice_ids: list[str] = Field(default_factory=list)
+
+
 class ARInvoiceCreate(BaseModel):
     invoice_id: str = Field(max_length=50)
     sales_order_id: str = Field(max_length=50)
@@ -1788,6 +1830,43 @@ class APBillRead(ORMModel):
     due_date: date
     created_at: datetime | None
 
+class APBillPaymentRead(BaseModel):
+    payment_date: datetime | date | None = None
+    method: str
+    reference: str
+    amount_applied: Decimal
+    unapplied_balance: Decimal
+
+
+class APBillLineDetailRead(BaseModel):
+    item_id: str
+    description: str | None = None
+    quantity: Decimal
+    unit_price: Decimal
+    line_subtotal: Decimal
+
+
+class APBillDetailRead(APBillRead):
+    vendor_name: str | None = None
+    vendor_email: str | None = None
+    vendor_invoice_number: str | None = None
+    display_status: str = "Open"
+    issue_date: date | None = None
+    payment_date: date | None = None
+    payment_terms: str | None = None
+    currency: str = "USD"
+    subtotal: Decimal = Decimal("0.00")
+    tax_amount: Decimal = Decimal("0.00")
+    freight_amount: Decimal = Decimal("0.00")
+    total_amount: Decimal = Decimal("0.00")
+    outstanding_balance: Decimal = Decimal("0.00")
+    supplier_invoice_number: str | None = None
+    supplier_invoice_status: str | None = None
+    match_warnings: list[str] = Field(default_factory=list)
+    lines: list[APBillLineDetailRead] = Field(default_factory=list)
+    payments: list[APBillPaymentRead] = Field(default_factory=list)
+
+
 class APBillCreate(BaseModel):
     bill_id: str = Field(max_length=50)
     purchase_order_id: str = Field(max_length=50)
@@ -1796,13 +1875,46 @@ class APBillCreate(BaseModel):
     due_date: date
 
 
+class BankAccountRead(ORMModel):
+    bank_account_id: str
+    bank_name: str
+    account_name: str
+    account_number: str
+    account_number_masked: str | None = None
+    routing_number: str | None = None
+    display_name: str | None = None
+    is_default: bool = False
+    is_active: bool = True
+
+
+class BankAccountCreate(BaseModel):
+    bank_name: str = Field(min_length=1, max_length=150)
+    account_name: str = Field(min_length=1, max_length=100)
+    account_number: str = Field(min_length=4, max_length=34)
+    routing_number: str | None = Field(default=None, max_length=9)
+    is_default: bool = False
+
+
 class CashTransactionRead(ORMModel):
     transaction_id: str
     type: str
+    type_label: str | None = None
     reference_id: str
     amount: Decimal
     transaction_date: datetime | None
     bank_account_id: str | None
+    bank_account_name: str | None = None
+    bank_name: str | None = None
+    account_name: str | None = None
+    account_number: str | None = None
+    account_number_masked: str | None = None
+    routing_number: str | None = None
+    payment_method: str = "CHECK"
+    instrument_ref_no: str | None = None
+    instrument_display_number: str | None = None
+    entity_name: str | None = None
+    entity_role: str | None = None
+    clearing_status: str = "CLEARED"
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
 
@@ -1812,6 +1924,14 @@ class PaymentRequest(BaseModel):
     transaction_id: str | None = Field(default=None, max_length=50)
     amount: Decimal | None = Field(default=None, gt=0, decimal_places=2)
     bank_account_id: str | None = Field(default=None, max_length=50)
+    payment_method: Literal["CHECK", "WIRE", "ACH", "CARD"] | None = None
+    instrument_ref_no: str | None = Field(default=None, max_length=50)
+    payment_date: date | None = None
+
+
+class NextInstrumentRead(BaseModel):
+    payment_method: str
+    instrument_ref_no: str
 
 
 # ==========================================
@@ -2408,6 +2528,9 @@ class SupplierInvoiceRead(BaseModel):
 class SupplierInvoicePayRequest(BaseModel):
     amount: Decimal | None = Field(default=None, gt=0, decimal_places=2)
     bank_account_id: str | None = Field(default=None, max_length=50)
+    payment_method: Literal["CHECK", "WIRE", "ACH", "CARD"] | None = None
+    instrument_ref_no: str | None = Field(default=None, max_length=50)
+    payment_date: date | None = None
 
 
 class DocumentAttachmentRead(ORMModel):

@@ -23,7 +23,10 @@ import type {
   MaterialIssue,
   FinishedGoodsReceipt,
   ARInvoice,
+  ARInvoiceDetail,
   APBill,
+  APBillDetail,
+  BankAccount,
   CashTransaction,
   JournalEntry,
   ChartOfAccount,
@@ -45,6 +48,8 @@ import type {
   AuditLog,
   DocumentAttachment,
   DocumentType,
+  CashPaymentPayload,
+  CashPaymentMethod,
 } from '../types';
 
 /** Map backend Item.item_id wire format → frontend Item */
@@ -606,7 +611,7 @@ export const vendorInvoiceService = {
 
   pay(
     id: number,
-    data: { amount?: number | null; bank_account_id?: string | null } = {},
+    data: CashPaymentPayload = {},
   ): Promise<SupplierInvoice> {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/pay`, data);
   },
@@ -1722,13 +1727,24 @@ export const arInvoiceService = {
     return apiClient.get<ARInvoice>(`/api/v1/ar-invoices/${invoiceId}`);
   },
 
+  async getInvoiceDetail(invoiceId: string): Promise<ARInvoiceDetail> {
+    return apiClient.get<ARInvoiceDetail>(`/api/v1/ar-invoices/${invoiceId}/detail`);
+  },
+
+  async createCreditMemo(invoiceId: string): Promise<ARInvoiceDetail> {
+    return apiClient.post<ARInvoiceDetail>(`/api/v1/ar-invoices/${invoiceId}/credit-memo`);
+  },
+
   /**
    * Record receipt of payment against an AR Invoice.
    * Marks the invoice Paid, creates a Cash Transaction (Check Deposit),
    * and posts a balanced Journal Entry (Debit: Cash, Credit: AR).
    */
-  async receivePayment(invoiceId: string): Promise<CashTransaction> {
-    return apiClient.post<CashTransaction>(`/api/v1/ar-invoices/${invoiceId}/pay`);
+  async receivePayment(
+    invoiceId: string,
+    data: CashPaymentPayload = {},
+  ): Promise<CashTransaction> {
+    return apiClient.post<CashTransaction>(`/api/v1/ar-invoices/${invoiceId}/pay`, data);
   },
 };
 
@@ -1753,19 +1769,42 @@ export const apBillService = {
     return apiClient.get<APBill>(`/api/v1/ap-bills/${billId}`);
   },
 
+  async getBillDetail(billId: string): Promise<APBillDetail> {
+    return apiClient.get<APBillDetail>(`/api/v1/ap-bills/${billId}/detail`);
+  },
+
   /**
    * Record an outgoing payment against an AP Bill.
    * Marks the bill Paid, creates a Cash Transaction (Check Issue),
    * and posts a balanced Journal Entry (Debit: AP, Credit: Cash).
    */
-  async makePayment(billId: string): Promise<CashTransaction> {
-    return apiClient.post<CashTransaction>(`/api/v1/ap-bills/${billId}/pay`);
+  async makePayment(
+    billId: string,
+    data: CashPaymentPayload = {},
+  ): Promise<CashTransaction> {
+    return apiClient.post<CashTransaction>(`/api/v1/ap-bills/${billId}/pay`, data);
   },
 };
 
 // ==========================================
 // CASH MANAGEMENT SERVICES
 // ==========================================
+
+export const bankAccountService = {
+  async listAccounts(): Promise<BankAccount[]> {
+    return apiClient.get<BankAccount[]>('/api/v1/bank-accounts');
+  },
+
+  async createAccount(data: {
+    bank_name: string;
+    account_name: string;
+    account_number: string;
+    routing_number?: string | null;
+    is_default?: boolean;
+  }): Promise<BankAccount> {
+    return apiClient.post<BankAccount>('/api/v1/bank-accounts', data);
+  },
+};
 
 export const cashTransactionService = {
   /**
@@ -1785,6 +1824,20 @@ export const cashTransactionService = {
    */
   async getTransaction(transactionId: string): Promise<CashTransaction> {
     return apiClient.get<CashTransaction>(`/api/v1/cash-transactions/${transactionId}`);
+  },
+
+  async getTransactionDetail(transactionId: string): Promise<CashTransaction> {
+    return apiClient.get<CashTransaction>(`/api/v1/cash-transactions/${transactionId}/detail`);
+  },
+
+  async nextInstrument(paymentMethod: CashPaymentMethod = 'CHECK'): Promise<{
+    payment_method: string
+    instrument_ref_no: string
+  }> {
+    return apiClient.get<{ payment_method: string; instrument_ref_no: string }>(
+      '/api/v1/cash-transactions/next-instrument',
+      { params: { payment_method: paymentMethod } },
+    )
   },
 };
 

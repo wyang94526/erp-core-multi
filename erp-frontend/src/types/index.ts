@@ -434,6 +434,9 @@ export interface SalesOrder {
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
   total_amount: number; // Decimal from backend
+  billed_amount?: number;
+  remaining_billable_amount?: number;
+  invoice_status?: 'UNBILLED' | 'PARTIALLY_BILLED' | 'FULLY_BILLED' | string;
   created_at: string | null; // ISO datetime
   items: SalesOrderItem[];
 }
@@ -736,6 +739,45 @@ export interface ARInvoice {
   created_at: string | null;
 }
 
+export interface ARInvoicePayment {
+  payment_date: string | null;
+  method: string;
+  reference: string;
+  amount_applied: number;
+  unapplied_balance: number;
+}
+
+export interface ARInvoiceLineDetail {
+  item_id: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  line_subtotal: number;
+}
+
+export interface ARInvoiceDetail extends ARInvoice {
+  customer_name?: string | null;
+  customer_email?: string | null;
+  display_status?: 'Paid' | 'Overdue' | 'Partial' | 'Open' | string;
+  issue_date?: string | null;
+  payment_date?: string | null;
+  payment_terms?: string | null;
+  currency?: string;
+  subtotal?: number;
+  tax_amount?: number;
+  freight_amount?: number;
+  total_amount?: number;
+  outstanding_balance?: number;
+  sales_invoice_id?: number | null;
+  sales_invoice_number?: string | null;
+  sales_invoice_status?: string | null;
+  lines: ARInvoiceLineDetail[];
+  payments: ARInvoicePayment[];
+  can_create_credit_memo?: boolean;
+  credit_memo_reason?: string | null;
+  duplicate_invoice_ids?: string[];
+}
+
 export type FulfillmentStatus = 'DRAFT' | 'PICKED' | 'PACKED' | 'SHIPPED' | string;
 
 export interface ItemFulfillmentLine {
@@ -809,6 +851,43 @@ export interface APBill {
   created_at: string | null;
 }
 
+export interface APBillPayment {
+  payment_date: string | null;
+  method: string;
+  reference: string;
+  amount_applied: number;
+  unapplied_balance: number;
+}
+
+export interface APBillLineDetail {
+  item_id: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  line_subtotal: number;
+}
+
+export interface APBillDetail extends APBill {
+  vendor_name?: string | null;
+  vendor_email?: string | null;
+  vendor_invoice_number?: string | null;
+  display_status?: 'Paid' | 'Overdue' | 'Partial' | 'Open' | string;
+  issue_date?: string | null;
+  payment_date?: string | null;
+  payment_terms?: string | null;
+  currency?: string;
+  subtotal?: number;
+  tax_amount?: number;
+  freight_amount?: number;
+  total_amount?: number;
+  outstanding_balance?: number;
+  supplier_invoice_number?: string | null;
+  supplier_invoice_status?: string | null;
+  match_warnings?: string[];
+  lines: APBillLineDetail[];
+  payments: APBillPayment[];
+}
+
 export type VendorInvoiceSourceType = 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | string;
 export type VendorInvoiceStatus =
   | 'DRAFT'
@@ -855,13 +934,48 @@ export interface SupplierInvoice {
   payment_transaction_id?: string | null;
 }
 
+export type CashPaymentMethod = 'CHECK' | 'WIRE' | 'ACH' | 'CARD'
+
+export type CashPaymentPayload = {
+  amount?: number | null
+  bank_account_id?: string | null
+  payment_method?: CashPaymentMethod | null
+  instrument_ref_no?: string | null
+  payment_date?: string | null
+}
+
+export interface BankAccount {
+  bank_account_id: string;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  account_number_masked?: string | null;
+  routing_number?: string | null;
+  display_name?: string | null;
+  is_default?: boolean;
+  is_active?: boolean;
+}
+
 export interface CashTransaction {
   transaction_id: string;
   type: 'Check Issue' | 'Check Deposit' | string;
+  type_label?: string | null;
   reference_id: string;
   amount: number;
   transaction_date: string | null; // ISO datetime
   bank_account_id: string | null;
+  bank_account_name?: string | null;
+  bank_name?: string | null;
+  account_name?: string | null;
+  account_number?: string | null;
+  account_number_masked?: string | null;
+  routing_number?: string | null;
+  payment_method?: CashPaymentMethod | string;
+  instrument_ref_no?: string | null;
+  instrument_display_number?: string | null;
+  entity_name?: string | null;
+  entity_role?: 'Payee' | 'Payer' | string | null;
+  clearing_status?: 'PENDING' | 'CLEARED' | 'VOID' | string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
 }

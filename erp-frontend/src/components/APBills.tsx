@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { apBillService } from '../api/services'
 import type { APBill } from '../types'
+import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
 import { ApprovalPanel } from './ApprovalPanel'
+import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPaymentDialog'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import ListFilterBar, {
@@ -51,7 +54,10 @@ function APBills() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
+  const [pendingPay, setPendingPay] = useState<APBill | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const focusBill = (searchParams.get('bill') || '').trim()
   const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
     useListFilterParams(AP_FILTERS)
 
@@ -76,6 +82,7 @@ function APBills() {
 
   const filteredBills = useMemo(() => {
     return bills.filter((bill) => {
+      if (focusBill && bill.bill_id === focusBill) return true
       if (values.status !== 'ALL' && bill.status !== values.status) return false
       if (values.approval !== 'ALL') {
         const approval = (bill.approval_status || 'DRAFT').toUpperCase()
@@ -89,7 +96,7 @@ function APBills() {
       }
       return true
     })
-  }, [bills, values.status, values.approval, values.due, today])
+  }, [bills, values.status, values.approval, values.due, today, focusBill])
 
   const { items: sortedBills, requestSort, sortConfig } = useSortableData(filteredBills, {
     columnTypes: {
@@ -98,10 +105,11 @@ function APBills() {
     },
   })
 
-  const handleMakePayment = async (billId: string) => {
-    setPayingId(billId)
+  const handleMakePayment = async (bill: APBill, choice: CashPaymentChoice) => {
+    setPayingId(bill.bill_id)
     try {
-      await apBillService.makePayment(billId)
+      await apBillService.makePayment(bill.bill_id, choice)
+      setPendingPay(null)
       await loadBills()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to make payment')
@@ -163,10 +171,31 @@ function APBills() {
               <tbody>
                 {sortedBills.map((bill) => {
                   const colors = getStatusColors(bill.status)
+                  const focused = Boolean(focusBill) && bill.bill_id === focusBill
+                  const orderId = bill.source_order_id || bill.purchase_order_id
+                  const orderHref = sourceOrderHref(bill.source_type, orderId)
                   return (
-                    <tr key={bill.bill_id} style={directoryTbodyRowStyle}>
-                      <td style={directoryTdStyle}>{bill.bill_id}</td>
-                      <td style={directoryTdStyle}>{bill.purchase_order_id}</td>
+                    <tr
+                      key={bill.bill_id}
+                      style={{
+                        ...directoryTbodyRowStyle,
+                        backgroundColor: focused ? '#e3f2fd' : undefined,
+                      }}
+                    >
+                      <td style={directoryTdStyle}>
+                        <Link to={billDetailHref(bill.bill_id)} style={idLinkStyle} title="View bill details">
+                          {bill.bill_id}
+                        </Link>
+                      </td>
+                      <td style={directoryTdStyle}>
+                        {orderHref && orderId ? (
+                          <Link to={orderHref} style={idLinkStyle} title="Open source order">
+                            {orderId}
+                          </Link>
+                        ) : (
+                          orderId || '—'
+                        )}
+                      </td>
                       <td style={directoryTdStyle}>{bill.vendor_id}</td>
                       <td style={directoryTdStyle}>{formatCurrency(bill.amount)}</td>
                       <td style={directoryTdStyle}>{formatDate(bill.due_date)}</td>
@@ -206,7 +235,7 @@ function APBills() {
                               cursor: payingId === bill.bill_id ? 'not-allowed' : 'pointer',
                             }}
                             disabled={payingId === bill.bill_id}
-                            onClick={() => handleMakePayment(bill.bill_id)}
+                            onClick={() => setPendingPay(bill)}
                           >
                             {payingId === bill.bill_id ? 'Processing...' : 'Make Payment'}
                           </button>
@@ -229,6 +258,17 @@ function APBills() {
           onStatusChange={loadBills}
         />
       )}
+
+      <RecordCashPaymentDialog
+        open={Boolean(pendingPay)}
+        title={`Pay ${pendingPay?.bill_id || ''}`}
+        subtitle="Choose the bank account and payment instrument for this disbursement."
+        amount={pendingPay?.amount}
+        confirmLabel="Make Payment"
+        submitting={Boolean(pendingPay && payingId === pendingPay.bill_id)}
+        onCancel={() => setPendingPay(null)}
+        onConfirm={(choice) => pendingPay && void handleMakePayment(pendingPay, choice)}
+      />
     </div>
   )
 }
@@ -322,6 +362,12 @@ const directoryActionButtonStyle: React.CSSProperties = {
   fontWeight: 'bold',
   transition: 'background-color 0.2s',
   fontFamily: 'inherit',
+}
+
+const idLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  fontWeight: 700,
+  textDecoration: 'none',
 }
 
 const statusBadgeStyle: React.CSSProperties = {

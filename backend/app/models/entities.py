@@ -1117,6 +1117,21 @@ class PurchaseOrderDeliverySchedule(Base):
     bin = relationship("BinLocation")
 
 
+class BankAccount(Base):
+    """Company bank accounts used by Cash Management."""
+
+    __tablename__ = "bank_accounts"
+
+    bank_account_id = Column(String(50), primary_key=True)
+    bank_name = Column(String(150), nullable=False)
+    account_name = Column(String(100), nullable=False)
+    account_number = Column(String(34), nullable=False)
+    routing_number = Column(String(9), nullable=True)
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class CashTransaction(Base):
 
     """Cash Management ledger - records Check Issue (AP payment) / Check Deposit (AR payment)."""
@@ -1127,13 +1142,24 @@ class CashTransaction(Base):
     reference_id = Column(String(50), nullable=False)  # AR Invoice ID or AP Bill ID (no strict FK - polymorphic reference)
     amount = Column(Numeric(12, 2), nullable=False)
     transaction_date = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
-    bank_account_id = Column(String(50), nullable=True)  # Free-text bank account identifier
+    bank_account_id = Column(String(50), ForeignKey("bank_accounts.bank_account_id"), nullable=True)
+    payment_method = Column(String(20), nullable=False, server_default=text("'CHECK'"))
+    instrument_ref_no = Column(String(50), nullable=True)
+    entity_name = Column(String(255), nullable=True)
+    clearing_status = Column(String(20), nullable=False, server_default=text("'CLEARED'"))
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
 
     __table_args__ = (
         CheckConstraint("type IN ('Check Issue', 'Check Deposit')", name='chk_cash_transaction_type'),
+        CheckConstraint("payment_method IN ('CHECK', 'WIRE', 'ACH', 'CARD')", name="chk_cash_payment_method"),
+        CheckConstraint(
+            "clearing_status IN ('PENDING', 'CLEARED', 'VOID')",
+            name="chk_cash_clearing_status",
+        ),
     )
+
+    bank_account = relationship("BankAccount")
 
 
 # ========================================================

@@ -16,6 +16,8 @@ import SalesOrderForm from './components/SalesOrderForm'
 import ItemFulfillmentList from './components/ItemFulfillmentList'
 import ItemFulfillmentForm from './components/ItemFulfillmentForm'
 import SalesInvoiceList from './components/SalesInvoiceList'
+import InvoiceDetail from './components/InvoiceDetail'
+import BillDetail from './components/BillDetail'
 import SalesInvoiceForm from './components/SalesInvoiceForm'
 import CustomerList from './components/CustomerList'
 import CustomerForm from './components/CustomerForm'
@@ -137,6 +139,10 @@ export const router = createBrowserRouter([
       {
         path: 'sales-invoices',
         element: <SalesInvoiceList />,
+      },
+      {
+        path: 'sales-invoices/:invoiceId',
+        element: <InvoiceDetail />,
       },
       {
         path: 'purchase-orders',
@@ -261,6 +267,10 @@ export const router = createBrowserRouter([
       {
         path: 'supplier-invoices/new',
         element: <SupplierInvoiceForm />,
+      },
+      {
+        path: 'supplier-invoices/:invoiceId',
+        element: <BillDetail />,
       },
       {
         path: 'cash-management',

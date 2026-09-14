@@ -15,6 +15,12 @@ import {
   salesOrderService,
 } from '../api/services'
 import { generateSalesOrderPdf } from '../utils/generateSalesOrderPdf'
+import {
+  invoiceStatusColors,
+  invoiceStatusLabel,
+  isFullyInvoiced,
+  salesOrderInvoiceStatus,
+} from '../utils/soBilling'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 
@@ -93,7 +99,10 @@ export function SalesOrderDetail() {
   const orderFulfillments = fulfillments.filter((f) => f.sales_order_id === order.sales_order_id)
   const hasShippedFulfillment = orderFulfillments.some((f) => f.status === 'SHIPPED')
   const canFulfillItems = isApproved && order.status !== 'CANCELLED'
-  const canCreateInvoice = isApproved && hasShippedFulfillment
+  const fullyInvoiced = isFullyInvoiced(order)
+  const billingStatus = salesOrderInvoiceStatus(order)
+  const billingColors = invoiceStatusColors(billingStatus)
+  const canCreateInvoice = isApproved && hasShippedFulfillment && !fullyInvoiced
 
   const handlePrintPdf = async () => {
     setExportError(null)
@@ -262,6 +271,28 @@ export function SalesOrderDetail() {
               {order.currency} {Number(order.total_amount || 0).toFixed(2)}
             </p>
           </div>
+          <div>
+            <label style={labelStyle}>Billing</label>
+            <p style={valueStyle}>
+              <span
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  backgroundColor: billingColors.bg,
+                  color: billingColors.text,
+                }}
+              >
+                {invoiceStatusLabel(billingStatus)}
+              </span>
+              <span style={{ marginLeft: 8, fontSize: 13, color: 'var(--text)' }}>
+                Billed {order.currency} {Number(order.billed_amount || 0).toFixed(2)}
+                {' · remaining '}
+                {Number(order.remaining_billable_amount ?? order.total_amount ?? 0).toFixed(2)}
+              </span>
+            </p>
+          </div>
         </div>
       </div>
 
@@ -396,9 +427,11 @@ export function SalesOrderDetail() {
           }}
           disabled={!canCreateInvoice}
           title={
-            canCreateInvoice
-              ? 'Create a sales invoice from shipped fulfillments'
-              : 'Ship a fulfillment before invoicing'
+            fullyInvoiced
+              ? 'This Sales Order has already been fully billed.'
+              : canCreateInvoice
+                ? 'Create a sales invoice from shipped fulfillments'
+                : 'Ship a fulfillment before invoicing'
           }
         >
           Create Invoice
@@ -418,7 +451,12 @@ export function SalesOrderDetail() {
       {orderFulfillments.length > 0 ? (
         <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text)' }}>
           {orderFulfillments.length} fulfillment(s)
-          {hasShippedFulfillment ? ' · ready to invoice' : ' · awaiting shipment'} —{' '}
+          {fullyInvoiced
+            ? ' · fully billed'
+            : hasShippedFulfillment
+              ? ' · ready to invoice'
+              : ' · awaiting shipment'}{' '}
+          —{' '}
           <button
             type="button"
             style={{

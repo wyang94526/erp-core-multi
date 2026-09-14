@@ -3,13 +3,13 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { vendorInvoiceService } from '../api/services'
-import type { SupplierInvoice } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { billDetailHref } from '../utils/cashReference'
 
 const PAGE_SIZE = 10
 
@@ -53,12 +53,10 @@ const money = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n) || 0)
 
 export function SupplierInvoiceList() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const sourceOrderId = searchParams.get('source_order_id') || undefined
+  const focusInvoice = (searchParams.get('invoice') || '').trim()
   const [skip, setSkip] = useState(0)
-  const [selected, setSelected] = useState<SupplierInvoice | null>(null)
   const { values } = useListFilterParams(FILTERS)
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
@@ -93,25 +91,11 @@ export function SupplierInvoiceList() {
     },
   })
 
-  const approveMutation = useMutation({
-    mutationFn: (id: number) => vendorInvoiceService.approve(id),
-    onSuccess: async (inv) => {
-      await queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] })
-      setSelected(inv)
-    },
-    onError: (err) => alert(err instanceof Error ? err.message : 'Approve failed'),
-  })
-
-  const payMutation = useMutation({
-    mutationFn: (id: number) => vendorInvoiceService.pay(id),
-    onSuccess: async (inv) => {
-      await queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] })
-      setSelected(inv)
-    },
-    onError: (err) => alert(err instanceof Error ? err.message : 'Payment failed'),
-  })
-
   const sourceTag = (t: string) => (t === 'SUBCONTRACT_ORDER' ? 'SCO' : 'PO')
+
+  if (focusInvoice) {
+    return <Navigate to={billDetailHref(focusInvoice)} replace />
+  }
 
   return (
     <div style={containerStyle}>
@@ -156,13 +140,24 @@ export function SupplierInvoiceList() {
               <tbody>
                 {sorted.map((inv) => {
                   const colors = statusColors(inv.status)
+                  const focused = Boolean(focusInvoice) && inv.invoice_number === focusInvoice
                   const orderPath =
                     inv.source_type === 'SUBCONTRACT_ORDER'
                       ? `/subcontract-orders/${inv.source_order_id}`
                       : `/purchase-orders/${inv.source_order_id}`
                   return (
-                    <tr key={inv.id} style={tbodyRowStyle}>
-                      <td style={tdStyle}>{inv.invoice_number}</td>
+                    <tr
+                      key={inv.id}
+                      style={{
+                        ...tbodyRowStyle,
+                        backgroundColor: focused ? '#e3f2fd' : undefined,
+                      }}
+                    >
+                      <td style={tdStyle}>
+                        <Link to={billDetailHref(inv.invoice_number)} style={linkStyle} title="View bill details">
+                          {inv.invoice_number}
+                        </Link>
+                      </td>
                       <td style={tdStyle}>
                         <span style={tagStyle}>{sourceTag(inv.source_type)}</span>
                       </td>
@@ -181,9 +176,9 @@ export function SupplierInvoiceList() {
                         </span>
                       </td>
                       <td style={tdStyle}>
-                        <button type="button" style={linkButtonStyle} onClick={() => setSelected(inv)}>
+                        <Link to={billDetailHref(inv.invoice_number)} style={linkStyle} title="View bill details">
                           View
-                        </button>
+                        </Link>
                       </td>
                     </tr>
                   )
@@ -211,80 +206,6 @@ export function SupplierInvoiceList() {
         </>
       )}
 
-      {selected ? (
-        <div style={drawerOverlayStyle} onClick={() => setSelected(null)}>
-          <aside style={drawerStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: 'var(--text-h)' }}>{selected.invoice_number}</h3>
-              <button type="button" style={secondaryButtonStyle} onClick={() => setSelected(null)}>
-                Close
-              </button>
-            </div>
-            <p style={{ color: 'var(--text)', fontSize: 14 }}>
-              {sourceTag(selected.source_type)} {selected.source_order_id} · {selected.vendor_name || selected.vendor_id}
-            </p>
-            {selected.match_warnings && selected.match_warnings.length > 0 ? (
-              <div style={{ background: '#fff8e1', border: '1px solid #ffe082', padding: 10, borderRadius: 6, fontSize: 13 }}>
-                <strong>3-way match warnings</strong>
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                  {selected.match_warnings.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <table style={{ ...tableStyle, marginTop: 16 }}>
-              <thead>
-                <tr style={theadRowStyle}>
-                  <th style={thStyle}>Item</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected.lines.map((line) => (
-                  <tr key={line.id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{line.description || line.item_id}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_billed}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{money(line.unit_price)}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{money(line.line_subtotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
-              {selected.status === 'DRAFT' ? (
-                <button
-                  type="button"
-                  style={primaryButtonStyle}
-                  disabled={approveMutation.isPending}
-                  onClick={() => approveMutation.mutate(selected.id)}
-                >
-                  Approve (post AP)
-                </button>
-              ) : null}
-              {selected.status === 'APPROVED' ? (
-                <button
-                  type="button"
-                  style={{ ...primaryButtonStyle, backgroundColor: '#2e7d32' }}
-                  disabled={payMutation.isPending}
-                  onClick={() => payMutation.mutate(selected.id)}
-                >
-                  Record Payment
-                </button>
-              ) : null}
-              {selected.ap_bill_id ? (
-                <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/accounts-payable')}>
-                  Open AP Bills
-                </button>
-              ) : null}
-            </div>
-          </aside>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -309,27 +230,7 @@ const tagStyle: React.CSSProperties = {
   fontWeight: 700,
 }
 const linkStyle: React.CSSProperties = { color: '#1565c0', textDecoration: 'none', fontWeight: 600 }
-const linkButtonStyle: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  color: '#1565c0',
-  cursor: 'pointer',
-  fontWeight: 600,
-  fontFamily: 'inherit',
-  padding: 0,
-}
 const pagerStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16 }
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 16px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 14,
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '8px 14px',
   backgroundColor: 'transparent',
@@ -340,22 +241,6 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 'bold',
   fontFamily: 'inherit',
-}
-const drawerOverlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.35)',
-  zIndex: 40,
-  display: 'flex',
-  justifyContent: 'flex-end',
-}
-const drawerStyle: React.CSSProperties = {
-  width: 'min(480px, 100%)',
-  background: 'var(--bg)',
-  height: '100%',
-  padding: 24,
-  overflowY: 'auto',
-  boxShadow: 'var(--shadow)',
 }
 
 export default SupplierInvoiceList

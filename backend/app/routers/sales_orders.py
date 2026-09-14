@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderItem
 from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
+from app.services import o2c
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
 
@@ -52,7 +53,9 @@ def list_sales_orders(
     This will automatically include the nested line items for each order 
     based on the SalesOrderRead schema.
     """
-    return db.query(SalesOrder).offset(skip).limit(limit).all()
+    orders = db.query(SalesOrder).offset(skip).limit(limit).all()
+    o2c.attach_sales_order_billing(db, orders)
+    return orders
 
 @router.post("", response_model=SalesOrderRead, status_code=status.HTTP_201_CREATED)
 def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db)) -> SalesOrder:
@@ -99,6 +102,7 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Invalid sales order data: {exc.orig}") from exc
     db.refresh(order)
+    o2c.attach_sales_order_billing(db, [order])
     return order
 
 @router.get("/{order_id}", response_model=SalesOrderRead)
@@ -109,6 +113,7 @@ def get_sales_order(order_id: str, db: Session = Depends(get_db)) -> SalesOrder:
     order = db.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Sales Order not found")
+    o2c.attach_sales_order_billing(db, [order])
     return order
 
 @router.patch("/{order_id}", response_model=SalesOrderRead)
@@ -152,6 +157,7 @@ def update_sales_order(
 
     db.commit()
     db.refresh(order)
+    o2c.attach_sales_order_billing(db, [order])
     return order
 
 # Note: No DELETE endpoint is provided in this router. 

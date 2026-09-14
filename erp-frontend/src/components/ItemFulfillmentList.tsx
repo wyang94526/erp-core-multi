@@ -5,7 +5,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { fulfillmentService } from '../api/services'
+import { fulfillmentService, salesOrderService } from '../api/services'
+import { isFullyInvoiced } from '../utils/soBilling'
 import type { ItemFulfillment } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
@@ -50,6 +51,14 @@ export function ItemFulfillmentList() {
     queryKey: ['fulfillments'],
     queryFn: () => fulfillmentService.list(0, 200),
   })
+
+  const { data: selectedOrder, isLoading: selectedOrderLoading } = useQuery({
+    queryKey: ['salesOrders', selected?.sales_order_id],
+    queryFn: () => salesOrderService.getSalesOrder(selected!.sales_order_id),
+    enabled: Boolean(selected?.sales_order_id),
+  })
+  const selectedFullyInvoiced = Boolean(selectedOrder && isFullyInvoiced(selectedOrder))
+  const invoiceActionBlocked = selectedOrderLoading || selectedFullyInvoiced
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -237,8 +246,23 @@ export function ItemFulfillmentList() {
               {selected.status === 'SHIPPED' ? (
                 <button
                   type="button"
-                  style={primaryButtonStyle}
-                  onClick={() => navigate(`/sales-orders/${selected.sales_order_id}/invoice?fulfillment_id=${selected.id}`)}
+                  style={{
+                    ...primaryButtonStyle,
+                    backgroundColor: invoiceActionBlocked ? '#9e9e9e' : '#1976d2',
+                    cursor: invoiceActionBlocked ? 'not-allowed' : 'pointer',
+                  }}
+                  disabled={invoiceActionBlocked}
+                  title={
+                    selectedFullyInvoiced
+                      ? 'This Sales Order has already been fully billed.'
+                      : 'Create a sales invoice from this fulfillment'
+                  }
+                  onClick={() => {
+                    if (invoiceActionBlocked) return
+                    navigate(
+                      `/sales-orders/${selected.sales_order_id}/invoice?fulfillment_id=${selected.id}`,
+                    )
+                  }}
                 >
                   Create Invoice
                 </button>

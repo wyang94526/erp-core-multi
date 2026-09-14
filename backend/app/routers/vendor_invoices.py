@@ -79,6 +79,9 @@ def pay_vendor_invoice(
         invoice_id,
         amount=body.amount,
         bank_account_id=body.bank_account_id,
+        payment_method=body.payment_method,
+        instrument_ref_no=body.instrument_ref_no,
+        payment_date=body.payment_date,
     )
     db.commit()
     return result

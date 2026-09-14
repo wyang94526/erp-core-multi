@@ -31,6 +31,111 @@ REVENUE_ACCOUNT_NAME = "Sales Revenue"
 TAX_PAYABLE_ACCOUNT_CODE = "2100"
 TAX_PAYABLE_ACCOUNT_NAME = "Sales Tax Payable"
 
+ACTIVE_SALES_INVOICE_STATUSES = ("DRAFT", "APPROVED", "PAID")
+_MONEY = Decimal("0.01")
+
+
+def _money(value: Decimal | int | float | str | None) -> Decimal:
+    return Decimal(str(value or 0)).quantize(_MONEY)
+
+
+def invoice_status_label(order_total: Decimal, billed_amount: Decimal) -> str:
+    order_total = _money(order_total)
+    billed_amount = _money(billed_amount)
+    if billed_amount <= 0:
+        return "UNBILLED"
+    if billed_amount >= order_total:
+        return "FULLY_BILLED"
+    return "PARTIALLY_BILLED"
+
+
+def billed_amount_for_order(db: Session, sales_order_id: str) -> Decimal:
+    db.flush()
+    total = (
+        db.query(func.coalesce(func.sum(SalesInvoice.total_amount), 0))
+        .filter(
+            SalesInvoice.sales_order_id == sales_order_id,
+            SalesInvoice.status.in_(ACTIVE_SALES_INVOICE_STATUSES),
+        )
+        .scalar()
+    )
+    return _money(total)
+
+
+def attach_sales_order_billing(db: Session, orders: list[SalesOrder]) -> None:
+    """Set live billed / remaining / invoice_status on sales-order objects."""
+    if not orders:
+        return
+    db.flush()
+    ids = [order.sales_order_id for order in orders]
+    rows = (
+        db.query(
+            SalesInvoice.sales_order_id,
+            func.coalesce(func.sum(SalesInvoice.total_amount), 0),
+        )
+        .filter(
+            SalesInvoice.sales_order_id.in_(ids),
+            SalesInvoice.status.in_(ACTIVE_SALES_INVOICE_STATUSES),
+        )
+        .group_by(SalesInvoice.sales_order_id)
+        .all()
+    )
+    billed_by = {sales_order_id: _money(amount) for sales_order_id, amount in rows}
+    for order in orders:
+        billed = billed_by.get(order.sales_order_id, Decimal("0.00"))
+        order_total = _money(order.total_amount)
+        remaining = max(order_total - billed, Decimal("0.00"))
+        order.billed_amount = billed
+        order.remaining_billable_amount = remaining
+        order.invoice_status = invoice_status_label(order_total, billed)
+
+
+def assert_new_invoice_within_order_balance(
+    *,
+    sales_order_id: str,
+    order_total: Decimal,
+    billed_amount: Decimal,
+    new_invoice_amount: Decimal,
+) -> None:
+    order_total = _money(order_total)
+    billed_amount = _money(billed_amount)
+    new_invoice_amount = _money(new_invoice_amount)
+    if billed_amount >= order_total:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sales Order {sales_order_id} is already fully invoiced.",
+        )
+    remaining = _money(order_total - billed_amount)
+    if new_invoice_amount > remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invoice amount {new_invoice_amount} exceeds remaining unbilled "
+                f"balance {remaining} for Sales Order {sales_order_id}."
+            ),
+        )
+
+
+def sync_sales_order_invoice_status(db: Session, order: SalesOrder | None) -> None:
+    if order is None or (order.status or "").upper() == "CANCELLED":
+        return
+    billed = billed_amount_for_order(db, order.sales_order_id)
+    order_total = _money(order.total_amount)
+    if billed >= order_total and order_total > 0:
+        order.status = "INVOICED"
+        return
+    if (order.status or "").upper() != "INVOICED":
+        return
+    shipped = (
+        db.query(ItemFulfillment)
+        .filter(
+            ItemFulfillment.sales_order_id == order.sales_order_id,
+            ItemFulfillment.status == "SHIPPED",
+        )
+        .count()
+    )
+    order.status = "FULFILLED" if shipped else "APPROVED"
+
 
 def _next_number(db: Session, model, field, prefix: str) -> str:
     year = date.today().year
@@ -331,6 +436,13 @@ def create_sales_invoice(
     if (order.approval_status or "").upper() != "APPROVED":
         raise HTTPException(status_code=400, detail="Sales order must be APPROVED")
 
+    already_billed = billed_amount_for_order(db, sales_order_id)
+    if already_billed >= _money(order.total_amount):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sales Order {sales_order_id} is already fully invoiced.",
+        )
+
     shipped = (
         db.query(ItemFulfillment)
         .filter(
@@ -441,6 +553,12 @@ def create_sales_invoice(
     invoice.tax_amount = tax_amount
     invoice.total_amount = (subtotal + tax_amount).quantize(Decimal("0.01"))
     invoice.outstanding_balance = invoice.total_amount
+    assert_new_invoice_within_order_balance(
+        sales_order_id=sales_order_id,
+        order_total=Decimal(str(order.total_amount or 0)),
+        billed_amount=already_billed,
+        new_invoice_amount=invoice.total_amount,
+    )
     db.flush()
     return serialize_sales_invoice(_load_sales_invoice(db, invoice.id))
 
@@ -567,10 +685,7 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
     invoice.status = "APPROVED"
     invoice.outstanding_balance = total
     invoice.updated_at = datetime.utcnow()
-
-    order = db.get(SalesOrder, invoice.sales_order_id)
-    if order:
-        order.status = "INVOICED"
+    sync_sales_order_invoice_status(db, db.get(SalesOrder, invoice.sales_order_id))
 
     db.flush()
     return serialize_sales_invoice(_load_sales_invoice(db, invoice_id))
@@ -583,5 +698,6 @@ def void_sales_invoice(db: Session, invoice_id: int) -> dict:
     invoice.status = "VOID"
     invoice.outstanding_balance = Decimal("0")
     invoice.updated_at = datetime.utcnow()
+    sync_sales_order_invoice_status(db, db.get(SalesOrder, invoice.sales_order_id))
     db.flush()
     return serialize_sales_invoice(invoice)

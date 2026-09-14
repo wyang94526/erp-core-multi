@@ -584,6 +584,30 @@ CREATE TABLE ap_bills (
 );
 
 DROP TABLE IF EXISTS cash_transactions CASCADE;
+DROP TABLE IF EXISTS bank_accounts CASCADE;
+
+CREATE TABLE bank_accounts (
+    bank_account_id VARCHAR(50) PRIMARY KEY,
+    bank_name VARCHAR(150) NOT NULL,
+    account_name VARCHAR(100) NOT NULL,
+    account_number VARCHAR(34) NOT NULL,
+    routing_number VARCHAR(9),
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX uq_bank_accounts_one_default
+    ON bank_accounts (is_default)
+    WHERE is_default = TRUE;
+
+INSERT INTO bank_accounts (
+    bank_account_id, bank_name, account_name, account_number, routing_number, is_default, is_active
+) VALUES
+    ('BANK-OPERATING', 'Amerant Bank', 'Operating', '0000008420', '067000123', TRUE, TRUE),
+    ('BANK-PAYROLL', 'Amerant Bank', 'Payroll', '0000003198', '067000123', FALSE, TRUE),
+    ('BANK-RESERVE', 'First Citizens Bank', 'Reserve', '0000007701', '053100300', FALSE, TRUE);
+
 -- 17. Cash Management Ledger — records Check Issue (AP payment) / Check Deposit (AR payment)
 CREATE TABLE cash_transactions (
     transaction_id VARCHAR(50) PRIMARY KEY,
@@ -591,9 +615,15 @@ CREATE TABLE cash_transactions (
     reference_id VARCHAR(50) NOT NULL, -- AR Invoice ID or AP Bill ID (polymorphic, no strict FK)
     amount NUMERIC(12, 2) NOT NULL,
     transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    bank_account_id VARCHAR(50),
+    bank_account_id VARCHAR(50) REFERENCES bank_accounts(bank_account_id),
+    payment_method VARCHAR(20) NOT NULL DEFAULT 'CHECK',
+    instrument_ref_no VARCHAR(50),
+    entity_name VARCHAR(255),
+    clearing_status VARCHAR(20) NOT NULL DEFAULT 'CLEARED',
 
-    CONSTRAINT chk_cash_transaction_type CHECK (type IN ('Check Issue', 'Check Deposit'))
+    CONSTRAINT chk_cash_transaction_type CHECK (type IN ('Check Issue', 'Check Deposit')),
+    CONSTRAINT chk_cash_payment_method CHECK (payment_method IN ('CHECK', 'WIRE', 'ACH', 'CARD')),
+    CONSTRAINT chk_cash_clearing_status CHECK (clearing_status IN ('PENDING', 'CLEARED', 'VOID'))
 );
 
 -- ========================================================

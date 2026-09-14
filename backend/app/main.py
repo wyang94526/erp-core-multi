@@ -12,6 +12,7 @@ from app.routers import (
     audit_logs,
     auth,
     cash_transactions,
+    bank_accounts,
     customer_locations,
     customers,
     fulfillments,
@@ -82,6 +83,7 @@ app.include_router(ap_bills.router, prefix="/api/v1")
 app.include_router(vendor_invoices.router, prefix="/api/v1")
 app.include_router(attachments.router, prefix="/api/v1")
 app.include_router(cash_transactions.router, prefix="/api/v1")
+app.include_router(bank_accounts.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(admin_rbac.router, prefix="/api/v1")

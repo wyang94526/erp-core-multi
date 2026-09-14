@@ -160,7 +160,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
       'Add item lines by searching the internal part number. Customer P/N fills from the item master and can be overridden.',
       'Save as Draft, then Submit for approval if your workflow requires it.',
-      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice.',
+      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. A sales order cannot be billed past its total; voiding an invoice releases that amount.',
     ],
     callouts: [
       { kind: 'required', text: 'Customer, at least one ship-to, and at least one order line are required before submit.' },
@@ -500,7 +500,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'From an approved, shipped sales order, choose Invoice (or Finance → Sales Invoices).',
       'Confirm bill-to, lines, tax, and dates, then save / post per your workflow.',
-      'Open Finance → AR Aging & Collections to see unpaid invoices, overdue buckets, and collections follow-up.',
+      'Open Finance → Sales Invoices and click an Invoice # (INV-YYYY-NNNN) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
+      'The same Invoice ID on AR Aging & Collections also opens that detail page.',
       'Dashboard finance KPIs (outstanding AR, overdue invoices) deep-link here with filters applied.',
     ],
     callouts: [
@@ -512,6 +513,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'What is the difference between Sales Invoices and AR Aging?',
         answer:
           'Sales Invoices is the operational invoice register (create/view). AR Aging is collections: open balances by age.',
+      },
+      {
+        question: 'How do I see which payment cleared an invoice?',
+        answer:
+          'Click the Invoice ID in AR Aging or the Invoice # in Sales Invoices. Payment & transaction history lists Check Deposit cash references and amounts applied.',
       },
     ],
     troubleshooting: [
@@ -543,14 +549,25 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance → Supplier Invoices / Bills → New.',
       'Select the vendor / source document. Lines default to unbilled received quantities at order prices.',
       'Submit for approval. Posting typically debits GRNI and credits AP.',
-      'Use Finance → AP Aging & Payments for due dates, aging, and payment batches.',
-      'Cash & Treasury → Cash Management for bank-side movement; Chart of Accounts and General Ledger for setup and posted activity.',
+      'Open Finance → Supplier Invoices and click a Bill # (VBILL-YYYY-NNNN) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
+      'The same Bill ID on AP Aging & Payments also opens that detail page.',
+      'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add more banks from Cash Management. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
     ],
     callouts: [
       { kind: 'required', text: 'Match bills to receipts. Billing a PO with no receipt breaks GRNI clearing.' },
       { kind: 'tip', text: 'Overseas wire details come from the vendor master — verify SWIFT/IBAN before releasing payment.' },
     ],
     faqs: [
+      {
+        question: 'What is the difference between Supplier Invoices and AP Aging?',
+        answer:
+          'Supplier Invoices is the operational bill register (create/view). AP Aging is payments: open balances by due date.',
+      },
+      {
+        question: 'How do I see which payment cleared a bill?',
+        answer:
+          'Click the Bill ID in AP Aging or the Bill # in Supplier Invoices. Payment & transaction history lists Check Issue cash references and amounts applied.',
+      },
       {
         question: 'Where is the Chart of Accounts?',
         answer: 'Finance & Accounting → General Ledger & Setup → Chart of Accounts. AP account on the vendor should point to a liability account.',

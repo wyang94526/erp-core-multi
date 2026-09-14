@@ -13,9 +13,11 @@ import {
   Shrink,
   X,
 } from 'lucide-react'
+import { cashReferenceHref, cashReferenceLabel } from '../../utils/cashReference'
 import { useAuth } from '../../context/AuthContext'
 import { formatCurrency, formatCurrencyPrecise } from '../../hooks/useDashboardData'
 import { useDrillDownActions } from '../../hooks/useDrillDownActions'
+import { RecordCashPaymentDialog } from '../RecordCashPaymentDialog'
 import {
   activeSubcontracts,
   allocatedStock,
@@ -94,6 +96,7 @@ export default function MetricDetailSlideOver({
   const [detailCache, setDetailCache] = useState<Record<string, SalesOrder>>({})
   const [auditCache, setAuditCache] = useState<Record<string, ApprovalHistory[]>>({})
   const [quickEditNotes, setQuickEditNotes] = useState('')
+  const [payRequest, setPayRequest] = useState<{ kind: 'AR' | 'AP'; id: string; amount?: number } | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -126,6 +129,7 @@ export default function MetricDetailSlideOver({
     setSelectedIds(new Set())
     setExpandedId(null)
     setQuickEditNotes('')
+    setPayRequest(null)
     actions.setActionError(null)
     actions.setActionNotice(null)
     actions.setConfirm(null)
@@ -248,7 +252,10 @@ export default function MetricDetailSlideOver({
           detailCache={detailCache}
           data={data}
           busyIds={actions.busyIds}
-          onMarkPaid={(invoiceId) => void actions.recordArPayment(invoiceId)}
+          onMarkPaid={(invoiceId) => {
+            const inv = data.arInvoices.find((i) => i.invoice_id === invoiceId)
+            setPayRequest({ kind: 'AR', id: invoiceId, amount: inv?.amount })
+          }}
           onOpenOrder={(id) => {
             navigate(`/orders/${id}`)
             onClose()
@@ -330,8 +337,8 @@ export default function MetricDetailSlideOver({
           expandedId={expandedId}
           onExpandedChange={setExpandedId}
           busyIds={actions.busyIds}
-          onRecordAr={(id) => void actions.recordArPayment(id)}
-          onRecordAp={(id) => void actions.recordApPayment(id)}
+          onRecordAr={(id, amount) => setPayRequest({ kind: 'AR', id, amount })}
+          onRecordAp={(id, amount) => setPayRequest({ kind: 'AP', id, amount })}
           onRemind={(id, party) => void actions.sendReminder(id, party)}
         />
       )
@@ -577,10 +584,10 @@ export default function MetricDetailSlideOver({
                     ?.invoice_id || '',
                 )}
                 onClick={() => {
-                  const invId = data.arInvoices.find(
+                  const inv = data.arInvoices.find(
                     (i) => i.sales_order_id === revenue.sales_order_id,
-                  )?.invoice_id
-                  if (invId) void actions.recordArPayment(invId)
+                  )
+                  if (inv?.invoice_id) setPayRequest({ kind: 'AR', id: inv.invoice_id, amount: inv.amount })
                   else actions.setActionError('No AR invoice exists for this sales order yet.')
                 }}
               >
@@ -740,6 +747,28 @@ export default function MetricDetailSlideOver({
         onConfirm={(comments) => {
           const notes = quickEditNotes.trim()
           void actions.runConfirmedApproval(comments || notes)
+        }}
+      />
+      <RecordCashPaymentDialog
+        open={Boolean(payRequest)}
+        title={payRequest?.kind === 'AP' ? `Pay ${payRequest.id}` : `Receive payment for ${payRequest?.id || ''}`}
+        subtitle={
+          payRequest?.kind === 'AP'
+            ? 'Choose the bank account and payment instrument for this disbursement.'
+            : 'Choose the bank account and payment instrument for this deposit.'
+        }
+        amount={payRequest?.amount}
+        confirmLabel={payRequest?.kind === 'AP' ? 'Make Payment' : 'Receive Payment'}
+        submitting={Boolean(payRequest && actions.busyIds.has(payRequest.id))}
+        onCancel={() => setPayRequest(null)}
+        onConfirm={async (choice) => {
+          if (!payRequest) return
+          if (payRequest.kind === 'AP') {
+            await actions.recordApPayment(payRequest.id, choice)
+          } else {
+            await actions.recordArPayment(payRequest.id, choice)
+          }
+          setPayRequest(null)
         }}
       />
     </>
@@ -1168,8 +1197,8 @@ function CashFinanceInteractivePanel({
   expandedId: string | null
   onExpandedChange: (id: string | null) => void
   busyIds: Set<string>
-  onRecordAr: (id: string) => void
-  onRecordAp: (id: string) => void
+  onRecordAr: (id: string, amount?: number) => void
+  onRecordAp: (id: string, amount?: number) => void
   onRemind: (id: string, party: string) => void
 }) {
   type MoneyRow = {
@@ -1290,7 +1319,7 @@ function CashFinanceInteractivePanel({
                 label: 'Record Payment',
                 variant: 'success',
                 loading: busyIds.has(r.id),
-                onClick: () => onRecordAr(r.id),
+                onClick: () => onRecordAr(r.id, r.amount),
               },
             ]
           }
@@ -1301,7 +1330,7 @@ function CashFinanceInteractivePanel({
                 label: 'Record Payment',
                 variant: 'success',
                 loading: busyIds.has(r.id),
-                onClick: () => onRecordAp(r.id),
+                onClick: () => onRecordAp(r.id, r.amount),
               },
             ]
           }
@@ -1739,18 +1768,29 @@ function SimpleCashTable({ rows }: { rows: DashboardAggregates['cashTransactions
           </tr>
         </thead>
         <tbody>
-          {rows.map((t) => (
+          {rows.map((t) => {
+            const href = cashReferenceHref(t)
+            return (
             <tr key={t.transaction_id} style={directoryTbodyRowStyle}>
               <td style={directoryTdStyle}>
                 {t.transaction_date ? new Date(t.transaction_date).toLocaleDateString() : '—'}
               </td>
-              <td style={directoryTdStyle}>{t.type}</td>
-              <td style={directoryTdStyle}>{t.reference_id}</td>
+              <td style={directoryTdStyle}>{t.type_label || t.type}</td>
+              <td style={directoryTdStyle}>
+                {href ? (
+                  <Link to={href} style={linkStyle} title={cashReferenceLabel(t)}>
+                    {t.reference_id}
+                  </Link>
+                ) : (
+                  t.reference_id
+                )}
+              </td>
               <td style={{ ...directoryTdStyle, textAlign: 'right' }}>
                 {formatCurrencyPrecise(Number(t.amount) || 0)}
               </td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </div>

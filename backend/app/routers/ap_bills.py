@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import APBill
-from app.schemas import APBillRead, CashTransactionRead, PaymentRequest
+from app.schemas import APBillDetailRead, APBillRead, CashTransactionRead, PaymentRequest
 from app.services import finance
 
 router = APIRouter(prefix="/ap-bills", tags=["ap-bills"])
@@ -30,6 +30,11 @@ def get_ap_bill(bill_id: str, db: Session = Depends(get_db)) -> APBill:
     return bill
 
 
+@router.get("/{bill_id}/detail", response_model=APBillDetailRead)
+def get_ap_bill_detail(bill_id: str, db: Session = Depends(get_db)):
+    return finance.get_bill_detail(db, bill_id)
+
+
 @router.post("/{bill_id}/pay", response_model=CashTransactionRead, status_code=status.HTTP_201_CREATED)
 def pay_ap_bill(
     bill_id: str, payload: PaymentRequest | None = None, db: Session = Depends(get_db)
@@ -47,10 +52,19 @@ def pay_ap_bill(
 
     amount = payload.amount if payload else None
     bank_account_id = payload.bank_account_id if payload else None
+    payment_method = payload.payment_method if payload else None
+    instrument_ref_no = payload.instrument_ref_no if payload else None
+    payment_date = payload.payment_date if payload else None
 
     transaction = finance.make_payment(
-        db, bill, amount=amount, bank_account_id=bank_account_id
+        db,
+        bill,
+        amount=amount,
+        bank_account_id=bank_account_id,
+        payment_method=payment_method,
+        instrument_ref_no=instrument_ref_no,
+        payment_date=payment_date,
     )
     db.commit()
     db.refresh(transaction)
-    return transaction
+    return finance.serialize_cash_transaction(db, transaction)
