@@ -1905,6 +1905,26 @@ export const inventoryService = {
     });
   },
 
+  async createWarehouse(data: {
+    warehouse_id: string;
+    name: string;
+    code: string;
+    address?: string | null;
+    is_active?: boolean;
+  }): Promise<Warehouse> {
+    return apiClient.post<Warehouse>('/api/v1/inventory/warehouses', data);
+  },
+
+  async createBin(data: {
+    bin_id: string;
+    warehouse_id: string;
+    bin_code: string;
+    description?: string | null;
+    is_active?: boolean;
+  }): Promise<BinLocation> {
+    return apiClient.post<BinLocation>('/api/v1/inventory/bins', data);
+  },
+
   async adjustStock(
     itemId: string,
     quantityDelta: number,

@@ -645,6 +645,10 @@ CREATE TABLE Warehouses (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+INSERT INTO Warehouses (warehouse_id, name, code, address, is_active)
+VALUES ('WH-MAIN', 'Main Warehouse', 'MAIN', NULL, TRUE)
+ON CONFLICT (warehouse_id) DO NOTHING;
+
 -- 19. Bin Locations — storage bins within a warehouse
 CREATE TABLE BinLocations (
     bin_id VARCHAR(50) PRIMARY KEY,
@@ -656,6 +660,10 @@ CREATE TABLE BinLocations (
 
     CONSTRAINT unique_bin_per_warehouse UNIQUE (warehouse_id, bin_code)
 );
+
+INSERT INTO BinLocations (bin_id, warehouse_id, bin_code, description, is_active)
+VALUES ('BIN-RECEIVING', 'WH-MAIN', 'RECEIVING', 'Default receiving bin', TRUE)
+ON CONFLICT (bin_id) DO NOTHING;
 
 DROP TABLE IF EXISTS PurchaseOrderDeliverySchedules CASCADE;
 -- Split vendor deliveries for one purchase-order line

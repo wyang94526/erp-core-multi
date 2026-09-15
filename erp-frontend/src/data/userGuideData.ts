@@ -376,10 +376,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { src: '/guide-screenshots/warehouses.jpg', caption: 'Warehouses & bins setup' },
     ],
     steps: [
-      'To receive a purchase: open the Approved PO → Receive Goods. That posts GRNI and a Receipt movement.',
+      'To receive a purchase: open the Approved PO → Receive Goods. That posts GRNI and a Receipt movement into Main Warehouse (created automatically if none exist).',
       'To inspect history: Inventory → Stock Movements. Filter Type = Receipt, Issue, Adjustment, or Transfer.',
       'Use the product/SKU filter or dashboard “pending receiving” KPI to jump here with Receipt already selected.',
-      'Maintain physical structure under Inventory → Warehouses & Bins (warehouse codes and bin locations used by issues and transfers).',
+      'Maintain physical structure under Inventory → Warehouses & Bins. Use Add warehouse (creates a RECEIVING bin automatically) and Add bin for extra aisles or racks.',
     ],
     callouts: [
       { kind: 'important', text: 'PO receiving is not a free-form movement on this page — start from the purchase order so GRNI and billing stay in sync.' },

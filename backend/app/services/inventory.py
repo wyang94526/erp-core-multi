@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session, joinedload
 from app.models import BinLocation, InventoryStock, Item, StockMovement, Warehouse
 from app.schemas import InventoryStockItemRead
 
+DEFAULT_WAREHOUSE_ID = "WH-MAIN"
+DEFAULT_WAREHOUSE_CODE = "MAIN"
+DEFAULT_WAREHOUSE_NAME = "Main Warehouse"
+DEFAULT_BIN_ID = "BIN-RECEIVING"
+DEFAULT_BIN_CODE = "RECEIVING"
+
 
 def derive_status(on_hand: int, reorder_point: int) -> str:
     if on_hand <= 0:
@@ -143,6 +149,68 @@ def _resolve_stock_location(
     return _primary_stock_row(rows)
 
 
+def ensure_default_warehouse(db: Session) -> tuple[Warehouse, BinLocation]:
+    """Return an active warehouse and bin, creating a receiving location if none exist."""
+    warehouse = (
+        db.query(Warehouse)
+        .filter(Warehouse.is_active.is_(True))
+        .order_by(Warehouse.code)
+        .first()
+    )
+    if warehouse is None:
+        warehouse = db.query(Warehouse).order_by(Warehouse.code).first()
+    if warehouse is None:
+        warehouse = db.get(Warehouse, DEFAULT_WAREHOUSE_ID)
+    if warehouse is None:
+        warehouse = Warehouse(
+            warehouse_id=DEFAULT_WAREHOUSE_ID,
+            name=DEFAULT_WAREHOUSE_NAME,
+            code=DEFAULT_WAREHOUSE_CODE,
+            address=None,
+            is_active=True,
+        )
+        db.add(warehouse)
+        db.flush()
+    elif not warehouse.is_active:
+        warehouse.is_active = True
+
+    bin_row = (
+        db.query(BinLocation)
+        .filter(
+            BinLocation.warehouse_id == warehouse.warehouse_id,
+            BinLocation.is_active.is_(True),
+        )
+        .order_by(BinLocation.bin_code)
+        .first()
+    )
+    if bin_row is None:
+        bin_row = (
+            db.query(BinLocation)
+            .filter(BinLocation.warehouse_id == warehouse.warehouse_id)
+            .order_by(BinLocation.bin_code)
+            .first()
+        )
+    if bin_row is None:
+        existing_default = db.get(BinLocation, DEFAULT_BIN_ID)
+        bin_id = (
+            DEFAULT_BIN_ID
+            if existing_default is None
+            else f"BIN-{uuid4().hex[:8].upper()}"
+        )
+        bin_row = BinLocation(
+            bin_id=bin_id,
+            warehouse_id=warehouse.warehouse_id,
+            bin_code=DEFAULT_BIN_CODE,
+            description="Default receiving bin",
+            is_active=True,
+        )
+        db.add(bin_row)
+        db.flush()
+    elif not bin_row.is_active:
+        bin_row.is_active = True
+    return warehouse, bin_row
+
+
 def issue_stock(
     db: Session,
     item_id: str,
@@ -199,21 +267,40 @@ def receive_stock(
 
     try:
         stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
-    except HTTPException:
-        # Create stock at the first active warehouse/bin when none exists yet.
-        warehouse = (
-            db.query(Warehouse).filter(Warehouse.is_active.is_(True)).order_by(Warehouse.code).first()
-        )
-        if not warehouse:
-            raise HTTPException(status_code=400, detail="No warehouse available for stock receipt")
-        bin_row = (
-            db.query(BinLocation)
-            .filter(BinLocation.warehouse_id == warehouse.warehouse_id, BinLocation.is_active.is_(True))
-            .order_by(BinLocation.bin_code)
-            .first()
-        )
-        if not bin_row:
-            raise HTTPException(status_code=400, detail="No bin available for stock receipt")
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        if db.get(Item, item_id) is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item {item_id} not found — cannot receive into stock",
+            )
+        warehouse, bin_row = ensure_default_warehouse(db)
+        if warehouse_id:
+            chosen = db.get(Warehouse, warehouse_id)
+            if chosen is None:
+                raise HTTPException(status_code=400, detail="Warehouse not found for stock receipt")
+            warehouse = chosen
+            matching_bin = (
+                db.query(BinLocation)
+                .filter(
+                    BinLocation.warehouse_id == warehouse.warehouse_id,
+                    BinLocation.is_active.is_(True),
+                )
+                .order_by(BinLocation.bin_code)
+                .first()
+            )
+            if matching_bin is None:
+                matching_bin = BinLocation(
+                    bin_id=f"BIN-{uuid4().hex[:8].upper()}",
+                    warehouse_id=warehouse.warehouse_id,
+                    bin_code=DEFAULT_BIN_CODE,
+                    description="Default receiving bin",
+                    is_active=True,
+                )
+                db.add(matching_bin)
+                db.flush()
+            bin_row = matching_bin
         stock = InventoryStock(
             stock_id=f"STK-{uuid4().hex[:10].upper()}",
             item_id=item_id,

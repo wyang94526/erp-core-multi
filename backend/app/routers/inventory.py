@@ -1,7 +1,9 @@
 """Inventory & Warehouse Management API routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
+from uuid import uuid4
 
 from app.database import get_db
 from app.models import BinLocation, InventoryStock, Item, Warehouse
@@ -33,7 +35,10 @@ def list_warehouses(
     limit: int = 100,
     db: Session = Depends(get_db),
 ) -> list[Warehouse]:
-    return db.query(Warehouse).offset(skip).limit(limit).all()
+    inventory_service.ensure_default_warehouse(db)
+    rows = db.query(Warehouse).offset(skip).limit(limit).all()
+    db.commit()
+    return rows
 
 
 @router.post("/warehouses", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
@@ -42,7 +47,21 @@ def create_warehouse(payload: WarehouseCreate, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=409, detail="Warehouse already exists")
     warehouse = Warehouse(**payload.model_dump())
     db.add(warehouse)
-    db.commit()
+    db.flush()
+    db.add(
+        BinLocation(
+            bin_id=f"BIN-{uuid4().hex[:8].upper()}",
+            warehouse_id=warehouse.warehouse_id,
+            bin_code="RECEIVING",
+            description="Default receiving bin",
+            is_active=True,
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Warehouse code already exists") from exc
     db.refresh(warehouse)
     return warehouse
 
@@ -82,10 +101,12 @@ def list_bins(
     limit: int = 100,
     db: Session = Depends(get_db),
 ) -> list[BinLocationRead]:
+    inventory_service.ensure_default_warehouse(db)
     query = db.query(BinLocation).options(joinedload(BinLocation.warehouse))
     if warehouse_id:
         query = query.filter(BinLocation.warehouse_id == warehouse_id)
     bins = query.offset(skip).limit(limit).all()
+    db.commit()
     return [
         BinLocationRead(
             bin_id=b.bin_id,
@@ -109,7 +130,14 @@ def create_bin(payload: BinLocationCreate, db: Session = Depends(get_db)) -> Bin
         raise HTTPException(status_code=404, detail="Warehouse not found")
     bin_loc = BinLocation(**payload.model_dump())
     db.add(bin_loc)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Bin code already exists in this warehouse",
+        ) from exc
     db.refresh(bin_loc)
     return BinLocationRead(
         bin_id=bin_loc.bin_id,

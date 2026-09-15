@@ -2,12 +2,33 @@
  * WarehousesBins — Warehouse and bin location master data
  */
 
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { inventoryService } from '../api/services'
 
+function slugToken(value: string, max = 20) {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, max)
+}
+
+function nextId(prefix: string, token: string) {
+  const slug = slugToken(token) || Date.now().toString(36).toUpperCase()
+  const suffix = Math.floor(100 + Math.random() * 900)
+  return `${prefix}-${slug}-${suffix}`.slice(0, 50)
+}
+
 export function WarehousesBins() {
+  const queryClient = useQueryClient()
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('all')
+  const [warehouseOpen, setWarehouseOpen] = useState(false)
+  const [binOpen, setBinOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [warehouseForm, setWarehouseForm] = useState({ code: '', name: '', address: '' })
+  const [binForm, setBinForm] = useState({ warehouse_id: '', bin_code: '', description: '' })
 
   const {
     data: warehouses = [],
@@ -33,6 +54,77 @@ export function WarehousesBins() {
     if (selectedWarehouseId === 'all') return bins
     return bins.filter((b) => b.warehouse_id === selectedWarehouseId)
   }, [bins, selectedWarehouseId])
+
+  const openWarehouseDialog = () => {
+    setFormError(null)
+    setWarehouseForm({ code: '', name: '', address: '' })
+    setWarehouseOpen(true)
+  }
+
+  const openBinDialog = () => {
+    setFormError(null)
+    setBinForm({
+      warehouse_id: selectedWarehouseId !== 'all' ? selectedWarehouseId : warehouses[0]?.warehouse_id || '',
+      bin_code: '',
+      description: '',
+    })
+    setBinOpen(true)
+  }
+
+  const handleCreateWarehouse = async (event: FormEvent) => {
+    event.preventDefault()
+    const code = slugToken(warehouseForm.code)
+    const name = warehouseForm.name.trim()
+    if (!code || !name) {
+      setFormError('Code and name are required')
+      return
+    }
+    setSaving(true)
+    setFormError(null)
+    try {
+      await inventoryService.createWarehouse({
+        warehouse_id: nextId('WH', code),
+        code,
+        name,
+        address: warehouseForm.address.trim() || null,
+        is_active: true,
+      })
+      setWarehouseOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ['inventoryWarehouses'] })
+      await queryClient.invalidateQueries({ queryKey: ['inventoryBins'] })
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to add warehouse')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCreateBin = async (event: FormEvent) => {
+    event.preventDefault()
+    const warehouseId = binForm.warehouse_id
+    const binCode = slugToken(binForm.bin_code, 50)
+    if (!warehouseId || !binCode) {
+      setFormError('Warehouse and bin code are required')
+      return
+    }
+    setSaving(true)
+    setFormError(null)
+    try {
+      await inventoryService.createBin({
+        bin_id: nextId('BIN', binCode),
+        warehouse_id: warehouseId,
+        bin_code: binCode,
+        description: binForm.description.trim() || null,
+        is_active: true,
+      })
+      setBinOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ['inventoryBins'] })
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to add bin')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (loadingWh || loadingBins) {
     return (
@@ -64,6 +156,14 @@ export function WarehousesBins() {
           <p style={pageSubStyle}>
             Warehouse sites and bin locations used for stock placement
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" style={secondaryButtonStyle} onClick={openBinDialog} disabled={warehouses.length === 0}>
+            Add bin
+          </button>
+          <button type="button" style={primaryButtonStyle} onClick={openWarehouseDialog}>
+            Add warehouse
+          </button>
         </div>
       </header>
 
@@ -112,6 +212,7 @@ export function WarehousesBins() {
 
         <div style={binHeaderRowStyle}>
           <h3 style={{ ...sectionTitleStyle, margin: 0 }}>Bin Locations</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label style={filterLabelStyle}>
             Warehouse
             <select
@@ -127,6 +228,10 @@ export function WarehousesBins() {
               ))}
             </select>
           </label>
+          <button type="button" style={secondaryButtonStyle} onClick={openBinDialog} disabled={warehouses.length === 0}>
+            Add bin
+          </button>
+          </div>
         </div>
 
         {filteredBins.length === 0 ? (
@@ -170,6 +275,107 @@ export function WarehousesBins() {
           </div>
         )}
       </div>
+
+      {warehouseOpen ? (
+        <div style={overlayStyle} onClick={() => setWarehouseOpen(false)}>
+          <form style={dialogStyle} onClick={(event) => event.stopPropagation()} onSubmit={(event) => void handleCreateWarehouse(event)}>
+            <h3 style={dialogTitleStyle}>Add warehouse</h3>
+            <p style={dialogSubStyle}>Creates the site plus a default RECEIVING bin for purchase receipts.</p>
+            <label style={labelStyle}>
+              Code
+              <input
+                style={inputStyle}
+                value={warehouseForm.code}
+                onChange={(event) => setWarehouseForm((prev) => ({ ...prev, code: event.target.value }))}
+                placeholder="MDC"
+                maxLength={20}
+                required
+              />
+            </label>
+            <label style={labelStyle}>
+              Name
+              <input
+                style={inputStyle}
+                value={warehouseForm.name}
+                onChange={(event) => setWarehouseForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="Main Distribution Center"
+                required
+              />
+            </label>
+            <label style={labelStyle}>
+              Address
+              <input
+                style={inputStyle}
+                value={warehouseForm.address}
+                onChange={(event) => setWarehouseForm((prev) => ({ ...prev, address: event.target.value }))}
+                placeholder="Optional"
+              />
+            </label>
+            {formError ? <div style={errorStyle} role="alert">{formError}</div> : null}
+            <div style={actionsStyle}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setWarehouseOpen(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" style={primaryButtonStyle} disabled={saving}>
+                {saving ? 'Saving…' : 'Save warehouse'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {binOpen ? (
+        <div style={overlayStyle} onClick={() => setBinOpen(false)}>
+          <form style={dialogStyle} onClick={(event) => event.stopPropagation()} onSubmit={(event) => void handleCreateBin(event)}>
+            <h3 style={dialogTitleStyle}>Add bin</h3>
+            <p style={dialogSubStyle}>Bins are storage locations inside a warehouse (aisle, rack, or receiving dock).</p>
+            <label style={labelStyle}>
+              Warehouse
+              <select
+                style={inputStyle}
+                value={binForm.warehouse_id}
+                onChange={(event) => setBinForm((prev) => ({ ...prev, warehouse_id: event.target.value }))}
+                required
+              >
+                <option value="">Select warehouse</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.warehouse_id} value={warehouse.warehouse_id}>
+                    {warehouse.code} — {warehouse.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={labelStyle}>
+              Bin code
+              <input
+                style={inputStyle}
+                value={binForm.bin_code}
+                onChange={(event) => setBinForm((prev) => ({ ...prev, bin_code: event.target.value }))}
+                placeholder="A-01-01"
+                required
+              />
+            </label>
+            <label style={labelStyle}>
+              Description
+              <input
+                style={inputStyle}
+                value={binForm.description}
+                onChange={(event) => setBinForm((prev) => ({ ...prev, description: event.target.value }))}
+                placeholder="Finished goods aisle A"
+              />
+            </label>
+            {formError ? <div style={errorStyle} role="alert">{formError}</div> : null}
+            <div style={actionsStyle}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setBinOpen(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" style={primaryButtonStyle} disabled={saving}>
+                {saving ? 'Saving…' : 'Save bin'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -296,6 +502,80 @@ const statusBadgeStyle: React.CSSProperties = {
   fontSize: '11px',
   fontWeight: 'bold',
   whiteSpace: 'nowrap',
+}
+
+const primaryButtonStyle: CSSProperties = {
+  padding: '8px 14px',
+  backgroundColor: '#1976d2',
+  color: 'white',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 700,
+  fontFamily: 'inherit',
+}
+
+const secondaryButtonStyle: CSSProperties = {
+  padding: '8px 14px',
+  backgroundColor: 'transparent',
+  color: '#212121',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 700,
+  fontFamily: 'inherit',
+}
+
+const overlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.35)',
+  zIndex: 50,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 16,
+}
+
+const dialogStyle: CSSProperties = {
+  width: 'min(460px, 100%)',
+  background: '#fff',
+  borderRadius: 8,
+  padding: 24,
+  boxShadow: '0 12px 32px rgba(0,0,0,0.2)',
+}
+
+const dialogTitleStyle: CSSProperties = { margin: 0, fontSize: 18, color: '#212121' }
+const dialogSubStyle: CSSProperties = { margin: '8px 0 0', fontSize: 13, color: '#616161' }
+const labelStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  marginTop: 16,
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#757575',
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+}
+const inputStyle: CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: '1px solid #ddd',
+  fontSize: 14,
+  fontWeight: 600,
+  color: '#212121',
+  fontFamily: 'inherit',
+}
+const actionsStyle: CSSProperties = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }
+const errorStyle: CSSProperties = {
+  marginTop: 12,
+  backgroundColor: '#ffebee',
+  color: '#c62828',
+  border: '1px solid #ef9a9a',
+  borderRadius: 6,
+  padding: '8px 10px',
+  fontSize: 13,
 }
 
 export default WarehousesBins
