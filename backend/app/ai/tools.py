@@ -6,8 +6,6 @@ import json
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
-from uuid import uuid4
-
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
@@ -234,6 +232,7 @@ def propose_draft_purchase_order(
     - supplier_id + items_json JSON array like [{"sku":"PROD-1001G","quantity":2,"unit_price":10.5}]
 
     When cloning, supplier/terms/lines come from the template; quantities are multiplied by quantity_multiplier.
+    The PO number is assigned on save as PU62-YYMMXXXX from the order date; do not invent po_number.
     """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "po:create")
@@ -360,12 +359,7 @@ def propose_draft_purchase_order(
     if grand_total < 0:
         grand_total = Decimal("0.00")
 
-    new_po = po_number.strip() or f"PO-AI-{uuid4().hex[:8].upper()}"
-    if ctx.db.get(PurchaseOrder, new_po):
-        return _json({"error": f"PO number '{new_po}' already exists"})
-
     payload = {
-        "po_number": new_po,
         "supplier_id": vendor_id,
         "sco_number": sco_number,
         "order_date": date.today().isoformat(),
@@ -385,8 +379,8 @@ def propose_draft_purchase_order(
         "items": line_items,
     }
     summary = (
-        f"Create draft purchase order {new_po} for vendor {vendor_id} "
-        f"({len(line_items)} line(s), total ${grand_total})"
+        f"Create draft purchase order for vendor {vendor_id} "
+        f"({len(line_items)} line(s), total ${grand_total}; number assigned on save)"
     )
     if template_id:
         summary += f" cloned from {template_id} ×{mult}"
@@ -510,6 +504,7 @@ def propose_draft_subcontract_order(
 
     When cloning, supplier/item/unit_price come from the template; quantity_ordered is multiplied.
     Component kit lines are rebuilt from BOM on create (scaled to the new quantity).
+    The SCO number is assigned on save as UP23-YYMMXXXX from the order date.
     """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "subcontract:create")
@@ -567,12 +562,7 @@ def propose_draft_subcontract_order(
             }
         )
 
-    new_sco = sco_number.strip() or f"SCO-AI-{uuid4().hex[:8].upper()}"
-    if ctx.db.get(SubcontractOrder, new_sco):
-        return _json({"error": f"SCO number '{new_sco}' already exists"})
-
     payload = {
-        "sco_number": new_sco,
         "supplier_id": vendor_id,
         "item_id": assembly_id,
         "quantity_ordered": qty,
@@ -581,8 +571,8 @@ def propose_draft_subcontract_order(
         "notes": note_text,
     }
     summary = (
-        f"Create subcontract order {new_sco} for vendor {vendor_id} "
-        f"(item {assembly_id}, qty {qty}, unit ${price})"
+        f"Create subcontract order for vendor {vendor_id} "
+        f"(item {assembly_id}, qty {qty}, unit ${price}; number assigned on save)"
     )
     if template_id:
         summary += f" cloned from {template_id} ×{mult}"
@@ -631,6 +621,7 @@ def propose_draft_sales_order(
     items_json must be a JSON array like:
     [{"item_id":"PROD-1001G","quantity":2,"unit_price":10.5}]
     Bill-to / ship-to locations are auto-selected from the customer when possible.
+    The sales order ID is assigned on save as PUB61-YYMMXXXX from the order date.
     """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "sales_order:create")
@@ -696,9 +687,7 @@ def propose_draft_sales_order(
             }
         )
 
-    so_id = sales_order_id.strip() or f"SO-AI-{uuid4().hex[:8].upper()}"
     payload = {
-        "sales_order_id": so_id,
         "customer_id": customer_id.strip(),
         "bill_to_location_id": bill.location_id,
         "ship_to_location_id": ship.location_id,
@@ -714,8 +703,8 @@ def propose_draft_sales_order(
         "items": line_items,
     }
     summary = (
-        f"Create draft sales order {so_id} for customer {customer_id} "
-        f"({len(line_items)} line(s), total ${total})"
+        f"Create draft sales order for customer {customer_id} "
+        f"({len(line_items)} line(s), total ${total}; number assigned on save)"
     )
     action = create_pending_action(
         user_id=str(ctx.user.id),

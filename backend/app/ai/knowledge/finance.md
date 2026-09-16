@@ -3,7 +3,7 @@
 Finance documents are live records. Use tools, not this file, for counts.
 
 ## Accounts receivable
-- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.)
+- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.). Numbers are `PU65-{YY}{MM}{XXXX}` from the issue date.
 - **AR invoices** — collections / aging (`Unpaid`, `Partial`, `Paid`) plus approval_status
 
 Ask: "How many unpaid AR invoices?" · "List sales invoices"

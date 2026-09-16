@@ -916,6 +916,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+CREATE TABLE IF NOT EXISTS document_sequences (
+    doc_type VARCHAR(30) NOT NULL,
+    year_month VARCHAR(6) NOT NULL,
+    last_value INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (doc_type, year_month),
+    CONSTRAINT chk_document_sequences_last_value CHECK (last_value >= 0),
+    CONSTRAINT chk_document_sequences_year_month CHECK (year_month ~ '^[0-9]{6}$')
+);
+
 CREATE TABLE IF NOT EXISTS document_attachments (
     id SERIAL PRIMARY KEY,
     document_type VARCHAR(30) NOT NULL,

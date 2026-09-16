@@ -154,7 +154,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     steps: [
       'Go to Sales & Procurement → Sales Orders.',
-      'Click Create (or use Dashboard → Quick Actions → New Sales Order). The form lives at /orders/new.',
+      'Click Create (or use Dashboard → Quick Actions → New Sales Order). The form lives at /orders/new. The sales order ID (PUB61-YYMMXXXX) is assigned on save from the order date.',
       'Select the customer. Bill-To and Ship-To locations load from the customer master; pick the correct sites.',
       'Set Freight Terms to the customer Incoterm (FOB, FCA, CIF, DDP, …) and Shipping Method including inland modes (Local Trucking, LTL, Ground).',
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
@@ -200,7 +200,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { src: '/guide-screenshots/purchase-order-receive.jpg', caption: 'Receive Goods action after approval' },
     ],
     steps: [
-      'Go to Sales & Procurement → Purchase Orders → New.',
+      'Go to Sales & Procurement → Purchase Orders → New. The PO number (PU62-YYMMXXXX) is assigned on save from the order date.',
       'Choose PO Type: Material PO, or Subcontract / outside processing (外發加工單).',
       'Select the vendor. Currency, payment terms, and incoterms default from the vendor master when set.',
       'For a Material PO buying kit parts, check Purchase for Subcontract Order, link the 外發加工單, then Import Subcontract Components. Remaining qty subtracts other open Material POs (including drafts).',
@@ -292,7 +292,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { src: '/guide-screenshots/sco-detail.jpg', caption: 'SCO detail with issue / receive actions' },
     ],
     steps: [
-      'Go to Manufacturing → Subcontract Orders → New.',
+      'Go to Manufacturing → Subcontract Orders → New. The SCO number (UP23-YYMMXXXX) is assigned on save from the order date.',
       'Choose the subcontractor (vendor type subcontractor or both) and the assembly item.',
       'Select the BOM version when prompted (active version is the default). Quantity and dates drive the kit.',
       'Save the SCO. Open the detail page to review required components.',
@@ -500,7 +500,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'From an approved, shipped sales order, choose Invoice (or Finance → Sales Invoices).',
       'Confirm bill-to, lines, tax, and dates, then save / post per your workflow.',
-      'Open Finance → Sales Invoices and click an Invoice # (INV-YYYY-NNNN) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
+      'Open Finance → Sales Invoices and click an Invoice # (PU65-YYMMXXXX) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
       'The same Invoice ID on AR Aging & Collections also opens that detail page.',
       'Dashboard finance KPIs (outstanding AR, overdue invoices) deep-link here with filters applied.',
     ],

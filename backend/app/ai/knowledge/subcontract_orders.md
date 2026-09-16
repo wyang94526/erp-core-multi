@@ -9,7 +9,7 @@ Billing uses `billing_status` (`UNBILLED`, `PARTIALLY_BILLED`, `FULLY_BILLED`) a
 
 ## Creating a subcontract order
 Preferred payload:
-- `sco_number`, `supplier_id`, optional `sales_order_id`
+- `supplier_id`, optional `sales_order_id` (the server assigns `sco_number` as `UP23-{YY}{MM}{XXXX}` from the order date)
 - `lines[]` each with `so_item_id`, `item_id`, `quantity_ordered`, optional `bom_header_id`, `charges[]`, `components[]`
 
 Legacy single-item create (`item_id` + `quantity_ordered`) still works and is stored as one line.

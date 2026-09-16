@@ -1523,3 +1523,14 @@ class DocumentAttachment(Base):
     )
 
     uploaded_by = relationship("User")
+
+
+class DocumentSequence(Base):
+    """Persisted per-type / per-month counters for document numbers."""
+
+    __tablename__ = "document_sequences"
+
+    doc_type = Column(String(30), primary_key=True)
+    year_month = Column(String(6), primary_key=True)
+    last_value = Column(Integer, nullable=False, server_default=text("0"))
+    updated_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)

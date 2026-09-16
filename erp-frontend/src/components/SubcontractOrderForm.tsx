@@ -158,7 +158,6 @@ export function SubcontractOrderForm() {
         }
       })
       return subcontractOrderService.createSubcontractOrder({
-        sco_number: formData.sco_number.trim(),
         supplier_id: formData.supplier_id,
         sales_order_id: formData.standalone ? undefined : formData.sales_order_id || undefined,
         item_id: formData.standalone ? formData.item_id : undefined,
@@ -197,7 +196,6 @@ export function SubcontractOrderForm() {
 
   const validateForm = (): boolean => {
     const next: Record<string, string> = {}
-    if (!formData.sco_number.trim()) next.sco_number = 'SCO Number is required'
     if (!formData.supplier_id.trim()) next.supplier_id = 'Supplier is required'
     if (!formData.order_date) next.order_date = 'Order Date is required'
     if (formData.standalone) {
@@ -249,17 +247,10 @@ export function SubcontractOrderForm() {
         <div style={cardStyle}>
           <h3 style={sectionHeadingStyle}>Order Data</h3>
           <div style={gridStyle}>
-            <Field label="SCO Number *" error={errors.sco_number}>
-              <input
-                name="sco_number"
-                value={formData.sco_number}
-                onChange={(event) => {
-                  setFormData((prev) => ({ ...prev, sco_number: event.target.value }))
-                  if (event.target.value.trim()) clearError('sco_number')
-                }}
-                style={inputStyle}
-                placeholder="e.g. SCO-0001"
-              />
+            <Field label="SCO Number">
+              <div style={{ ...inputStyle, backgroundColor: 'var(--bg-muted, #f5f5f5)' }}>
+                Assigned on save (UP23-YYMMXXXX)
+              </div>
             </Field>
             <Field label="Supplier (Subcontractor) *" error={errors.supplier_id}>
               <select

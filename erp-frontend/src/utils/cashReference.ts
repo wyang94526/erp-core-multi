@@ -16,7 +16,11 @@ export function sourceOrderHref(
   const id = (sourceOrderId || '').trim()
   if (!id) return null
   const type = (sourceType || '').toUpperCase()
-  if (type === 'SUBCONTRACT_ORDER' || id.toUpperCase().startsWith('SCO-')) {
+  if (
+    type === 'SUBCONTRACT_ORDER' ||
+    id.toUpperCase().startsWith('SCO-') ||
+    id.toUpperCase().startsWith('UP23-')
+  ) {
     return `/subcontract-orders/${encodeURIComponent(id)}`
   }
   return `/purchase-orders/${encodeURIComponent(id)}`
@@ -29,7 +33,7 @@ export function cashReferenceHref(
   if (!id) return null
   const upper = id.toUpperCase()
   const type = (tx.type || '').toLowerCase()
-  if (upper.startsWith('INV-')) {
+  if (upper.startsWith('INV-') || upper.startsWith('PU65-')) {
     return invoiceDetailHref(id)
   }
   if (upper.startsWith('ARINV-')) {

@@ -730,7 +730,7 @@ class SalesOrderItemRead(ORMModel):
     total_amount: Decimal
 
 class SalesOrderCreate(BaseModel):
-    sales_order_id: str = Field(max_length=50)
+    sales_order_id: str | None = Field(default=None, max_length=50)
     customer_id: str = Field(max_length=50)
     # NEW: Link to the specific locations for this order
     bill_to_location_id: str = Field(max_length=50)
@@ -1368,7 +1368,7 @@ class FinishedGoodsReceiptRead(ORMModel):
 
 
 class SubcontractOrderCreate(BaseModel):
-    sco_number: str = Field(max_length=50)
+    sco_number: str | None = Field(default=None, max_length=50)
     supplier_id: str = Field(max_length=50)
     item_id: str | None = Field(default=None, max_length=50)
     quantity_ordered: int | None = Field(default=None, gt=0)
@@ -1609,7 +1609,7 @@ class PurchaseOrderDeliveryScheduleRead(ORMModel):
 
 
 class PurchaseOrderCreate(BaseModel):
-    po_number: str = Field(max_length=50)
+    po_number: str | None = Field(default=None, max_length=50)
     supplier_id: str = Field(max_length=50)
     po_type: Literal['MATERIAL', 'SUBCONTRACT'] = Field(default='MATERIAL')
     bom_header_id: int | None = None

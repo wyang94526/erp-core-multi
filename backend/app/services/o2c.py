@@ -18,6 +18,7 @@ from app.models import (
     SalesOrder,
     SalesOrderItem,
 )
+from app.services.document_sequences import DOC_INVOICE, generate_document_number
 from app.services import finance, inventory
 from app.services.finance import (
     AR_ACCOUNT_CODE,
@@ -470,7 +471,7 @@ def create_sales_invoice(
     due = issue + timedelta(days=_parse_payment_terms_days(terms))
 
     invoice = SalesInvoice(
-        invoice_number=_next_number(db, SalesInvoice, "invoice_number", "INV"),
+        invoice_number=generate_document_number(db, DOC_INVOICE, issue),
         sales_order_id=sales_order_id,
         fulfillment_id=fulfillment.id if fulfillment else None,
         customer_id=order.customer_id,
@@ -612,7 +613,7 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
         )
 
     # Mirror into AR invoices for payment tracking using the Sales Invoice number
-    # (INV-YYYY-NNNN) so Accounts Receivable shows the same document id.
+    # (PU65-YYMMXXXX) so Accounts Receivable shows the same document id.
     ar = db.get(ARInvoice, invoice.invoice_number)
     if ar is None and invoice.ar_invoice_id:
         ar = db.get(ARInvoice, invoice.ar_invoice_id)

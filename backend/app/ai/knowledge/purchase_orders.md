@@ -7,9 +7,10 @@ Billing uses `billing_status` (`UNBILLED`, `PARTIALLY_BILLED`, `FULLY_BILLED`) a
 
 ## Creating a purchase order
 Required fields:
-- `po_number` (unique)
 - `supplier_id` (vendor)
 - at least one line with `sku`, `quantity`, `unit_price`, line totals
+
+The server assigns `po_number` on create as `PU62-{YY}{MM}{XXXX}` from the order date (not the system date). Do not invent a PO number.
 
 Default create status is `Draft`. Submitting enters the approval workflow.
 

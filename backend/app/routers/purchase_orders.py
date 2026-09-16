@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +14,7 @@ from app.schemas import (
     PurchaseOrderUpdate,
 )
 from app.services import p2p
+from app.services.document_sequences import DOC_PURCHASE_ORDER, generate_document_number
 from app.services.po_totals import apply_po_totals, requires_carrier_account
 
 
@@ -128,9 +131,6 @@ def list_purchase_orders(
 
 @router.post("", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(get_db)) -> PurchaseOrder:
-    if db.get(PurchaseOrder, payload.po_number) is not None:
-        raise HTTPException(status_code=400, detail="PO number already exists")
-
     if db.get(Supplier, payload.supplier_id) is None:
         raise HTTPException(status_code=400, detail="Supplier not found")
 
@@ -141,6 +141,9 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     data["sco_number"] = _blank_to_none(data.get("sco_number"))
     data["carrier_account"] = _blank_to_none(data.get("carrier_account"))
     data["incoterms"] = _blank_to_none(data.get("incoterms"))
+    order_date = data.get("order_date") or date.today()
+    data["order_date"] = order_date
+    data["po_number"] = generate_document_number(db, DOC_PURCHASE_ORDER, order_date)
     items = payload.items
 
     po = PurchaseOrder(**data)

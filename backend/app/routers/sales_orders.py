@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderItem
 from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
 from app.services import o2c
+from app.services.document_sequences import DOC_SALES_ORDER, generate_document_number
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
 
@@ -62,13 +63,13 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
     """
     Create a new Sales Order and its associated Line Items in a single transaction.
     """
-    if db.get(SalesOrder, payload.sales_order_id) is not None:
-        raise HTTPException(status_code=400, detail="Sales order ID already exists")
-
     _validate_sales_order_refs(db, payload)
 
     # 1. Extract the parent data, excluding the nested items
     order_data = payload.model_dump(exclude={"items"})
+    order_data["sales_order_id"] = generate_document_number(
+        db, DOC_SALES_ORDER, payload.order_date
+    )
     order = SalesOrder(**order_data)
     
     # 2. Add the parent order to the session and flush it to generate/register the ID

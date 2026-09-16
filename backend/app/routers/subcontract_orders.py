@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -42,6 +43,7 @@ from app.schemas import (
     UnfulfilledScoComponentRead,
 )
 from app.services import approval, inventory
+from app.services.document_sequences import DOC_SUBCONTRACT_ORDER, generate_document_number
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
@@ -379,9 +381,6 @@ def preview_components(
 def create_subcontract_order(
     payload: SubcontractOrderCreate, db: Session = Depends(get_db)
 ) -> SubcontractOrder:
-    if db.get(SubcontractOrder, payload.sco_number) is not None:
-        raise HTTPException(status_code=400, detail="SCO number already exists")
-
     if db.get(Supplier, payload.supplier_id) is None:
         raise HTTPException(status_code=400, detail="Supplier not found")
 
@@ -482,8 +481,9 @@ def create_subcontract_order(
 
     first = prepared[0]
     header_qty = sum(item["raw"].quantity_ordered for item in prepared)
+    order_date = payload.order_date or date.today()
     sco = SubcontractOrder(
-        sco_number=payload.sco_number,
+        sco_number=generate_document_number(db, DOC_SUBCONTRACT_ORDER, order_date),
         supplier_id=payload.supplier_id,
         sales_order_id=payload.sales_order_id,
         item_id=first["raw"].item_id,
@@ -491,11 +491,10 @@ def create_subcontract_order(
         quantity_ordered=header_qty,
         unit_price=first["sheet"]["unit_price"],
         status="PLANNED",
+        order_date=order_date,
         expected_return_date=payload.expected_return_date,
         notes=payload.notes,
     )
-    if payload.order_date is not None:
-        sco.order_date = payload.order_date
 
     db.add(sco)
     db.flush()

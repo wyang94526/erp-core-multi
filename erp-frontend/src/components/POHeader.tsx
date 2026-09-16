@@ -169,22 +169,10 @@ export function POHeader({
       <div style={gridStyle}>
         {/* PO Number */}
         <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="po_number">PO Number *</label>
-          {isReadOnly ? (
-            <div style={readOnlyValueStyle}>{state.po_number || 'N/A'}</div>
-          ) : (
-            <input
-              id="po_number"
-              type="text"
-              value={state.po_number}
-              onChange={(e) => setHeader('po_number', e.target.value)}
-              placeholder="e.g. PO-2026-0001"
-              style={{
-                ...inputStyle,
-                border: errors.po_number ? '1px solid #f44336' : '1px solid var(--border)',
-              }}
-            />
-          )}
+          <label style={labelStyle} htmlFor="po_number">PO Number</label>
+          <div style={readOnlyValueStyle}>
+            {state.po_number || 'Assigned on save (PU62-YYMMXXXX)'}
+          </div>
           {errors.po_number && <span style={errorTextStyle}>{errors.po_number}</span>}
         </div>
 

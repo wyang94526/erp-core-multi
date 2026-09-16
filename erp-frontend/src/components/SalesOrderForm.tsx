@@ -222,7 +222,6 @@ export function SalesOrderForm() {
   const createMutation = useMutation({
     mutationFn: (data: typeof formData) =>
       salesOrderService.createSalesOrder({
-        sales_order_id: data.sales_order_id,
         customer_id: data.customer_id,
         bill_to_location_id: data.bill_to_location_id,
         ship_to_location_id: data.ship_to_location_id,
@@ -497,9 +496,6 @@ export function SalesOrderForm() {
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {}
 
-    if (!formData.sales_order_id.trim() && !isEditMode) {
-      newErrors.sales_order_id = 'Sales Order ID is required'
-    }
     if (!formData.customer_id.trim()) {
       newErrors.customer_id = 'Customer is required'
     }
@@ -589,21 +585,11 @@ export function SalesOrderForm() {
             {!isEditMode && (
               <div style={fieldGroupStyle}>
                 <label htmlFor="sales_order_id" style={labelStyle}>
-                  Sales Order ID *
+                  Sales Order ID
                 </label>
-                <input
-                  type="text"
-                  id="sales_order_id"
-                  name="sales_order_id"
-                  value={formData.sales_order_id}
-                  onChange={handleChange}
-                  style={{
-                    ...inputStyle,
-                    border: errors.sales_order_id ? '1px solid #f44336' : '1px solid var(--border)',
-                  }}
-                  placeholder="Enter sales order ID"
-                />
-                {errors.sales_order_id && <span style={errorTextStyle}>{errors.sales_order_id}</span>}
+                <div id="sales_order_id" style={{ ...inputStyle, backgroundColor: 'var(--bg-muted, #f5f5f5)', color: 'var(--text)' }}>
+                  Assigned on save (PUB61-YYMMXXXX)
+                </div>
               </div>
             )}
 

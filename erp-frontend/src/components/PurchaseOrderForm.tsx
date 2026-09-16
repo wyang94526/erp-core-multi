@@ -38,7 +38,7 @@ function toApiItems(items: PurchaseOrder['items']) {
 
 function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
   return {
-    po_number: state.po_number,
+    po_number: state.po_number || undefined,
     supplier_id: state.supplier_id,
     po_type: state.po_type || 'MATERIAL',
     bom_header_id: state.bom_header_id || null,
@@ -60,13 +60,6 @@ function buildPayload(state: PurchaseOrder, status: PurchaseOrder['status']) {
     notes: state.notes || null,
     items: toApiItems(state.items),
   };
-}
-
-function generateNewPONumber() {
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
-  const randomHex = Math.floor(1000 + Math.random() * 9000);
-  return `PO-${dateStr}-${randomHex}`;
 }
 
 export function PurchaseOrderForm() {
@@ -102,7 +95,7 @@ export function PurchaseOrderForm() {
     updateSummary,
     setFullPO,
     resetForm,
-  } = usePurchaseOrderState(isNew ? generateNewPONumber() : '');
+  } = usePurchaseOrderState('');
 
   const withSupplierName = (po: PurchaseOrder, sups: Supplier[]) => {
     const nameById = Object.fromEntries(sups.map((s) => [s.supplier_id, s.company_name]));
@@ -141,7 +134,7 @@ export function PurchaseOrderForm() {
         if (!cancelled) setProducts(materialCatalog);
 
         if (isNew) {
-          resetForm(generateNewPONumber());
+          resetForm('');
           setIsExisting(false);
           setIsReadOnly(false);
           setSuccessMessage('');
@@ -204,7 +197,7 @@ export function PurchaseOrderForm() {
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!state.po_number || !state.po_number.trim()) {
+    if (isExisting && (!state.po_number || !state.po_number.trim())) {
       newErrors.po_number = 'PO Number is required';
     }
     if (!state.supplier_id) {
@@ -280,9 +273,6 @@ export function PurchaseOrderForm() {
     setSuccessMessage('');
 
     const draftErrors: Record<string, string> = {};
-    if (!state.po_number || !state.po_number.trim()) {
-      draftErrors.po_number = 'PO Number is required';
-    }
     if (!state.supplier_id) {
       draftErrors.supplier_id = 'Vendor selection is required';
     }
@@ -350,7 +340,7 @@ export function PurchaseOrderForm() {
       return;
     }
     if (isNew) {
-      resetForm(generateNewPONumber());
+      resetForm('');
       setIsReadOnly(false);
       setIsExisting(false);
       setErrors({});

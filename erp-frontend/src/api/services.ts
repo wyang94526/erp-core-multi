@@ -429,7 +429,7 @@ export const salesOrderService = {
    * Create a new sales order with items
    */
   async createSalesOrder(data: {
-    sales_order_id: string;
+    sales_order_id?: string;
     customer_id: string;
     bill_to_location_id: string;
     ship_to_location_id: string;
@@ -736,7 +736,7 @@ export const purchaseOrderService = {
   },
 
   async createPurchaseOrder(data: {
-    po_number: string;
+    po_number?: string;
     supplier_id: string;
     po_type?: 'MATERIAL' | 'SUBCONTRACT';
     bom_header_id?: number | null;
@@ -988,7 +988,7 @@ export const subcontractOrderService = {
    * the component requirements from the product's Bill of Materials.
    */
   async createSubcontractOrder(data: {
-    sco_number: string;
+    sco_number?: string;
     supplier_id: string;
     item_id?: string;
     quantity_ordered?: number;
