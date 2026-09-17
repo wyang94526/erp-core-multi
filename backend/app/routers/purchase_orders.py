@@ -105,10 +105,12 @@ def _validate_po_quantities(db: Session, items) -> None:
         amount = (
             item.get("line_subtotal") if isinstance(item, dict) else getattr(item, "line_subtotal", 0)
         )
+        price = item.get("unit_price") if isinstance(item, dict) else getattr(item, "unit_price", 0)
         validate_line_quantity(
             sku=sku,
             quantity=qty,
             amount=amount,
+            unit_price=price,
             item=catalog_item(db, sku),
         )
 

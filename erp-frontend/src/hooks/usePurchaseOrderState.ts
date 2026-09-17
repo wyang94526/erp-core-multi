@@ -92,7 +92,7 @@ export const calculateTotals = (
     const qty = Math.max(0, cleanNum(item.quantity));
     const price = Math.max(0, cleanNum(item.unit_price));
     const taxRate = Math.max(0, cleanNum(item.tax_rate));
-    const amountOnly = isAmountOnlyLine(item.item_type, qty);
+    const amountOnly = isAmountOnlyLine(item.item_type, qty, item.sku);
     const line_subtotal = amountOnly
       ? round2(Math.max(0, cleanNum(item.line_subtotal) || price))
       : round2(qty * price);

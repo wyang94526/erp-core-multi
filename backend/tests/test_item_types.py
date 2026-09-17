@@ -78,6 +78,17 @@ def test_service_line_allows_zero_quantity_with_amount():
     assert qty == Decimal("0")
 
 
+def test_service_line_allows_zero_quantity_with_unit_price():
+    qty = validate_line_quantity(
+        sku="MISC",
+        quantity=0,
+        amount=Decimal("0"),
+        unit_price=Decimal("85.50"),
+        item=SimpleNamespace(item_type=SERVICE),
+    )
+    assert qty == Decimal("0")
+
+
 def test_service_line_rejects_zero_quantity_and_zero_amount():
     with pytest.raises(HTTPException):
         validate_line_quantity(

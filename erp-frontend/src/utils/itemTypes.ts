@@ -18,8 +18,34 @@ export function isStockItemType(value?: string | null): boolean {
   return normalizeItemType(value) === 'INVENTORY'
 }
 
-export function isAmountOnlyLine(itemType?: string | null, quantity?: number | null): boolean {
-  return !isStockItemType(itemType) && Number(quantity || 0) === 0
+const SERVICE_SKU_ALIASES = new Set([
+  'MISC',
+  'MISCELLANEOUS',
+  'FREIGHT',
+  'FRT',
+  'FREIGHT-IN',
+  'FREIGHTIN',
+  'SVC-FREIGHT',
+])
+
+export function isServiceSku(sku?: string | null): boolean {
+  const raw = String(sku || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+  return SERVICE_SKU_ALIASES.has(raw)
+}
+
+export function isNonStockItem(itemType?: string | null, sku?: string | null): boolean {
+  return !isStockItemType(itemType) || isServiceSku(sku)
+}
+
+export function isAmountOnlyLine(
+  itemType?: string | null,
+  quantity?: number | null,
+  sku?: string | null,
+): boolean {
+  return isNonStockItem(itemType, sku) && Number(quantity || 0) === 0
 }
 
 export function itemTypeLabel(value?: string | null): string {

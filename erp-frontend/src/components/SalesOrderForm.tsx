@@ -462,7 +462,7 @@ export function SalesOrderForm() {
         item.line_number = Number(value)
       }
       const catalog = items.find((p) => p.item_id === item.item_id)
-      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered)
+      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered, item.item_id)
       if (field !== 'total_amount' || !amountOnly) {
         item.total_amount = calcLineTotal(
           item.quantity_ordered,
@@ -492,7 +492,7 @@ export function SalesOrderForm() {
       if (catalog && !isStockItemType(catalog.item_type)) {
         item.quantity_ordered = 0
       }
-      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered)
+      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered, item.item_id)
       item.total_amount = calcLineTotal(
         item.quantity_ordered,
         item.unit_price,
@@ -1067,7 +1067,7 @@ export function SalesOrderForm() {
                       />
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: 'var(--text-h)' }}>
-                      {isAmountOnlyLine(items.find((p) => p.item_id === item.item_id)?.item_type, item.quantity_ordered) ? (
+                      {isAmountOnlyLine(items.find((p) => p.item_id === item.item_id)?.item_type, item.quantity_ordered, item.item_id) ? (
                         <input
                           type="number"
                           value={item.total_amount}

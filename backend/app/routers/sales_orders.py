@@ -50,7 +50,14 @@ def _validate_sales_order_refs(db: Session, payload: SalesOrderCreate | SalesOrd
                 raise HTTPException(status_code=400, detail=f"Item '{item_id}' not found")
             qty = item.get("quantity_ordered") if isinstance(item, dict) else getattr(item, "quantity_ordered", 0)
             amount = item.get("total_amount") if isinstance(item, dict) else getattr(item, "total_amount", 0)
-            validate_line_quantity(sku=item_id, quantity=qty, amount=amount, item=catalog)
+            price = item.get("unit_price") if isinstance(item, dict) else getattr(item, "unit_price", 0)
+            validate_line_quantity(
+                sku=item_id,
+                quantity=qty,
+                amount=amount,
+                unit_price=price,
+                item=catalog,
+            )
 
 
 @router.get("", response_model=list[SalesOrderRead])

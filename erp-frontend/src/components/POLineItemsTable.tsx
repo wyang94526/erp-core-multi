@@ -136,7 +136,11 @@ export function POLineItemsTable({
           mappings.find((row) => Number(row.unit_cost) > 0);
         const cost = Number(priced?.unit_cost);
         if (Number.isFinite(cost) && cost > 0) {
-          updateRowFields(rowId, { unit_price: cost });
+          const fields: Partial<PurchaseOrderItem> = { unit_price: cost }
+          if (!isStockItemType(catalog?.item_type)) {
+            fields.line_subtotal = cost
+          }
+          updateRowFields(rowId, fields)
         }
       }).catch(() => undefined);
     }
@@ -216,8 +220,8 @@ export function POLineItemsTable({
             {items.map((item, index) => {
               const catalog = products.find((p) => p.item_id === item.sku)
               const itemType = item.item_type || catalog?.item_type
-              const amountOnly = isAmountOnlyLine(itemType, item.quantity)
-              const rowHasError = errors[`item_${item.id}`] || errors[`sku_${item.id}`] || errors[`qty_${item.id}`] || errors[`price_${item.id}`];
+              const amountOnly = isAmountOnlyLine(itemType, item.quantity, item.sku)
+              const rowHasError = errors[`item_${item.id}`] || errors[`sku_${item.id}`] || errors[`qty_${item.id}`] || errors[`price_${item.id}`] || errors[`amount_${item.id}`];
               return (
                 <tr
                   key={item.id}
@@ -285,7 +289,7 @@ export function POLineItemsTable({
                           step="any"
                           value={item.quantity === 0 ? '0' : item.quantity}
                           onChange={(e) => updateRow(item.id, 'quantity', e.target.value)}
-                          placeholder="0"
+                          placeholder={amountOnly ? '0' : '0'}
                           style={{
                             ...inputStyle,
                             textAlign: 'right',
@@ -293,6 +297,9 @@ export function POLineItemsTable({
                             border: errors[`qty_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
                           }}
                         />
+                        {amountOnly ? (
+                          <span style={{ fontSize: '11px', color: '#666', marginTop: 4 }}>Qty 0 uses amount</span>
+                        ) : null}
                         {errors[`qty_${item.id}`] && (
                           <span style={errorTextStyle}>{errors[`qty_${item.id}`]}</span>
                         )}
@@ -300,31 +307,54 @@ export function POLineItemsTable({
                     )}
                   </td>
 
-                  {/* Unit Price */}
+                  {/* Unit Price / Amount */}
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isReadOnly ? (
                       <div style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end' }}>
-                        {formatCurrency(item.unit_price)}
+                        {formatCurrency(item.unit_price || item.line_subtotal)}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                         <input
                           type="number"
-                          aria-label={`Unit price for item ${index + 1}`}
+                          aria-label={amountOnly ? `Amount for item ${index + 1}` : `Unit price for item ${index + 1}`}
                           min="0"
                           step="0.01"
-                          value={item.unit_price === 0 ? '' : item.unit_price}
-                          onChange={(e) => updateRow(item.id, 'unit_price', e.target.value)}
+                          value={
+                            amountOnly
+                              ? (item.unit_price || item.line_subtotal || 0) === 0
+                                ? ''
+                                : item.unit_price || item.line_subtotal
+                              : item.unit_price === 0
+                                ? ''
+                                : item.unit_price
+                          }
+                          onChange={(e) => {
+                            if (amountOnly) {
+                              updateRowFields(item.id, {
+                                unit_price: e.target.value,
+                                line_subtotal: e.target.value,
+                              })
+                            } else {
+                              updateRow(item.id, 'unit_price', e.target.value)
+                            }
+                          }}
                           placeholder="0.00"
                           style={{
                             ...inputStyle,
                             textAlign: 'right',
                             width: '120px',
-                            border: errors[`price_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
+                            border:
+                              errors[`price_${item.id}`] || errors[`amount_${item.id}`]
+                                ? '1px solid #f44336'
+                                : '1px solid var(--border)',
                           }}
                         />
-                        {errors[`price_${item.id}`] && (
-                          <span style={errorTextStyle}>{errors[`price_${item.id}`]}</span>
+                        {amountOnly ? (
+                          <span style={{ fontSize: '11px', color: '#666', marginTop: 4 }}>Amount ($)</span>
+                        ) : null}
+                        {(errors[`price_${item.id}`] || errors[`amount_${item.id}`]) && (
+                          <span style={errorTextStyle}>{errors[`price_${item.id}`] || errors[`amount_${item.id}`]}</span>
                         )}
                       </div>
                     )}
@@ -353,30 +383,6 @@ export function POLineItemsTable({
 
                   {/* Line Subtotal */}
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>
-                    {amountOnly && !isReadOnly ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                        <input
-                          type="number"
-                          aria-label={`Amount for item ${index + 1}`}
-                          min="0"
-                          step="0.01"
-                          value={item.line_subtotal === 0 ? '' : item.line_subtotal}
-                          onChange={(e) => updateRow(item.id, 'line_subtotal', e.target.value)}
-                          placeholder="0.00"
-                          style={{
-                            ...inputStyle,
-                            textAlign: 'right',
-                            width: '120px',
-                            border: errors[`amount_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
-                          }}
-                        />
-                        {item.line_tax > 0 && (
-                          <div style={{ fontSize: '11px', color: '#666', fontWeight: 'normal' }}>
-                            + {formatCurrency(item.line_tax)} Tax
-                          </div>
-                        )}
-                      </div>
-                    ) : (
                     <div style={{ color: 'var(--text-h)', fontSize: '14px', paddingRight: '8px' }}>
                       {formatCurrency(item.line_subtotal)}
                       {item.line_tax > 0 && (
@@ -385,7 +391,6 @@ export function POLineItemsTable({
                         </div>
                       )}
                     </div>
-                    )}
                   </td>
 
                   {/* Actions (Delete) */}

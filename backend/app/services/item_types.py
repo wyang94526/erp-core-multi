@@ -78,11 +78,20 @@ def validate_item_master_fields(*, item_type: Any = INVENTORY, uom: Any = None) 
     return kind, unit
 
 
+def _as_money(value: Any) -> Decimal:
+    try:
+        amount = Decimal(str(value or 0))
+    except Exception:
+        return Decimal("0")
+    return amount if amount.is_finite() else Decimal("0")
+
+
 def validate_line_quantity(
     *,
     sku: str,
     quantity: Any,
     amount: Any = None,
+    unit_price: Any = None,
     item: Any | None = None,
     allow_zero_amount: bool = False,
 ) -> Decimal:
@@ -96,7 +105,9 @@ def validate_line_quantity(
                 detail=f"Quantity must be greater than 0 for inventory item {sku}",
             )
         return qty
-    amt = Decimal(str(amount or 0))
+    amt = _as_money(amount)
+    if amt <= 0:
+        amt = _as_money(unit_price)
     if qty == 0 and amt <= 0 and not allow_zero_amount:
         raise HTTPException(
             status_code=400,

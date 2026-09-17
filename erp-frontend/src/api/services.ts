@@ -778,6 +778,7 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         sku: String(row.sku || ''),
         description: row.description == null ? '' : String(row.description),
         uom: row.uom == null ? '' : String(row.uom),
+        item_type: row.item_type ? String(row.item_type) : undefined,
         bom_header_id: row.bom_header_id == null ? null : Number(row.bom_header_id),
         sco_component_id: row.sco_component_id == null ? null : Number(row.sco_component_id),
         quantity: Number(row.quantity ?? 0),

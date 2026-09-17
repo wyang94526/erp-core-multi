@@ -6,7 +6,7 @@ import { purchaseOrderService, vendorService, approvalService, itemService, subc
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { requiresCarrierAccount } from '../data/orderOptions';
-import { isStockItemType } from '../utils/itemTypes';
+import { isNonStockItem } from '../utils/itemTypes'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
@@ -35,7 +35,7 @@ function toApiItems(items: PurchaseOrder['items']) {
       quantity: roundTo(quantity, 4),
       unit_price: roundTo(unit_price, 4),
       tax_rate: roundTo(tax_rate, 3),
-      line_subtotal: roundTo(line_subtotal, 2),
+      line_subtotal: roundTo(Number(line_subtotal) > 0 ? line_subtotal : unit_price, 2),
       line_tax: roundTo(line_tax, 2),
       line_total: roundTo(line_total, 2),
     }));
@@ -237,12 +237,12 @@ export function PurchaseOrderForm() {
         }
         const itemType = item.item_type || products.find((p) => p.item_id === item.sku)?.item_type
         if (item.quantity <= 0) {
-          if (isStockItemType(itemType)) {
-            newErrors[`qty_${item.id}`] = 'Quantity must be greater than 0';
-            itemErrors.push('qty');
+          if (!isNonStockItem(itemType, item.sku)) {
+            newErrors[`qty_${item.id}`] = 'Quantity must be greater than 0'
+            itemErrors.push('qty')
           } else if (Number(item.line_subtotal) <= 0 && Number(item.unit_price) <= 0) {
-            newErrors[`amount_${item.id}`] = 'Enter an amount for this non-inventory line';
-            itemErrors.push('amount');
+            newErrors[`amount_${item.id}`] = 'Enter an amount for this non-inventory line'
+            itemErrors.push('amount')
           }
         }
         if (item.unit_price < 0) {
@@ -430,7 +430,7 @@ export function PurchaseOrderForm() {
     if (!state.po_number || !state.items.length) return;
     const stockLines = state.items.filter((item) => {
       const itemType = item.item_type || products.find((p) => p.item_id === item.sku)?.item_type
-      return isStockItemType(itemType) && Number(item.quantity) > 0
+      return !isNonStockItem(itemType, item.sku) && Number(item.quantity) > 0
     })
     if (stockLines.length === 0) {
       setP2pError('No inventory lines to receive. Service and non-inventory items skip goods receipt.')
