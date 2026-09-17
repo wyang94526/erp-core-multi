@@ -8,6 +8,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { vendorInvoiceService } from '../api/services'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { billDetailHref } from '../utils/cashReference'
 
@@ -215,7 +216,11 @@ export function SupplierInvoiceList() {
               Previous
             </button>
             <span style={{ color: 'var(--text)', fontSize: 13 }}>
-              {skip + 1}–{Math.min(skip + PAGE_SIZE, filtered.length)} of {filtered.length}
+              {formatPaginationLabel({
+                skip,
+                pageCount: pageRows.length,
+                total: filtered.length,
+              })}
             </span>
             <button
               type="button"

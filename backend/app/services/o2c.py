@@ -26,6 +26,7 @@ from app.services.finance import (
     get_or_create_account,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
+from app.services.item_types import catalog_item, skip_inventory_movement
 
 REVENUE_ACCOUNT_CODE = "4000"
 REVENUE_ACCOUNT_NAME = "Sales Revenue"
@@ -385,6 +386,10 @@ def update_fulfillment_status(
 
     if status == "SHIPPED" and previous != "SHIPPED":
         for line in fulfillment.lines:
+            if skip_inventory_movement(catalog_item(db, line.item_id)):
+                continue
+            if int(line.quantity_fulfilled) <= 0:
+                continue
             inventory.issue_stock(
                 db,
                 item_id=line.item_id,
@@ -454,7 +459,12 @@ def create_sales_invoice(
         )
         .count()
     )
-    if shipped == 0 and fulfillment_id is None:
+    stock_lines = [
+        li
+        for li in (order.items or [])
+        if not skip_inventory_movement(catalog_item(db, li.item_id))
+    ]
+    if shipped == 0 and fulfillment_id is None and stock_lines:
         raise HTTPException(
             status_code=400,
             detail="Create a shipped fulfillment before invoicing this sales order",
@@ -535,11 +545,19 @@ def create_sales_invoice(
                     line_subtotal=(unit_price * qty).quantize(Decimal("0.01")),
                 )
             )
-    else:
+        fulfilled_ids = {int(fl.sales_order_line_id) for fl in fulfillment.lines}
         for so_line in order.items or []:
+            if int(so_line.so_item_id) in fulfilled_ids:
+                continue
+            if not skip_inventory_movement(catalog_item(db, so_line.item_id)):
+                continue
             unit_price = Decimal(str(so_line.unit_price))
             qty = int(so_line.quantity_ordered)
             item = so_line.item
+            if qty == 0:
+                line_subtotal = _money(so_line.total_amount) - _money(so_line.tax_amount)
+            else:
+                line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))
             built_lines.append(
                 SalesInvoiceLine(
                     invoice_id=invoice.id,
@@ -547,7 +565,26 @@ def create_sales_invoice(
                     description=item.description if item else so_line.item_id,
                     quantity=qty,
                     unit_price=unit_price,
-                    line_subtotal=(unit_price * qty).quantize(Decimal("0.01")),
+                    line_subtotal=line_subtotal,
+                )
+            )
+    else:
+        for so_line in order.items or []:
+            unit_price = Decimal(str(so_line.unit_price))
+            qty = int(so_line.quantity_ordered)
+            item = so_line.item
+            if qty == 0:
+                line_subtotal = _money(so_line.total_amount) - _money(so_line.tax_amount)
+            else:
+                line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))
+            built_lines.append(
+                SalesInvoiceLine(
+                    invoice_id=invoice.id,
+                    item_id=so_line.item_id,
+                    description=item.description if item else so_line.item_id,
+                    quantity=qty,
+                    unit_price=unit_price,
+                    line_subtotal=line_subtotal,
                 )
             )
 

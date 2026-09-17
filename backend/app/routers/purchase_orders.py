@@ -17,6 +17,7 @@ from app.services import p2p
 from app.services.document_sequences import DOC_PURCHASE_ORDER, generate_document_number
 from app.services.po_totals import apply_po_totals, requires_carrier_account
 from app.services.payment_terms import apply_payment_term_fields
+from app.services.item_types import catalog_item, validate_line_quantity
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
@@ -93,6 +94,25 @@ def _validate_po_links(db: Session, po_type: str | None, sco_number: str | None,
             )
 
 
+def _validate_po_quantities(db: Session, items) -> None:
+    if not items:
+        return
+    for item in items:
+        sku = item.get("sku") if isinstance(item, dict) else getattr(item, "sku", None)
+        if not sku:
+            continue
+        qty = item.get("quantity") if isinstance(item, dict) else getattr(item, "quantity", 0)
+        amount = (
+            item.get("line_subtotal") if isinstance(item, dict) else getattr(item, "line_subtotal", 0)
+        )
+        validate_line_quantity(
+            sku=sku,
+            quantity=qty,
+            amount=amount,
+            item=catalog_item(db, sku),
+        )
+
+
 def _validate_freight(freight_terms: str | None, carrier_account: str | None, status_value: str | None) -> None:
     if (status_value or "Draft") == "Draft":
         return
@@ -136,6 +156,7 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
         raise HTTPException(status_code=400, detail="Supplier not found")
 
     _validate_po_links(db, payload.po_type, payload.sco_number, payload.items)
+    _validate_po_quantities(db, payload.items)
     _validate_freight(payload.freight_terms, payload.carrier_account, payload.status)
 
     data = payload.model_dump(exclude={"items"})
@@ -210,6 +231,8 @@ def update_purchase_order(
     po_type = data.get("po_type", po.po_type)
     sco_number = data.get("sco_number", po.sco_number)
     _validate_po_links(db, po_type, sco_number, payload.items)
+    if payload.items is not None:
+        _validate_po_quantities(db, payload.items)
     _validate_freight(
         data.get("freight_terms", po.freight_terms),
         data.get("carrier_account", po.carrier_account),

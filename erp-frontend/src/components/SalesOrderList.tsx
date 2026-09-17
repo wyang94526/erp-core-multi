@@ -10,6 +10,7 @@ import { salesOrderService } from '../api/services'
 import type { SalesOrder } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { formatPaginationLabel } from '../utils/pagination'
 import { METRIC_PAGE_TITLES } from '../config/metricRoutes'
 import type { MetricDrillKey } from '../types/dashboard'
 import {
@@ -470,8 +471,11 @@ export function SalesOrderList() {
               </button>
 
               <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {filteredOrders.length === 0 ? 0 : skip + 1} to{' '}
-                {Math.min(skip + pageSize, filteredOrders.length)} of {filteredOrders.length}
+                {formatPaginationLabel({
+                  skip,
+                  pageCount: pageRows.length,
+                  total: filteredOrders.length,
+                })}
               </span>
 
               <button

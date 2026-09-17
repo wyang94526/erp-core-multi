@@ -11,6 +11,7 @@ from sqlalchemy import func
 
 from app.models import InventoryStock, Item, ItemBOMComponent, VendorItemMapping
 from app.services.bom_versions import resolve_header
+from app.services.item_types import skip_inventory_movement
 
 
 def required_quantity(
@@ -136,7 +137,15 @@ def explode_assembly_components(
                 "available_to_promise": 0,
             }
         )
-        shortfall = max(qty - Decimal(str(stock["available_to_promise"])), Decimal("0"))
+        shortfall = Decimal("0")
+        if component is None or not skip_inventory_movement(component):
+            shortfall = max(qty - Decimal(str(stock["available_to_promise"])), Decimal("0"))
+        if skip_inventory_movement(component):
+            stock = {
+                **stock,
+                "available_to_promise": 0,
+                "on_hand_quantity": 0,
+            }
         result.append(
             {
                 "component_item_id": line.component_item_id,

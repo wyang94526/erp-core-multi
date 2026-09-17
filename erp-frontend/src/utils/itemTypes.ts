@@ -1,0 +1,28 @@
+export type ItemType = 'INVENTORY' | 'NON_INVENTORY' | 'SERVICE'
+
+export const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
+  { value: 'INVENTORY', label: 'Inventory' },
+  { value: 'NON_INVENTORY', label: 'Non-Inventory' },
+  { value: 'SERVICE', label: 'Service' },
+]
+
+export function normalizeItemType(value?: string | null): ItemType {
+  const raw = String(value || 'INVENTORY').trim().toUpperCase().replace(/[-\s]/g, '_')
+  if (raw === 'NONINVENTORY' || raw === 'NON_STOCK' || raw === 'NONSTOCK') return 'NON_INVENTORY'
+  if (raw === 'SERVICE') return 'SERVICE'
+  if (raw === 'NON_INVENTORY') return 'NON_INVENTORY'
+  return 'INVENTORY'
+}
+
+export function isStockItemType(value?: string | null): boolean {
+  return normalizeItemType(value) === 'INVENTORY'
+}
+
+export function isAmountOnlyLine(itemType?: string | null, quantity?: number | null): boolean {
+  return !isStockItemType(itemType) && Number(quantity || 0) === 0
+}
+
+export function itemTypeLabel(value?: string | null): string {
+  const kind = normalizeItemType(value)
+  return ITEM_TYPE_OPTIONS.find((opt) => opt.value === kind)?.label || kind
+}

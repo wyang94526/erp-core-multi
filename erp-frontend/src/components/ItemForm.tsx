@@ -10,8 +10,18 @@ import { itemService, itemBomService } from '../api/services'
 import type { ProductBOMComponent } from '../types'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
 import { BomVersionToolbar } from './BomVersionToolbar'
+import { ITEM_TYPE_OPTIONS, isStockItemType, normalizeItemType } from '../utils/itemTypes'
 
-const UOM_OPTIONS = ['Each', 'Box', 'Case', 'Pallet', 'Kg', 'Lb', 'Meter', 'Foot', 'Liter', 'Gallon']
+const UOM_OPTIONS = ['Each', 'PCS', 'Box', 'Case', 'Pallet', 'Kg', 'Lb', 'Meter', 'Foot', 'Liter', 'Gallon', 'SVC', 'N/A']
+
+function serializeUom(itemType: string, uom: string): string {
+  const text = uom.trim()
+  if (isStockItemType(itemType)) return text || 'Each'
+  // Service / non-inventory: blank "None / N/A" must still persist as N/A.
+  // `uom || undefined` used to drop the field, so PATCH left the old value.
+  if (!text || /^none$/i.test(text) || /^n\/?a$/i.test(text)) return 'N/A'
+  return text
+}
 
 const BOM_ITEM_TYPE_OPTIONS = ['Material', 'Labor', 'Outside Service'] as const
 
@@ -78,6 +88,7 @@ export function ItemForm() {
     customer_part_number: '',
     description: '',
     uom: 'Each',
+    item_type: 'INVENTORY',
     unit_price: '',
     is_outside_processed: false,
     is_purchase_item: false,
@@ -119,6 +130,15 @@ export function ItemForm() {
     [allItems, formData.item_id]
   )
 
+  const uomSelectOptions = useMemo(() => {
+    const current = formData.uom
+    const base = isStockItemType(formData.item_type)
+      ? UOM_OPTIONS
+      : ['N/A', ...UOM_OPTIONS.filter((uom) => uom !== 'N/A')]
+    if (current && !base.includes(current)) return [current, ...base]
+    return base
+  }, [formData.item_type, formData.uom])
+
   const { data: bomHeaders = [] } = useQuery({
     queryKey: ['itemBomHeaders', id],
     queryFn: () => itemBomService.listHeaders(id as string),
@@ -142,7 +162,8 @@ export function ItemForm() {
         item_id: item.item_id,
         customer_part_number: item.customer_part_number,
         description: item.description || '',
-        uom: item.uom || 'Each',
+        uom: item.uom || (isStockItemType(item.item_type) ? 'Each' : 'N/A'),
+        item_type: normalizeItemType(item.item_type),
         unit_price:
           item.unit_price !== null && item.unit_price !== undefined
             ? String(item.unit_price)
@@ -157,7 +178,10 @@ export function ItemForm() {
         is_raw_material: Boolean(item.is_raw_material),
       })
     }
-  }, [item])
+    // Only hydrate when switching items. A refetch returns a new object and
+    // would otherwise wipe an in-progress UOM (or other) edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.item_id])
 
   // Populate BOM rows from backend once loaded, mapping backend fields -> UI row shape.
   // We look up each component's description/uom from the product catalog.
@@ -206,7 +230,8 @@ export function ItemForm() {
         item_id: data.item_id,
         customer_part_number: data.customer_part_number,
         description: data.description || undefined,
-        uom: data.uom || undefined,
+        uom: serializeUom(data.item_type, data.uom),
+        item_type: data.item_type,
         unit_price: data.unit_price !== '' ? Number(data.unit_price) : undefined,
         is_outside_processed: data.is_outside_processed || data.is_subcontract_assembly,
         is_purchase_item: data.is_purchase_item,
@@ -230,7 +255,8 @@ export function ItemForm() {
       itemService.updateItem(id!, {
         customer_part_number: data.customer_part_number,
         description: data.description || undefined,
-        uom: data.uom || undefined,
+        uom: serializeUom(data.item_type, data.uom),
+        item_type: data.item_type,
         unit_price: data.unit_price !== '' ? Number(data.unit_price) : undefined,
         is_outside_processed: data.is_outside_processed || data.is_subcontract_assembly,
         is_purchase_item: data.is_purchase_item,
@@ -262,6 +288,16 @@ export function ItemForm() {
       }
       if (name === 'is_outside_processed' && type === 'checkbox') {
         next.is_subcontract_assembly = checked
+      }
+      if (name === 'item_type') {
+        if (!isStockItemType(value)) {
+          next.is_raw_material = false
+          next.is_subcontract_assembly = false
+          next.is_outside_processed = false
+          if (next.uom === 'Each' || !next.uom) next.uom = 'N/A'
+        } else if (!next.uom || next.uom === 'N/A') {
+          next.uom = 'Each'
+        }
       }
       return next
     })
@@ -452,6 +488,9 @@ export function ItemForm() {
     if (!formData.customer_part_number.trim()) {
       newErrors.customer_part_number = 'Customer Part Number is required'
     }
+    if (isStockItemType(formData.item_type) && !formData.uom.trim()) {
+      newErrors.uom = 'Unit of measure is required for inventory items'
+    }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -595,24 +634,49 @@ export function ItemForm() {
               )}
             </div>
 
+            {/* Item Type */}
+            <div style={fieldGroupStyle}>
+              <label htmlFor="item_type" style={labelStyle}>
+                Item Type
+              </label>
+              <select
+                id="item_type"
+                name="item_type"
+                value={formData.item_type}
+                onChange={handleChange}
+                style={inputStyle}
+              >
+                {ITEM_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* UOM Field */}
             <div style={fieldGroupStyle}>
               <label htmlFor="uom" style={labelStyle}>
                 Unit of Measure (UOM)
+                {isStockItemType(formData.item_type) ? ' *' : ' (optional)'}
               </label>
               <select
                 id="uom"
                 name="uom"
                 value={formData.uom}
                 onChange={handleChange}
-                style={inputStyle}
+                style={{
+                  ...inputStyle,
+                  border: errors.uom ? '1px solid #f44336' : '1px solid var(--border)',
+                }}
               >
-                {UOM_OPTIONS.map((uom) => (
+                {uomSelectOptions.map((uom) => (
                   <option key={uom} value={uom}>
                     {uom}
                   </option>
                 ))}
               </select>
+              {errors.uom && <span style={errorTextStyle}>{errors.uom}</span>}
             </div>
 
             {/* Unit Price Field */}

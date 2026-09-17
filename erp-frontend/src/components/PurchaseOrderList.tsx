@@ -10,6 +10,7 @@ import type { PurchaseOrder, Supplier } from '../types'
 import { useMemo, useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -323,8 +324,11 @@ export function PurchaseOrderList() {
               </button>
 
               <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {filteredOrders.length === 0 ? 0 : skip + 1} to{' '}
-                {Math.min(skip + limit, filteredOrders.length)} of {filteredOrders.length}
+                {formatPaginationLabel({
+                  skip,
+                  pageCount: pageRows.length,
+                  total: filteredOrders.length,
+                })}
               </span>
 
               <button

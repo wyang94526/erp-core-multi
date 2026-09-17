@@ -1108,6 +1108,12 @@ def map_item(row: dict[str, str], bom_parents: set[str]) -> MappedItem | None:
     warnings: list[str] = []
     if is_bom_parent and source != "M":
         warnings.append(f"BOM parent has ima08={source!r} (expected M)")
+    sku_key = item_id.replace(" ", "").upper()
+    item_type = (
+        "SERVICE"
+        if sku_key in {"MISC", "FREIGHT", "FRT", "FREIGHT-IN", "FREIGHTIN", "SVC-FREIGHT", "MISCELLANEOUS"}
+        else "INVENTORY"
+    )
     return MappedItem(
         item_id=item_id,
         payload={
@@ -1115,6 +1121,7 @@ def map_item(row: dict[str, str], bom_parents: set[str]) -> MappedItem | None:
             "customer_part_number": item_id,
             "description": desc,
             "uom": clip(row.get("ima25") or "PCS", 20) or "PCS",
+            "item_type": item_type,
             "unit_price": unit_price.quantize(Decimal("0.01")) if unit_price is not None else None,
             "on_hand_quantity": 0,
             "wip_quantity": 0,

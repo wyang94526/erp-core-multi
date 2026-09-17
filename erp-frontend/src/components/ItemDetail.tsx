@@ -12,6 +12,7 @@ import { itemService, itemBomService } from '../api/services'
 import type { Item } from '../types'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
 import { BomVersionToolbar } from './BomVersionToolbar'
+import { itemTypeLabel } from '../utils/itemTypes'
 
 export function ItemDetail() {
   const { id } = useParams<{ id: string }>()
@@ -187,7 +188,11 @@ export function ItemDetail() {
           </div>
           <div>
             <label style={labelStyle}>UOM</label>
-            <p style={valueStyle}>{item.uom}</p>
+            <p style={valueStyle}>{item.uom || '—'}</p>
+          </div>
+          <div>
+            <label style={labelStyle}>Item Type</label>
+            <p style={valueStyle}>{itemTypeLabel(item.item_type)}</p>
           </div>
           <div>
             <label style={labelStyle}>Unit Price</label>

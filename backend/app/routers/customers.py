@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -7,23 +7,25 @@ from app.models import Customer
 from app.schemas import (
     CustomerCreate,
     CustomerDetailRead,
-    CustomerRead,
+    CustomerListPage,
     CustomerUpdate,
     CustomerUpsert,
 )
 from app.services import customers as customer_service
+from app.services.pagination import paginate_query, set_total_count_header
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 
-@router.get("", response_model=list[CustomerRead])
+@router.get("", response_model=CustomerListPage)
 def list_customers(
     skip: int = 0,
     limit: int = 100,
     q: str | None = Query(default=None, description="Search name, customer ID, tax ID, or ext #"),
     status_filter: str | None = Query(default=None, alias="status"),
+    response: Response = None,
     db: Session = Depends(get_db),
-) -> list[Customer]:
+) -> CustomerListPage:
     query = db.query(Customer)
     if q and q.strip():
         term = f"%{q.strip()}%"
@@ -37,12 +39,14 @@ def list_customers(
         )
     if status_filter and status_filter.strip() and status_filter.strip().upper() != "ALL":
         query = query.filter(Customer.status == status_filter.strip().upper())
-    return (
-        query.order_by(Customer.company_name.asc(), Customer.customer_id.asc())
-        .offset(skip)
-        .limit(limit)
-        .all()
+    rows, pagination = paginate_query(
+        query,
+        skip=skip,
+        limit=limit,
+        order_by=(Customer.company_name.asc(), Customer.customer_id.asc()),
     )
+    set_total_count_header(response, pagination.total)
+    return CustomerListPage(data=rows, pagination=pagination)
 
 
 @router.post("", response_model=CustomerDetailRead, status_code=status.HTTP_201_CREATED)

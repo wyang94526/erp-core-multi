@@ -6,6 +6,7 @@ import { purchaseOrderService, vendorService, approvalService, itemService, subc
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { requiresCarrierAccount } from '../data/orderOptions';
+import { isStockItemType } from '../utils/itemTypes';
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
@@ -20,7 +21,11 @@ function roundTo(value: number, places: number) {
 
 function toApiItems(items: PurchaseOrder['items']) {
   return items
-    .filter((item) => item.sku && item.sku.trim() && item.quantity > 0)
+    .filter((item) => {
+      if (!item.sku || !item.sku.trim()) return false
+      if (item.quantity > 0) return true
+      return Number(item.line_subtotal) > 0 || Number(item.unit_price) > 0
+    })
     .map(({ sku, description, uom, bom_header_id, sco_component_id, quantity, unit_price, tax_rate, line_subtotal, line_tax, line_total }) => ({
       sku,
       description: description ? String(description).slice(0, 255) : null,
@@ -230,9 +235,15 @@ export function PurchaseOrderForm() {
           newErrors[`sku_${item.id}`] = 'Item / SKU is required';
           itemErrors.push('sku');
         }
+        const itemType = item.item_type || products.find((p) => p.item_id === item.sku)?.item_type
         if (item.quantity <= 0) {
-          newErrors[`qty_${item.id}`] = 'Quantity must be greater than 0';
-          itemErrors.push('qty');
+          if (isStockItemType(itemType)) {
+            newErrors[`qty_${item.id}`] = 'Quantity must be greater than 0';
+            itemErrors.push('qty');
+          } else if (Number(item.line_subtotal) <= 0 && Number(item.unit_price) <= 0) {
+            newErrors[`amount_${item.id}`] = 'Enter an amount for this non-inventory line';
+            itemErrors.push('amount');
+          }
         }
         if (item.unit_price < 0) {
           newErrors[`price_${item.id}`] = 'Unit price cannot be negative';
@@ -259,7 +270,7 @@ export function PurchaseOrderForm() {
       throw new Error('At least one valid line item is required');
     }
     if (payload.items.length === 0) {
-      throw new Error('Add at least one line item with SKU and quantity before saving');
+      throw new Error('Add at least one line item with SKU before saving');
     }
 
     if (isExisting) {
@@ -417,11 +428,19 @@ export function PurchaseOrderForm() {
 
   const handleReceiveAllGoods = async () => {
     if (!state.po_number || !state.items.length) return;
+    const stockLines = state.items.filter((item) => {
+      const itemType = item.item_type || products.find((p) => p.item_id === item.sku)?.item_type
+      return isStockItemType(itemType) && Number(item.quantity) > 0
+    })
+    if (stockLines.length === 0) {
+      setP2pError('No inventory lines to receive. Service and non-inventory items skip goods receipt.')
+      return
+    }
     setP2pError(null);
     setReceivingGoods(true);
     try {
       await purchaseOrderService.receiveGoods(state.po_number, {
-        lines: state.items.map((item) => ({
+        lines: stockLines.map((item) => ({
           source_line_id: Number(item.id),
           quantity_received: item.quantity,
           unit_cost: item.unit_price,

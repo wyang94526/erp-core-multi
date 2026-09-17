@@ -271,11 +271,19 @@ CREATE TABLE items (
     unit_price NUMERIC(12, 2),
     on_hand_quantity INT DEFAULT 0,            -- Quantity physically in stock (raw material or finished good)
     wip_quantity INT DEFAULT 0,                -- Quantity currently out at a subcontractor (work-in-progress)
+    item_type VARCHAR(20) NOT NULL DEFAULT 'INVENTORY', -- INVENTORY | NON_INVENTORY | SERVICE
     is_outside_processed BOOLEAN NOT NULL DEFAULT FALSE, -- Legacy: 3rd-party/outside processed assemblies
     is_purchase_item BOOLEAN NOT NULL DEFAULT FALSE,      -- Available on Purchase Orders
     is_subcontract_assembly BOOLEAN NOT NULL DEFAULT FALSE, -- Finished/semi FG built via subcontract
-    is_raw_material BOOLEAN NOT NULL DEFAULT FALSE         -- Purchased/raw component stock
+    is_raw_material BOOLEAN NOT NULL DEFAULT FALSE,        -- Purchased/raw component stock
+    CONSTRAINT chk_items_item_type CHECK (item_type IN ('INVENTORY', 'NON_INVENTORY', 'SERVICE'))
 );
+
+INSERT INTO items (item_id, customer_part_number, description, uom, item_type, is_purchase_item)
+VALUES
+    ('MISC', 'MISC', 'Miscellaneous charge', 'SVC', 'SERVICE', TRUE),
+    ('FREIGHT', 'FREIGHT', 'Freight / shipping charge', 'SVC', 'SERVICE', TRUE)
+ON CONFLICT (item_id) DO NOTHING;
 
 
 
@@ -944,7 +952,7 @@ CREATE TABLE supplier_invoice_lines (
     unit_price NUMERIC(12, 4) NOT NULL,
     line_subtotal NUMERIC(12, 2) NOT NULL,
     goods_receipt_line_id INT REFERENCES goods_receipt_lines(id),
-    CONSTRAINT chk_si_line_qty_pos CHECK (quantity_billed > 0)
+    CONSTRAINT chk_si_line_qty_pos CHECK (quantity_billed >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS supplier_invoice_distributions (

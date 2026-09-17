@@ -16,6 +16,7 @@ import {
   withCurrentOption,
 } from '../data/orderOptions'
 import { paymentTermLabel } from '../utils/paymentTerms'
+import { isAmountOnlyLine, isStockItemType } from '../utils/itemTypes'
 
 interface LineItem {
   line_number: number
@@ -51,7 +52,17 @@ function roundMoney(value: number, digits = 2): number {
   return Math.round((Number(value) + Number.EPSILON) * factor) / factor
 }
 
-function calcLineTotal(quantity: number, unitPrice: number, taxAmount: number): number {
+function calcLineTotal(
+  quantity: number,
+  unitPrice: number,
+  taxAmount: number,
+  amountOnly = false,
+  amount = 0,
+): number {
+  if (amountOnly) {
+    const base = Number(amount) > 0 ? Number(amount) : Number(unitPrice)
+    return roundMoney(base + Number(taxAmount))
+  }
   return roundMoney(Number(quantity) * Number(unitPrice) + Number(taxAmount))
 }
 
@@ -443,14 +454,24 @@ export function SalesOrderForm() {
     const newItems = lineItems.map((row, i) => {
       if (i !== index) return row
       const item = { ...row }
-      if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount') {
+      if (field === 'quantity_ordered' || field === 'unit_price' || field === 'tax_amount' || field === 'total_amount') {
         item[field] = Number(value)
       } else if (field === 'item_id' || field === 'customer_part_number') {
         item[field] = value as string
       } else if (field === 'line_number') {
         item.line_number = Number(value)
       }
-      item.total_amount = calcLineTotal(item.quantity_ordered, item.unit_price, item.tax_amount)
+      const catalog = items.find((p) => p.item_id === item.item_id)
+      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered)
+      if (field !== 'total_amount' || !amountOnly) {
+        item.total_amount = calcLineTotal(
+          item.quantity_ordered,
+          item.unit_price,
+          item.tax_amount,
+          amountOnly,
+          item.total_amount,
+        )
+      }
       return item
     })
 
@@ -468,7 +489,17 @@ export function SalesOrderForm() {
       item.item_id = catalog?.item_id || ''
       item.customer_part_number = catalog?.customer_part_number || ''
       item.unit_price = catalog?.unit_price != null ? Number(catalog.unit_price) : 0
-      item.total_amount = calcLineTotal(item.quantity_ordered, item.unit_price, item.tax_amount)
+      if (catalog && !isStockItemType(catalog.item_type)) {
+        item.quantity_ordered = 0
+      }
+      const amountOnly = isAmountOnlyLine(catalog?.item_type, item.quantity_ordered)
+      item.total_amount = calcLineTotal(
+        item.quantity_ordered,
+        item.unit_price,
+        item.tax_amount,
+        amountOnly,
+        item.unit_price,
+      )
       return item
     })
     setLineItems(newItems)
@@ -533,8 +564,16 @@ export function SalesOrderForm() {
         if (!item.item_id.trim()) {
           newErrors[`item_${index}_product`] = 'Item is required'
         }
-        if (item.quantity_ordered <= 0) {
+        if (item.quantity_ordered < 0) {
+          newErrors[`item_${index}_quantity`] = 'Quantity cannot be negative'
+        } else if (isStockItemType(items.find((p) => p.item_id === item.item_id)?.item_type) && item.quantity_ordered <= 0) {
           newErrors[`item_${index}_quantity`] = 'Quantity must be greater than 0'
+        } else if (
+          !isStockItemType(items.find((p) => p.item_id === item.item_id)?.item_type) &&
+          item.quantity_ordered === 0 &&
+          item.total_amount <= 0
+        ) {
+          newErrors[`item_${index}_amount`] = 'Enter an amount for this non-inventory line'
         }
       })
     }
@@ -996,7 +1035,7 @@ export function SalesOrderForm() {
                           textAlign: 'right',
                           border: errors[`item_${index}_quantity`] ? '1px solid #f44336' : '1px solid var(--border)',
                         }}
-                        min="1"
+                        min="0"
                       />
                       {errors[`item_${index}_quantity`] && (
                         <span style={errorTextStyle}>{errors[`item_${index}_quantity`]}</span>
@@ -1028,7 +1067,24 @@ export function SalesOrderForm() {
                       />
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: 'var(--text-h)' }}>
-                      {item.total_amount.toFixed(2)}
+                      {isAmountOnlyLine(items.find((p) => p.item_id === item.item_id)?.item_type, item.quantity_ordered) ? (
+                        <input
+                          type="number"
+                          value={item.total_amount}
+                          onChange={(e) => handleLineItemChange(index, 'total_amount', e.target.value)}
+                          style={{
+                            ...inputStyle,
+                            width: '100%',
+                            textAlign: 'right',
+                            fontWeight: 'bold',
+                            border: errors[`item_${index}_amount`] ? '1px solid #f44336' : '1px solid var(--border)',
+                          }}
+                          step="0.01"
+                          min="0"
+                        />
+                      ) : (
+                        item.total_amount.toFixed(2)
+                      )}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <button

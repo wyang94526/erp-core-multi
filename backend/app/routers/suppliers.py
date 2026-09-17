@@ -1,6 +1,4 @@
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -8,6 +6,7 @@ from app.database import get_db
 from app.models.entities import BinLocation, ChartOfAccount, Supplier, WorkCenter
 from app import schemas
 from app.services.payment_terms import apply_payment_term_fields
+from app.services.pagination import paginate_query, set_total_count_header
 
 router = APIRouter(
     prefix="/suppliers",
@@ -57,11 +56,12 @@ def create_supplier(
     return db_supplier
 
 
-@router.get("/", response_model=List[schemas.SupplierRead])
+@router.get("/", response_model=schemas.SupplierListPage)
 def list_suppliers(
     skip: int = 0,
     limit: int = 100,
     vendor_type: str | None = Query(default=None),
+    response: Response = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(Supplier)
@@ -69,7 +69,14 @@ def list_suppliers(
         types = [part.strip().lower() for part in vendor_type.split(",") if part.strip()]
         if types:
             query = query.filter(Supplier.vendor_type.in_(types))
-    return query.order_by(Supplier.company_name.asc(), Supplier.supplier_id.asc()).offset(skip).limit(limit).all()
+    rows, pagination = paginate_query(
+        query,
+        skip=skip,
+        limit=limit,
+        order_by=(Supplier.company_name.asc(), Supplier.supplier_id.asc()),
+    )
+    set_total_count_header(response, pagination.total)
+    return schemas.SupplierListPage(data=rows, pagination=pagination)
 
 
 @router.get("/{supplier_id}", response_model=schemas.SupplierRead)

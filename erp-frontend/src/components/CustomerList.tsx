@@ -10,6 +10,7 @@ import type { Customer } from '../types'
 import { useEffect, useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { PaginationControls } from './PaginationControls'
 
 export function CustomerList() {
   const navigate = useNavigate()
@@ -36,18 +37,21 @@ export function CustomerList() {
   }, [toast])
 
   const {
-    data: customers = [],
+    data,
     isLoading,
     isError,
     error,
   } = useQuery({
     queryKey: ['customers', skip, limit, search, statusFilter],
     queryFn: () =>
-      customerService.listCustomers(skip, limit, {
+      customerService.listCustomersPage(skip, limit, {
         q: search || undefined,
         status: statusFilter === 'ALL' ? undefined : statusFilter,
       }),
   })
+
+  const customers = data?.items ?? []
+  const total = data?.pagination.total ?? 0
 
   const { items: sortedCustomers, requestSort, sortConfig } = useSortableData(customers)
 
@@ -58,7 +62,7 @@ export function CustomerList() {
   }
 
   const handleNextPage = () => {
-    if (customers.length === limit) {
+    if (skip + customers.length < total) {
       setSkip(skip + limit)
     }
   }
@@ -142,8 +146,7 @@ export function CustomerList() {
         {customers.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No customers found.</div>
         ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto' }}>
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
@@ -174,30 +177,15 @@ export function CustomerList() {
                 </tbody>
               </table>
             </div>
-
-            <div style={paginationRowStyle}>
-              <button
-                onClick={handlePreviousPage}
-                disabled={skip === 0}
-                style={{ ...secondaryButtonStyle, opacity: skip === 0 ? 0.5 : 1, cursor: skip === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                ← Previous
-              </button>
-
-              <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + customers.length} of results
-              </span>
-
-              <button
-                onClick={handleNextPage}
-                disabled={customers.length < limit}
-                style={{ ...secondaryButtonStyle, opacity: customers.length < limit ? 0.5 : 1, cursor: customers.length < limit ? 'not-allowed' : 'pointer' }}
-              >
-                Next →
-              </button>
-            </div>
-          </>
         )}
+
+        <PaginationControls
+          skip={skip}
+          pageCount={customers.length}
+          total={total}
+          onPrevious={handlePreviousPage}
+          onNext={handleNextPage}
+        />
       </div>
     </div>
   )
@@ -344,15 +332,6 @@ const directoryEmptyTdWrapperStyle: React.CSSProperties = {
 const emptyStateWrapperStyle: React.CSSProperties = {
   padding: '30px',
   textAlign: 'center',
-}
-
-const paginationRowStyle: React.CSSProperties = {
-  marginTop: '20px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
 }
 
 const toastStyle: React.CSSProperties = {

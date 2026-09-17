@@ -10,6 +10,17 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PaginationMeta(BaseModel):
+    """List-page metadata. JSON uses totalPages to match the frontend contract."""
+
+    model_config = ConfigDict(populate_by_name=True, ser_json_by_alias=True)
+
+    page: int
+    limit: int
+    total: int
+    total_pages: int = Field(alias="totalPages")
+
+
 def _clip_str(value: Any, max_len: int) -> Any:
     if isinstance(value, str) and len(value) > max_len:
         return value[:max_len]
@@ -708,6 +719,11 @@ class CustomerRead(ORMModel):
     updated_at: datetime | None = None
 
 
+class CustomerListPage(ORMModel):
+    data: list[CustomerRead]
+    pagination: PaginationMeta
+
+
 class CustomerDetailRead(CustomerRead):
     locations: list[CustomerLocationRead] = Field(default_factory=list)
     bill_to_locations: list[CustomerLocationRead] = Field(default_factory=list)
@@ -719,7 +735,8 @@ class ItemCreate(BaseModel):
     item_id: str = Field(max_length=50)
     customer_part_number: str = Field(max_length=50)
     description: str | None = None
-    uom: str = Field(default="Each", max_length=20)
+    uom: str | None = Field(default="Each", max_length=20)
+    item_type: Literal["INVENTORY", "NON_INVENTORY", "SERVICE"] = "INVENTORY"
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     on_hand_quantity: int = Field(default=0, ge=0)
     wip_quantity: int = Field(default=0, ge=0)
@@ -728,11 +745,19 @@ class ItemCreate(BaseModel):
     is_subcontract_assembly: bool = Field(default=False)
     is_raw_material: bool = Field(default=False)
 
+    @field_validator("uom", mode="before")
+    @classmethod
+    def empty_uom_to_none(cls, value: Any) -> Any:
+        if value is None or str(value).strip() == "":
+            return None
+        return str(value).strip()[:20]
+
 class ItemRead(ORMModel):
     item_id: str
     customer_part_number: str
     description: str | None
-    uom: str
+    uom: str | None = None
+    item_type: str = "INVENTORY"
     unit_price: Decimal | None = None
     on_hand_quantity: int = 0
     wip_quantity: int = 0
@@ -741,10 +766,16 @@ class ItemRead(ORMModel):
     is_subcontract_assembly: bool = False
     is_raw_material: bool = False
 
+
+class ItemListPage(ORMModel):
+    data: list[ItemRead]
+    pagination: PaginationMeta
+
 class ItemUpdate(BaseModel):
     customer_part_number: str | None = Field(default=None, max_length=50)
     description: str | None = None
     uom: str | None = Field(default=None, max_length=20)
+    item_type: Literal["INVENTORY", "NON_INVENTORY", "SERVICE"] | None = None
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     on_hand_quantity: int | None = Field(default=None, ge=0)
     wip_quantity: int | None = Field(default=None, ge=0)
@@ -752,6 +783,15 @@ class ItemUpdate(BaseModel):
     is_purchase_item: bool | None = None
     is_subcontract_assembly: bool | None = None
     is_raw_material: bool | None = None
+
+    @field_validator("uom", mode="before")
+    @classmethod
+    def empty_uom_to_none(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if str(value).strip() == "":
+            return None
+        return str(value).strip()[:20]
 
 
 
@@ -762,7 +802,7 @@ class SalesOrderItemCreate(BaseModel):
     line_number: int
     item_id: str = Field(max_length=50)
     customer_part_number: str | None = Field(default=None, max_length=50)
-    quantity_ordered: int = Field(gt=0)
+    quantity_ordered: int = Field(ge=0)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
     total_amount: Decimal = Field(ge=0, decimal_places=2)
@@ -1198,9 +1238,16 @@ class SupplierUpdate(BaseModel):
 
 
 class SupplierRead(SupplierBase):
+    model_config = ConfigDict(from_attributes=True)
+
     supplier_id: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class SupplierListPage(ORMModel):
+    data: list[SupplierRead]
+    pagination: PaginationMeta
 
 
 # ==========================================
@@ -1578,7 +1625,7 @@ class PurchaseOrderItemCreate(BaseModel):
     uom: str | None = Field(default=None, max_length=20)
     bom_header_id: int | None = None
     sco_component_id: int | None = None
-    quantity: Decimal = Field(gt=0, decimal_places=4)
+    quantity: Decimal = Field(ge=0, decimal_places=4)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=3)
     line_subtotal: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
@@ -1616,7 +1663,7 @@ class PurchaseOrderItemUpdate(BaseModel):
     uom: str | None = Field(default=None, max_length=20)
     bom_header_id: int | None = None
     sco_component_id: int | None = None
-    quantity: Decimal | None = Field(default=None, gt=0, decimal_places=4)
+    quantity: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     tax_rate: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=3)
     line_subtotal: Decimal | None = Field(default=None, ge=0, decimal_places=2)
@@ -2540,7 +2587,8 @@ class SupplierInvoiceLineCreate(BaseModel):
     source_line_id: int | None = None
     item_id: str | None = None
     description: str | None = None
-    quantity_billed: Decimal = Field(gt=0)
+    quantity_billed: Decimal = Field(ge=0)
+    line_subtotal: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models import BinLocation, InventoryStock, Item, StockMovement, Warehouse
 from app.schemas import InventoryStockItemRead
+from app.services.item_types import skip_inventory_movement
 
 DEFAULT_WAREHOUSE_ID = "WH-MAIN"
 DEFAULT_WAREHOUSE_CODE = "MAIN"
@@ -103,11 +104,13 @@ def list_stock_overview(db: Session) -> list[InventoryStockItemRead]:
         primary = _primary_stock_row(stock_rows)
         reorder = primary.reorder_point
         catalog_item = primary.item
+        if skip_inventory_movement(catalog_item):
+            continue
         result.append(
             InventoryStockItemRead(
                 item_id=item_id,
                 description=catalog_item.description if catalog_item else None,
-                uom=catalog_item.uom if catalog_item else "Each",
+                uom=(catalog_item.uom if catalog_item and catalog_item.uom else "Each"),
                 on_hand_quantity=on_hand,
                 allocated_quantity=allocated,
                 on_order_quantity=on_order,
@@ -223,6 +226,12 @@ def issue_stock(
     """Deduct on-hand quantity and write an Issue stock movement."""
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Issue quantity must be positive")
+    item = db.get(Item, item_id)
+    if skip_inventory_movement(item):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Item {item_id} is not inventory-tracked and cannot be issued from stock",
+        )
 
     stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
     if quantity > stock.on_hand_quantity:
@@ -264,6 +273,12 @@ def receive_stock(
     """Increase on-hand quantity and write a Receipt stock movement."""
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Receipt quantity must be positive")
+    catalog = db.get(Item, item_id)
+    if skip_inventory_movement(catalog):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Item {item_id} is not inventory-tracked and cannot be received into stock",
+        )
 
     try:
         stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)

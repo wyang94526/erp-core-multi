@@ -10,6 +10,7 @@ import type { Supplier } from '../types'
 import { useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { PaginationControls } from './PaginationControls'
 
 export function VendorList() {
   const navigate = useNavigate()
@@ -18,14 +19,17 @@ export function VendorList() {
 
   // Fetch vendors using React Query
   const {
-    data: vendors = [],
+    data,
     isLoading,
     isError,
     error,
   } = useQuery({
     queryKey: ['vendors', skip, limit],
-    queryFn: () => vendorService.listVendors(skip, limit),
+    queryFn: () => vendorService.listVendorsPage(skip, limit),
   })
+
+  const vendors = data?.items ?? []
+  const total = data?.pagination.total ?? 0
 
   const { items: sortedVendors, requestSort, sortConfig } = useSortableData(vendors)
 
@@ -36,7 +40,7 @@ export function VendorList() {
   }
 
   const handleNextPage = () => {
-    if (vendors.length === limit) {
+    if (skip + vendors.length < total) {
       setSkip(skip + limit)
     }
   }
@@ -98,8 +102,7 @@ export function VendorList() {
         {vendors.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No vendors found.</div>
         ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto' }}>
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
@@ -150,31 +153,15 @@ export function VendorList() {
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination Controls */}
-            <div style={paginationRowStyle}>
-              <button
-                onClick={handlePreviousPage}
-                disabled={skip === 0}
-                style={{ ...secondaryButtonStyle, opacity: skip === 0 ? 0.5 : 1, cursor: skip === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                ← Previous
-              </button>
-
-              <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + vendors.length} of results
-              </span>
-
-              <button
-                onClick={handleNextPage}
-                disabled={vendors.length < limit}
-                style={{ ...secondaryButtonStyle, opacity: vendors.length < limit ? 0.5 : 1, cursor: vendors.length < limit ? 'not-allowed' : 'pointer' }}
-              >
-                Next →
-              </button>
-            </div>
-          </>
         )}
+
+        <PaginationControls
+          skip={skip}
+          pageCount={vendors.length}
+          total={total}
+          onPrevious={handlePreviousPage}
+          onNext={handleNextPage}
+        />
       </div>
     </div>
   )
@@ -225,17 +212,6 @@ const primaryButtonStyle: React.CSSProperties = {
   fontSize: '14px',
   fontWeight: 'bold',
   transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  fontSize: '13px',
-  fontWeight: 'bold',
   fontFamily: 'inherit',
 }
 
@@ -295,15 +271,6 @@ const directoryEmptyTdWrapperStyle: React.CSSProperties = {
 const emptyStateWrapperStyle: React.CSSProperties = {
   padding: '30px',
   textAlign: 'center',
-}
-
-const paginationRowStyle: React.CSSProperties = {
-  marginTop: '20px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
 }
 
 export default VendorList

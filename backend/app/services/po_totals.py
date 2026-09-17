@@ -64,7 +64,11 @@ def apply_line_totals(item: Any) -> None:
     qty = max(_d(getattr(item, "quantity", 0)), Decimal("0"))
     price = max(_d(getattr(item, "unit_price", 0)), Decimal("0"))
     tax_rate = max(_d(getattr(item, "tax_rate", 0)), Decimal("0"))
-    line_subtotal = money(qty * price)
+    if qty == 0:
+        provided = money(getattr(item, "line_subtotal", 0))
+        line_subtotal = provided if provided > 0 else money(price)
+    else:
+        line_subtotal = money(qty * price)
     line_tax = money(line_subtotal * tax_rate / Decimal("100"))
     item.line_subtotal = line_subtotal
     item.line_tax = line_tax

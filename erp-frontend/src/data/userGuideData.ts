@@ -344,7 +344,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Inventory → Stock On-Hand & ATP for a cross-SKU view.',
       'Filter by status (In Stock, Low Stock, Out of Stock) or view reorder alerts / pending shipment.',
       'Click an item to open the item record for description, UOM, flags (purchase item, raw material, subcontract assembly), and on-hand / WIP.',
-      'From Items you can create or edit SKUs and maintain vendor mappings.',
+      'From Items you can create or edit SKUs, set Item Type (Inventory / Non-Inventory / Service), and maintain vendor mappings.',
     ],
     callouts: [
       { kind: 'tip', text: 'ATP is on-hand minus allocated. Low stock uses the item’s planning signals on the overview.' },

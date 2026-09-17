@@ -1,20 +1,23 @@
 """Item catalog endpoints (items table is the item master)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Item, Supplier, VendorItemMapping
 from app.services import inventory
+from app.services.item_types import validate_item_master_fields
 from app.schemas import (
     ItemCreate,
+    ItemListPage,
     ItemRead,
     ItemUpdate,
     VendorItemMappingCreate,
     VendorItemMappingRead,
     VendorItemMappingUpdate,
 )
+from app.services.pagination import paginate_query, set_total_count_header
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -106,7 +109,7 @@ def list_subcontract_assemblies(
     return items
 
 
-@router.get("", response_model=list[ItemRead])
+@router.get("", response_model=ItemListPage)
 def list_items(
     skip: int = 0,
     limit: int = 100,
@@ -116,13 +119,15 @@ def list_items(
         default=None,
         description="Optional catalog filter: purchase | raw | assembly",
     ),
+    response: Response = None,
     db: Session = Depends(get_db),
-) -> list[Item]:
+) -> ItemListPage:
     kind = catalog or ("purchase" if purchase_only else None)
     query = _apply_item_query(db.query(Item), search=q, catalog=kind)
-    items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
+    items, pagination = paginate_query(query, skip=skip, limit=limit, order_by=Item.item_id)
     inventory.apply_live_on_hand(db, items)
-    return items
+    set_total_count_header(response, pagination.total)
+    return ItemListPage(data=items, pagination=pagination)
 
 
 @router.get("/{item_id}", response_model=ItemRead)
@@ -139,6 +144,9 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db)) -> Item:
     if db.get(Item, payload.item_id) is not None:
         raise HTTPException(status_code=400, detail="Item ID already exists")
     data = _sync_assembly_flags(payload.model_dump())
+    kind, unit = validate_item_master_fields(item_type=data.get("item_type"), uom=data.get("uom"))
+    data["item_type"] = kind
+    data["uom"] = unit
     item = Item(**data)
     db.add(item)
     db.commit()
@@ -154,6 +162,15 @@ def update_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     data = _sync_assembly_flags(payload.model_dump(exclude_unset=True))
+    if "item_type" in data or "uom" in data:
+        kind, unit = validate_item_master_fields(
+            item_type=data.get("item_type", item.item_type),
+            uom=data["uom"] if "uom" in data else item.uom,
+        )
+        if "item_type" in data:
+            data["item_type"] = kind
+        if "uom" in data:
+            data["uom"] = unit
     for key, value in data.items():
         setattr(item, key, value)
     db.commit()

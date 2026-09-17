@@ -36,6 +36,13 @@ from app.services.finance import (
     get_or_create_account,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
+from app.services.item_types import (
+    DEFAULT_EXPENSE_ACCOUNT_CODE,
+    DEFAULT_EXPENSE_ACCOUNT_NAME,
+    catalog_item,
+    is_stock_tracked,
+    skip_inventory_movement,
+)
 
 INVENTORY_ACCOUNT_CODE = "1300"
 INVENTORY_ACCOUNT_NAME = "Inventory Asset"
@@ -284,6 +291,31 @@ def _billed_qty_by_item(db: Session, source_type: str, source_order_id: str) -> 
     return {str(item_id): _d(qty) for item_id, qty in rows}
 
 
+def _billed_amount_by_item(db: Session, source_type: str, source_order_id: str) -> dict[str, Decimal]:
+    rows = (
+        db.query(
+            SupplierInvoiceLine.item_id,
+            func.coalesce(func.sum(SupplierInvoiceLine.line_subtotal), 0),
+        )
+        .join(SupplierInvoice)
+        .filter(
+            SupplierInvoice.source_type == source_type,
+            SupplierInvoice.source_order_id == source_order_id,
+            SupplierInvoice.status.notin_(("CANCELLED",)),
+        )
+        .group_by(SupplierInvoiceLine.item_id)
+        .all()
+    )
+    return {str(item_id): _d(amt) for item_id, amt in rows}
+
+
+def _line_bill_amount(qty: Decimal, price: Decimal, provided: Decimal | None = None) -> Decimal:
+    if qty == 0:
+        amount = _d(provided) if provided is not None else price
+        return amount.quantize(Decimal("0.01"))
+    return (price * qty).quantize(Decimal("0.01"))
+
+
 def _accrued_amount_for_order(db: Session, source_type: str, source_order_id: str) -> Decimal:
     total = (
         db.query(func.coalesce(func.sum(GoodsReceiptLine.line_amount), 0))
@@ -373,6 +405,23 @@ def receive_purchase_order(
     so_lines = {int(li.item_id): li for li in (po.items or [])}
     already = _received_qty_by_item(db, "PURCHASE_ORDER", po_number)
 
+    inventory_lines: list[dict] = []
+    for raw in lines:
+        line_id = int(raw["source_line_id"])
+        po_line = so_lines.get(line_id)
+        if not po_line:
+            raise HTTPException(status_code=400, detail=f"PO line {line_id} not found")
+        catalog = catalog_item(db, po_line.sku)
+        if skip_inventory_movement(catalog):
+            continue
+        inventory_lines.append(raw)
+
+    if not inventory_lines:
+        raise HTTPException(
+            status_code=400,
+            detail="No inventory lines to receive — service and non-inventory items skip goods receipt",
+        )
+
     receipt = GoodsReceipt(
         receipt_number=_next_number(db, GoodsReceipt, "receipt_number", "GR"),
         source_type="PURCHASE_ORDER",
@@ -391,7 +440,7 @@ def receive_purchase_order(
     grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
     total_accrual = Decimal("0")
 
-    for raw in lines:
+    for raw in inventory_lines:
         line_id = int(raw["source_line_id"])
         qty = _d(raw["quantity_received"])
         po_line = so_lines.get(line_id)
@@ -668,7 +717,14 @@ def create_supplier_invoice(
         fallback = po
         received = _received_qty_by_item(db, source_type, source_order_id)
         billed = _billed_qty_by_item(db, source_type, source_order_id)
-        if sum(received.values()) <= 0:
+        billed_amt = _billed_amount_by_item(db, source_type, source_order_id)
+        stock_skus = {
+            po_line.sku
+            for po_line in (po.items or [])
+            if is_stock_tracked(catalog_item(db, po_line.sku))
+        }
+        stock_received = sum((received.get(sku, Decimal("0")) for sku in stock_skus), Decimal("0"))
+        if stock_skus and stock_received <= 0:
             raise HTTPException(
                 status_code=400,
                 detail="Receive goods against the purchase order before creating a supplier invoice",
@@ -682,16 +738,18 @@ def create_supplier_invoice(
                 item_id = str(raw.get("item_id") or (po_line.sku if po_line else ""))
                 qty = _d(raw["quantity_billed"])
                 price = _d(raw.get("unit_price", po_line.unit_price if po_line else 0))
-                if po_line and price > _d(po_line.unit_price):
+                catalog = catalog_item(db, item_id)
+                if po_line and is_stock_tracked(catalog) and price > _d(po_line.unit_price):
                     warnings.append(
                         f"Price {price} exceeds PO unit price {_d(po_line.unit_price)} for {item_id}"
                     )
                 recv = received.get(item_id, Decimal("0"))
                 already = billed.get(item_id, Decimal("0"))
-                if qty + already > recv:
+                if is_stock_tracked(catalog) and qty + already > recv:
                     warnings.append(
                         f"Invoiced qty {qty + already} exceeds received {recv} for {item_id}"
                     )
+                provided = raw.get("line_subtotal")
                 built.append(
                     SupplierInvoiceLine(
                         source_line_id=line_id,
@@ -699,17 +757,36 @@ def create_supplier_invoice(
                         description=raw.get("description") or item_id,
                         quantity_billed=qty,
                         unit_price=price,
-                        line_subtotal=(price * qty).quantize(Decimal("0.01")),
+                        line_subtotal=_line_bill_amount(
+                            qty, price, _d(provided) if provided is not None else None
+                        ),
                     )
                 )
         else:
             for po_line in po.items or []:
+                catalog = catalog_item(db, po_line.sku)
+                price = _d(po_line.unit_price)
+                if skip_inventory_movement(catalog):
+                    remaining_amt = _d(po_line.line_subtotal) - billed_amt.get(po_line.sku, Decimal("0"))
+                    if remaining_amt <= 0:
+                        continue
+                    qty = _d(po_line.quantity)
+                    built.append(
+                        SupplierInvoiceLine(
+                            source_line_id=int(po_line.item_id),
+                            item_id=po_line.sku,
+                            description=po_line.sku,
+                            quantity_billed=qty,
+                            unit_price=price if qty > 0 else remaining_amt,
+                            line_subtotal=remaining_amt.quantize(Decimal("0.01")),
+                        )
+                    )
+                    continue
                 recv = received.get(po_line.sku, Decimal("0"))
                 already = billed.get(po_line.sku, Decimal("0"))
                 remaining = recv - already
                 if remaining <= 0:
                     continue
-                price = _d(po_line.unit_price)
                 built.append(
                     SupplierInvoiceLine(
                         source_line_id=int(po_line.item_id),
@@ -1071,9 +1148,14 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
     invoice_goods = _d(invoice.subtotal)
     tax = _d(invoice.tax_amount)
     freight = _d(invoice.freight_amount)
+    non_stock = Decimal("0")
+    for line in invoice.lines or []:
+        if skip_inventory_movement(catalog_item(db, line.item_id)):
+            non_stock += _d(line.line_subtotal)
+    stock_goods = max(invoice_goods - non_stock, Decimal("0"))
 
-    clear_amount = min(accrued, invoice_goods)
-    variance = invoice_goods - clear_amount
+    clear_amount = min(accrued, stock_goods)
+    variance = stock_goods - clear_amount
 
     if clear_amount > 0:
         finance._post_balanced_journal_entry(
@@ -1099,6 +1181,17 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             credit_account=ppv_account,
             amount=abs(variance),
         )
+    if non_stock > 0:
+        expense_account = get_or_create_account(
+            db, DEFAULT_EXPENSE_ACCOUNT_CODE, DEFAULT_EXPENSE_ACCOUNT_NAME, "Expense"
+        )
+        finance._post_balanced_journal_entry(
+            db,
+            description=f"Supplier invoice {invoice.invoice_number} non-inventory expense",
+            debit_account=expense_account,
+            credit_account=ap_account,
+            amount=non_stock.quantize(Decimal("0.01")),
+        )
     if tax + freight > 0:
         finance._post_balanced_journal_entry(
             db,
@@ -1107,7 +1200,7 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             credit_account=ap_account,
             amount=(tax + freight).quantize(Decimal("0.01")),
         )
-    if clear_amount <= 0 and variance == 0 and (tax + freight) <= 0:
+    if clear_amount <= 0 and variance == 0 and non_stock <= 0 and (tax + freight) <= 0:
         finance._post_balanced_journal_entry(
             db,
             description=f"Supplier invoice {invoice.invoice_number}",

@@ -4,6 +4,7 @@ import type { Item, ItemBOMHeader, PurchaseOrderItem } from '../types';
 import { itemBomService, itemService } from '../api/services';
 import ItemLookup from './ItemLookup';
 import { ImportScoComponentsDialog } from './ImportScoComponentsDialog';
+import { isAmountOnlyLine, isStockItemType } from '../utils/itemTypes';
 
 interface POLineItemsTableProps {
   items: PurchaseOrderItem[];
@@ -110,11 +111,18 @@ export function POLineItemsTable({
       sku: catalog?.item_id || '',
       description: catalog?.description || '',
       uom: catalog?.uom || '',
+      item_type: catalog?.item_type || 'INVENTORY',
       bom_header_id: null,
       sco_component_id: null,
     };
+    if (catalog && !isStockItemType(catalog.item_type)) {
+      fields.quantity = 0;
+    }
     if (catalog?.unit_price != null && Number(catalog.unit_price) > 0) {
       fields.unit_price = Number(catalog.unit_price);
+      if (!isStockItemType(catalog.item_type)) {
+        fields.line_subtotal = Number(catalog.unit_price);
+      }
     }
     updateRowFields(rowId, fields);
     if (catalog?.item_id) {
@@ -206,6 +214,9 @@ export function POLineItemsTable({
           </thead>
           <tbody>
             {items.map((item, index) => {
+              const catalog = products.find((p) => p.item_id === item.sku)
+              const itemType = item.item_type || catalog?.item_type
+              const amountOnly = isAmountOnlyLine(itemType, item.quantity)
               const rowHasError = errors[`item_${item.id}`] || errors[`sku_${item.id}`] || errors[`qty_${item.id}`] || errors[`price_${item.id}`];
               return (
                 <tr
@@ -270,9 +281,9 @@ export function POLineItemsTable({
                         <input
                           type="number"
                           aria-label={`Quantity for item ${index + 1}`}
-                          min="0.01"
+                          min="0"
                           step="any"
-                          value={item.quantity === 0 ? '' : item.quantity}
+                          value={item.quantity === 0 ? '0' : item.quantity}
                           onChange={(e) => updateRow(item.id, 'quantity', e.target.value)}
                           placeholder="0"
                           style={{
@@ -342,6 +353,30 @@ export function POLineItemsTable({
 
                   {/* Line Subtotal */}
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>
+                    {amountOnly && !isReadOnly ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <input
+                          type="number"
+                          aria-label={`Amount for item ${index + 1}`}
+                          min="0"
+                          step="0.01"
+                          value={item.line_subtotal === 0 ? '' : item.line_subtotal}
+                          onChange={(e) => updateRow(item.id, 'line_subtotal', e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            ...inputStyle,
+                            textAlign: 'right',
+                            width: '120px',
+                            border: errors[`amount_${item.id}`] ? '1px solid #f44336' : '1px solid var(--border)',
+                          }}
+                        />
+                        {item.line_tax > 0 && (
+                          <div style={{ fontSize: '11px', color: '#666', fontWeight: 'normal' }}>
+                            + {formatCurrency(item.line_tax)} Tax
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                     <div style={{ color: 'var(--text-h)', fontSize: '14px', paddingRight: '8px' }}>
                       {formatCurrency(item.line_subtotal)}
                       {item.line_tax > 0 && (
@@ -350,6 +385,7 @@ export function POLineItemsTable({
                         </div>
                       )}
                     </div>
+                    )}
                   </td>
 
                   {/* Actions (Delete) */}

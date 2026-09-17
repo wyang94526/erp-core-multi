@@ -138,6 +138,7 @@ export interface Item {
   customer_part_number: string;
   description: string | null;
   uom: string;
+  item_type?: 'INVENTORY' | 'NON_INVENTORY' | 'SERVICE';
   unit_price?: number | null;
   on_hand_quantity?: number;
   wip_quantity?: number;
@@ -537,6 +538,7 @@ export interface PurchaseOrderItem {
   sku: string;
   description?: string | null;
   uom?: string | null;
+  item_type?: 'INVENTORY' | 'NON_INVENTORY' | 'SERVICE';
   bom_header_id?: number | null;
   sco_component_id?: number | null;
   quantity: number;

@@ -10,22 +10,26 @@ import type { Item } from '../types'
 import { useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { PaginationControls } from './PaginationControls'
+import { itemTypeLabel } from '../utils/itemTypes'
 
 export function ItemList() {
   const navigate = useNavigate()
   const [skip, setSkip] = useState(0)
   const limit = 10
 
-  // Fetch products using React Query
   const {
-    data: items = [],
+    data,
     isLoading,
     isError,
     error,
   } = useQuery({
     queryKey: ['items', skip, limit],
-    queryFn: () => itemService.listItems(skip, limit),
+    queryFn: () => itemService.listItemsPage(skip, limit),
   })
+
+  const items = data?.items ?? []
+  const total = data?.pagination.total ?? 0
 
   const { items: sortedItems, requestSort, sortConfig } = useSortableData(items, {
     columnTypes: {
@@ -40,7 +44,7 @@ export function ItemList() {
   }
 
   const handleNextPage = () => {
-    if (items.length === limit) {
+    if (skip + items.length < total) {
       setSkip(skip + limit)
     }
   }
@@ -87,8 +91,7 @@ export function ItemList() {
         {items.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No items found.</div>
         ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto' }}>
               <table style={directoryTableStyle}>
                 <thead>
                   <tr style={directoryTheadRowStyle}>
@@ -96,6 +99,7 @@ export function ItemList() {
                     <SortableTh label="Customer Part Number" columnKey="customer_part_number" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Description" columnKey="description" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="UOM" columnKey="uom" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Type" columnKey="item_type" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Unit Price" columnKey="unit_price" sortConfig={sortConfig} onRequestSort={requestSort} align="right" />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
@@ -106,7 +110,8 @@ export function ItemList() {
                       <td style={directoryTdStyle}>{item.item_id}</td>
                       <td style={directoryTdStyle}>{item.customer_part_number}</td>
                       <td style={directoryTdStyle}>{item.description || '-'}</td>
-                      <td style={directoryTdStyle}>{item.uom}</td>
+                      <td style={directoryTdStyle}>{item.uom || '—'}</td>
+                      <td style={directoryTdStyle}>{itemTypeLabel(item.item_type)}</td>
                       <td style={{ ...directoryTdStyle, textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
                       <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                         <button
@@ -128,31 +133,15 @@ export function ItemList() {
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination Controls */}
-            <div style={paginationRowStyle}>
-              <button
-                onClick={handlePreviousPage}
-                disabled={skip === 0}
-                style={{ ...secondaryButtonStyle, opacity: skip === 0 ? 0.5 : 1, cursor: skip === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                ← Previous
-              </button>
-
-              <span style={{ fontSize: '13px', color: 'var(--text)' }}>
-                Showing {skip + 1} to {skip + items.length} of results
-              </span>
-
-              <button
-                onClick={handleNextPage}
-                disabled={items.length < limit}
-                style={{ ...secondaryButtonStyle, opacity: items.length < limit ? 0.5 : 1, cursor: items.length < limit ? 'not-allowed' : 'pointer' }}
-              >
-                Next →
-              </button>
-            </div>
-          </>
         )}
+
+        <PaginationControls
+          skip={skip}
+          pageCount={items.length}
+          total={total}
+          onPrevious={handlePreviousPage}
+          onNext={handleNextPage}
+        />
       </div>
     </div>
   )
@@ -216,17 +205,6 @@ const primaryButtonStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  fontSize: '13px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -283,15 +261,6 @@ const directoryEmptyTdWrapperStyle: React.CSSProperties = {
 const emptyStateWrapperStyle: React.CSSProperties = {
   padding: '30px',
   textAlign: 'center',
-}
-
-const paginationRowStyle: React.CSSProperties = {
-  marginTop: '20px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
 }
 
 export default ItemList

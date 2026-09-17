@@ -19,9 +19,9 @@ Global master at `/payment-terms` (`GET /api/v1/payment-terms`). Codes such as
 Ask: "List payment terms" · "What is vendor X payment term?"
 
 ## Items
-SKU = `item_id` (e.g. `PROD-1001G`). Flags: `is_purchase_item`, `is_raw_material`,
-`is_subcontract_assembly`. BOM versions live on `itembomheaders` (draft / active / obsolete)
-with component lines on `itembomcomponents`.
+SKU = `item_id` (e.g. `PROD-1001G`). `item_type`: `INVENTORY` (stock, UOM required),
+`NON_INVENTORY`, or `SERVICE` (MISC / Freight; UOM optional; skip goods receipt / ATP).
+Flags: `is_purchase_item`, `is_raw_material`, `is_subcontract_assembly`.
 Ask: "How many items with BOM details?" · "Show BOM for PROD-1020G"
 
 ## Work centers & warehouses

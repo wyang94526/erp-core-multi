@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from './client';
+import { parsePagedList, unwrapListRows, type PaginationMeta } from '../utils/pagination';
 import type {
   User,
   Customer,
@@ -62,7 +63,8 @@ function mapItem(raw: Record<string, unknown>): Item {
     item_id: id,
     customer_part_number: String(raw.customer_part_number ?? ''),
     description: (raw.description as string | null) ?? null,
-    uom: String(raw.uom ?? 'Each'),
+    uom: raw.uom == null || String(raw.uom).trim() === '' ? '' : String(raw.uom),
+    item_type: String(raw.item_type || 'INVENTORY'),
     unit_price: (raw.unit_price as number | null | undefined) ?? null,
     on_hand_quantity: Number(raw.on_hand_quantity ?? 0),
     wip_quantity: Number(raw.wip_quantity ?? 0),
@@ -124,9 +126,20 @@ export const customerService = {
     limit: number = 100,
     filters?: { q?: string; status?: string },
   ): Promise<Customer[]> {
-    return apiClient.get<Customer[]>('/api/v1/customers', {
+    const page = await this.listCustomersPage(skip, limit, filters);
+    return page.items;
+  },
+
+  async listCustomersPage(
+    skip: number = 0,
+    limit: number = 100,
+    filters?: { q?: string; status?: string },
+  ): Promise<{ items: Customer[]; pagination: PaginationMeta }> {
+    const raw = await apiClient.get<unknown>('/api/v1/customers', {
       params: { skip, limit, q: filters?.q, status: filters?.status },
     });
+    const page = parsePagedList<Customer>(raw, skip, limit);
+    return { items: page.data, pagination: page.pagination };
   },
 
   /**
@@ -248,7 +261,16 @@ export const itemService = {
     limit: number = 100,
     opts: { q?: string; catalog?: string; purchaseOnly?: boolean } = {},
   ): Promise<Item[]> {
-    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items', {
+    const page = await this.listItemsPage(skip, limit, opts);
+    return page.items;
+  },
+
+  async listItemsPage(
+    skip: number = 0,
+    limit: number = 100,
+    opts: { q?: string; catalog?: string; purchaseOnly?: boolean } = {},
+  ): Promise<{ items: Item[]; pagination: PaginationMeta }> {
+    const raw = await apiClient.get<unknown>('/api/v1/items', {
       params: {
         skip,
         limit,
@@ -257,28 +279,29 @@ export const itemService = {
         purchase_only: opts.purchaseOnly || undefined,
       },
     });
-    return rows.map(mapItem);
+    const page = parsePagedList<Record<string, unknown>>(raw, skip, limit);
+    return { items: page.data.map(mapItem), pagination: page.pagination };
   },
 
   async listPurchaseItems(skip: number = 0, limit: number = 500, q?: string): Promise<Item[]> {
-    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/purchase-items', {
+    const rows = await apiClient.get<unknown>('/api/v1/items/purchase-items', {
       params: { skip, limit, q: q || undefined },
     });
-    return rows.map(mapItem);
+    return unwrapListRows<Record<string, unknown>>(rows).map(mapItem);
   },
 
   async listRawMaterials(skip: number = 0, limit: number = 500): Promise<Item[]> {
-    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/raw-materials', {
+    const rows = await apiClient.get<unknown>('/api/v1/items/raw-materials', {
       params: { skip, limit },
     });
-    return rows.map(mapItem);
+    return unwrapListRows<Record<string, unknown>>(rows).map(mapItem);
   },
 
   async listAssemblies(skip: number = 0, limit: number = 500, q?: string): Promise<Item[]> {
-    const rows = await apiClient.get<Record<string, unknown>[]>('/api/v1/items/assemblies', {
+    const rows = await apiClient.get<unknown>('/api/v1/items/assemblies', {
       params: { skip, limit, q: q || undefined },
     });
-    return rows.map(mapItem);
+    return unwrapListRows<Record<string, unknown>>(rows).map(mapItem);
   },
 
   async getItem(itemId: string): Promise<Item> {
@@ -291,6 +314,7 @@ export const itemService = {
     customer_part_number: string;
     description?: string;
     uom?: string;
+    item_type?: string;
     unit_price?: number;
     is_outside_processed?: boolean;
     is_purchase_item?: boolean;
@@ -674,9 +698,20 @@ export const vendorService = {
     limit: number = 100,
     filters?: { vendorType?: string },
   ): Promise<Supplier[]> {
-    return apiClient.get<Supplier[]>('/api/v1/suppliers/', {
+    const page = await this.listVendorsPage(skip, limit, filters);
+    return page.items;
+  },
+
+  async listVendorsPage(
+    skip: number = 0,
+    limit: number = 100,
+    filters?: { vendorType?: string },
+  ): Promise<{ items: Supplier[]; pagination: PaginationMeta }> {
+    const raw = await apiClient.get<unknown>('/api/v1/suppliers/', {
       params: { skip, limit, vendor_type: filters?.vendorType },
     });
+    const page = parsePagedList<Supplier>(raw, skip, limit);
+    return { items: page.data, pagination: page.pagination };
   },
 
   /**

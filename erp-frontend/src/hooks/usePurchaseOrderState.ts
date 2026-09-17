@@ -1,6 +1,7 @@
 import { useReducer, useCallback } from 'react';
 import type { FreightPaymentTerms, PurchaseOrder, PurchaseOrderItem } from '../types';
 import { includesVendorFreight } from '../data/orderOptions';
+import { isAmountOnlyLine } from '../utils/itemTypes';
 
 export interface POFormState extends Omit<PurchaseOrder, 'subtotal' | 'total_tax' | 'discount_amount' | 'grand_total'> {
   subtotal: number;
@@ -29,6 +30,7 @@ const initialRow = (id: string): PurchaseOrderItem => ({
   uom: '',
   bom_header_id: null,
   sco_component_id: null,
+  item_type: 'INVENTORY',
   quantity: 1,
   unit_price: 0,
   tax_rate: 0,
@@ -90,8 +92,10 @@ export const calculateTotals = (
     const qty = Math.max(0, cleanNum(item.quantity));
     const price = Math.max(0, cleanNum(item.unit_price));
     const taxRate = Math.max(0, cleanNum(item.tax_rate));
-
-    const line_subtotal = round2(qty * price);
+    const amountOnly = isAmountOnlyLine(item.item_type, qty);
+    const line_subtotal = amountOnly
+      ? round2(Math.max(0, cleanNum(item.line_subtotal) || price))
+      : round2(qty * price);
     const line_tax = round2(line_subtotal * (taxRate / 100));
     const line_total = round2(line_subtotal + line_tax);
 

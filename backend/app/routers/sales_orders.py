@@ -10,6 +10,7 @@ from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
 from app.services import o2c
 from app.services.document_sequences import DOC_SALES_ORDER, generate_document_number
 from app.services.payment_terms import apply_payment_term_fields
+from app.services.item_types import validate_line_quantity
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
 
@@ -42,8 +43,14 @@ def _validate_sales_order_refs(db: Session, payload: SalesOrderCreate | SalesOrd
     if items:
         for item in items:
             item_id = item.get("item_id") if isinstance(item, dict) else getattr(item, "item_id", None)
-            if item_id and db.get(Item, item_id) is None:
+            if not item_id:
+                continue
+            catalog = db.get(Item, item_id)
+            if catalog is None:
                 raise HTTPException(status_code=400, detail=f"Item '{item_id}' not found")
+            qty = item.get("quantity_ordered") if isinstance(item, dict) else getattr(item, "quantity_ordered", 0)
+            amount = item.get("total_amount") if isinstance(item, dict) else getattr(item, "total_amount", 0)
+            validate_line_quantity(sku=item_id, quantity=qty, amount=amount, item=catalog)
 
 
 @router.get("", response_model=list[SalesOrderRead])

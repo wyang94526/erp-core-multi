@@ -9,6 +9,7 @@ import { salesInvoiceService } from '../api/services'
 import type { SalesInvoiceDoc } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { invoiceDetailHref } from '../utils/cashReference'
 
@@ -181,7 +182,11 @@ export function SalesInvoiceList() {
               Previous
             </button>
             <span style={{ color: 'var(--text)', fontSize: 13 }}>
-              {skip + 1}–{Math.min(skip + PAGE_SIZE, filtered.length)} of {filtered.length}
+              {formatPaginationLabel({
+                skip,
+                pageCount: pageRows.length,
+                total: filtered.length,
+              })}
             </span>
             <button
               type="button"

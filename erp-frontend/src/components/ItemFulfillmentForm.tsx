@@ -6,7 +6,8 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fulfillmentService, salesOrderService } from '../api/services'
+import { fulfillmentService, itemService, salesOrderService } from '../api/services'
+import { isStockItemType } from '../utils/itemTypes'
 
 type LineDraft = {
   sales_order_line_id: number
@@ -36,6 +37,11 @@ export function ItemFulfillmentForm() {
     queryFn: () => fulfillmentService.list(0, 200),
   })
 
+  const { data: catalogItems = [] } = useQuery({
+    queryKey: ['items', 'fulfillment-catalog'],
+    queryFn: () => itemService.listItems(0, 1000),
+  })
+
   const drafts: LineDraft[] = useMemo(() => {
     if (!order?.items) return []
     const already: Record<number, number> = {}
@@ -47,7 +53,12 @@ export function ItemFulfillmentForm() {
           (already[line.sales_order_line_id] || 0) + line.quantity_fulfilled
       }
     }
-    return order.items.map((item) => {
+    return order.items
+      .filter((item) => {
+        const catalog = catalogItems.find((row) => row.item_id === item.item_id)
+        return isStockItemType(catalog?.item_type)
+      })
+      .map((item) => {
       const done = already[item.so_item_id] || 0
       const remaining = Math.max(0, item.quantity_ordered - done)
       return {
@@ -58,7 +69,7 @@ export function ItemFulfillmentForm() {
         quantity_fulfilled: lineQty[item.so_item_id] ?? remaining,
       }
     })
-  }, [order, fulfillments, lineQty])
+  }, [order, fulfillments, lineQty, catalogItems])
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -129,7 +140,11 @@ export function ItemFulfillmentForm() {
           This sales order must be APPROVED before fulfillment.
         </div>
       ) : remainingTotal === 0 ? (
-        <div style={cardStyle}>All ordered quantities are already fulfilled (non-draft).</div>
+        <div style={cardStyle}>
+          {drafts.length === 0
+            ? 'No inventory lines to fulfill. Service and non-inventory charges skip stock movement and can be invoiced from the sales order.'
+            : 'All ordered quantities are already fulfilled (non-draft).'}
+        </div>
       ) : (
         <div style={cardStyle}>
           <h3 style={sectionHeadingStyle}>Quantities to fulfill</h3>

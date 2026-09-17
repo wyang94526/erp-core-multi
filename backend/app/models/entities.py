@@ -402,10 +402,11 @@ class Item(Base):
     item_id = Column(String(50), primary_key=True)
     customer_part_number = Column(String(50), nullable=False)
     description = Column(Text)
-    uom = Column(String(20), default='Each')
+    uom = Column(String(20), nullable=True, default='Each')
     unit_price = Column(Numeric(12, 2), nullable=True)
     on_hand_quantity = Column(Integer, default=0)
     wip_quantity = Column(Integer, default=0)
+    item_type = Column(String(20), nullable=False, server_default=text("'INVENTORY'"))
     is_outside_processed = Column(Boolean, nullable=False, server_default=text('false'))
     is_purchase_item = Column(Boolean, nullable=False, server_default=text('false'))
     is_subcontract_assembly = Column(Boolean, nullable=False, server_default=text('false'))
@@ -1551,7 +1552,7 @@ class SupplierInvoiceLine(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("quantity_billed > 0", name="chk_si_line_qty_pos"),
+        CheckConstraint("quantity_billed >= 0", name="chk_si_line_qty_pos"),
     )
 
     invoice = relationship("SupplierInvoice", back_populates="lines")
