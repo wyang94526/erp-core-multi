@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -23,9 +23,9 @@ from app.services import finance, inventory
 from app.services.finance import (
     AR_ACCOUNT_CODE,
     AR_ACCOUNT_NAME,
-    _parse_payment_terms_days,
     get_or_create_account,
 )
+from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 
 REVENUE_ACCOUNT_CODE = "4000"
 REVENUE_ACCOUNT_NAME = "Sales Revenue"
@@ -244,6 +244,7 @@ def serialize_sales_invoice(row: SalesInvoice) -> dict:
         "issue_date": row.issue_date,
         "due_date": row.due_date,
         "payment_terms": row.payment_terms,
+        "payment_term_id": getattr(row, "payment_term_id", None),
         "subtotal": row.subtotal,
         "tax_amount": row.tax_amount,
         "total_amount": row.total_amount,
@@ -424,6 +425,7 @@ def create_sales_invoice(
     fulfillment_id: int | None = None,
     issue_date: date | None = None,
     payment_terms: str | None = None,
+    payment_term_id=None,
     line_overrides: list[dict] | None = None,
 ) -> dict:
     order = (
@@ -467,8 +469,13 @@ def create_sales_invoice(
             raise HTTPException(status_code=400, detail="Fulfillment must be SHIPPED before invoicing")
 
     issue = issue_date or date.today()
-    terms = payment_terms or order.payment_terms
-    due = issue + timedelta(days=_parse_payment_terms_days(terms))
+    due, term = apply_due_date(
+        db,
+        invoice_date=issue,
+        payment_term_id=payment_term_id,
+        payment_terms=payment_terms,
+        fallback=order,
+    )
 
     invoice = SalesInvoice(
         invoice_number=generate_document_number(db, DOC_INVOICE, issue),
@@ -478,7 +485,15 @@ def create_sales_invoice(
         status="DRAFT",
         issue_date=issue,
         due_date=due,
-        payment_terms=terms,
+        payment_terms=payment_terms or order.payment_terms,
+        payment_term_id=payment_term_id,
+    )
+    apply_payment_term_fields(
+        db,
+        invoice,
+        payment_term_id=payment_term_id or (term.id if term else None),
+        payment_terms=payment_terms,
+        fallback=order,
     )
     db.add(invoice)
     db.flush()

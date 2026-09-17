@@ -111,6 +111,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
     entries: [
       { kind: 'link', label: 'Customers', to: '/customers' },
       { kind: 'link', label: 'Vendors', to: '/vendors' },
+      { kind: 'link', label: 'Payment Terms', to: '/payment-terms' },
     ],
   },
   {
@@ -182,6 +183,11 @@ export const NAV_CATEGORIES: NavCategory[] = [
             label: 'Chart of Accounts',
             to: '/chart-of-accounts',
             permission: 'journal:view',
+          },
+          {
+            kind: 'link',
+            label: 'Payment Terms',
+            to: '/payment-terms',
           },
           {
             kind: 'link',

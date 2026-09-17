@@ -16,6 +16,7 @@ from app.schemas import (
 from app.services import p2p
 from app.services.document_sequences import DOC_PURCHASE_ORDER, generate_document_number
 from app.services.po_totals import apply_po_totals, requires_carrier_account
+from app.services.payment_terms import apply_payment_term_fields
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
@@ -147,6 +148,14 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     items = payload.items
 
     po = PurchaseOrder(**data)
+    supplier = db.get(Supplier, payload.supplier_id)
+    apply_payment_term_fields(
+        db,
+        po,
+        payment_term_id=data.get("payment_term_id"),
+        payment_terms=data.get("payment_terms"),
+        fallback=supplier,
+    )
     for item in items:
         row = item.model_dump()
         if not row.get("sco_component_id"):
@@ -209,6 +218,16 @@ def update_purchase_order(
 
     for key, value in data.items():
         setattr(po, key, value)
+
+    if "payment_term_id" in data or "payment_terms" in data or "supplier_id" in data:
+        supplier = db.get(Supplier, po.supplier_id)
+        apply_payment_term_fields(
+            db,
+            po,
+            payment_term_id=data.get("payment_term_id", po.payment_term_id),
+            payment_terms=data.get("payment_terms", po.payment_terms),
+            fallback=supplier if "payment_term_id" not in data and "payment_terms" not in data else None,
+        )
 
     if payload.items is not None:
         po.items.clear()

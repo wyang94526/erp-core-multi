@@ -26,6 +26,7 @@ from app.schemas import (
     CustomerUpdate,
     CustomerUpsert,
 )
+from app.services.payment_terms import apply_payment_term_fields
 
 LOCATION_COLUMNS = (
     "location_type",
@@ -60,6 +61,7 @@ CUSTOMER_COLUMNS = (
     "currency",
     "credit_limit",
     "payment_terms",
+    "payment_term_id",
     "preferred_incoterms",
     "preferred_shipping_method",
     "tax_exempt",
@@ -117,6 +119,17 @@ def apply_header(customer: Customer, payload: dict) -> None:
     for key, value in payload.items():
         if key in CUSTOMER_COLUMNS:
             setattr(customer, key, value)
+
+
+def _sync_customer_payment_term(db: Session, customer: Customer, payload: dict) -> None:
+    if "payment_term_id" not in payload and "payment_terms" not in payload:
+        return
+    apply_payment_term_fields(
+        db,
+        customer,
+        payment_term_id=payload.get("payment_term_id"),
+        payment_terms=payload.get("payment_terms"),
+    )
 
 
 def sync_locations(
@@ -193,6 +206,12 @@ def create_customer(db: Session, payload: CustomerCreate) -> Customer:
 
     header = payload.model_dump(exclude={"locations", "certifications", "customer_id"})
     customer = Customer(customer_id=payload.customer_id, **header)
+    apply_payment_term_fields(
+        db,
+        customer,
+        payment_term_id=header.get("payment_term_id"),
+        payment_terms=header.get("payment_terms"),
+    )
     db.add(customer)
     db.flush()
 
@@ -217,6 +236,7 @@ def replace_customer(db: Session, customer_id: str, payload: CustomerUpsert) -> 
     customer = get_customer_detail(db, customer_id)
     header = payload.model_dump(exclude={"locations", "certifications", "customer_id"})
     apply_header(customer, header)
+    _sync_customer_payment_term(db, customer, header)
     sync_locations(db, customer, payload.locations)
     sync_certifications(customer, payload.certifications or [])
 
@@ -239,7 +259,9 @@ def patch_customer(db: Session, customer_id: str, payload: CustomerUpdate) -> Cu
     customer = db.get(Customer, customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
-    apply_header(customer, payload.model_dump(exclude_unset=True))
+    data = payload.model_dump(exclude_unset=True)
+    apply_header(customer, data)
+    _sync_customer_payment_term(db, customer, data)
     db.commit()
     return get_customer_detail(db, customer_id)
 

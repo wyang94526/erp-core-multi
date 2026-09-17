@@ -54,7 +54,7 @@ export const HELP_MODULES: Array<{ id: HelpModule; label: string; blurb: string 
   { id: 'sales', label: 'Sales & Procurement', blurb: 'Sales orders, purchase orders, and overseas buying' },
   { id: 'manufacturing', label: 'Manufacturing', blurb: 'Subcontract / outside processing orders' },
   { id: 'inventory', label: 'Inventory', blurb: 'Stock, movements, warehouses, and receiving' },
-  { id: 'master-data', label: 'Master Data', blurb: 'Customers, vendors, tax IDs, and banking' },
+  { id: 'master-data', label: 'Master Data', blurb: 'Customers, vendors, payment terms, tax IDs, and banking' },
   { id: 'finance', label: 'Finance & Accounting', blurb: 'Invoices, AP, AR, cash, and the general ledger' },
   { id: 'admin', label: 'Administration', blurb: 'Users, roles, permissions, and data import' },
 ]
@@ -487,6 +487,39 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
   },
   {
+    id: 'payment-terms-master',
+    module: 'master-data',
+    title: 'Payment Terms Master',
+    routeMatch: ['/payment-terms'],
+    summary:
+      'Payment terms are a global master (NET30, P02, Due on Receipt). Vendors and customers store a default; purchase orders and AP/AR invoices inherit it and can override. Due date is invoice date plus due days.',
+    steps: [
+      'Go to Master Data → Payment Terms (also listed under Finance → General Ledger & Setup).',
+      'Review the seeded terms (Net 15/30/60/90, Due on Receipt, P02, P10, Advance) or create a new code, description, and due days.',
+      'Optional: enter discount days and discount percentage for early-pay discounts.',
+      'Deactivate a term to hide it from new dropdowns without deleting history on existing documents.',
+      'Assign a default term on Master Data → Vendors and Customers. New POs and AP invoices copy the vendor term; you can override on the document.',
+      'On an AP invoice, due date recalculates as invoice date + due days when you change the term.',
+    ],
+    callouts: [
+      { kind: 'required', text: 'Code must be unique. Due days is the number of days added to the invoice date.' },
+      { kind: 'tip', text: 'P02/P10 are stored as 32/40 net days so due dates stay invoice_date + due_days.' },
+    ],
+    faqs: [
+      {
+        question: 'What happened to free-text Net 30 / P02 on vendors?',
+        answer:
+          'Existing strings were linked to the master list. Vendors still show a code (for example NET30 or P02) in the list, and the dropdown is driven by the master.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'Vendor dropdown is empty',
+        fix: 'Create at least one active term under Master Data → Payment Terms, then refresh the vendor form.',
+      },
+    ],
+  },
+  {
     id: 'finance-invoicing',
     module: 'finance',
     title: 'Customer Invoicing & Accounts Receivable',
@@ -539,22 +572,23 @@ export const HELP_ARTICLES: HelpArticle[] = [
       '/general-ledger',
     ],
     summary:
-      'Supplier invoices / bills match vendor invoices to received PO or SCO quantities. AP Aging & Payments shows what you owe.',
+      'Supplier invoices include PO/SCO 3-way match bills and Non-PO vouchers (freight, duty, rent, utilities). AP Aging & Payments shows what you owe.',
     screenshots: [
       { src: '/guide-screenshots/supplier-invoice-form.jpg', caption: 'New supplier invoice defaulting unbilled receipts' },
       { src: '/guide-screenshots/ap-aging.jpg', caption: 'AP aging' },
     ],
     steps: [
-      'Receive goods on the PO or SCO first (GRNI).',
-      'Go to Finance → Supplier Invoices / Bills → New.',
-      'Select the vendor / source document. Lines default to unbilled received quantities at order prices.',
-      'Submit for approval. Posting typically debits GRNI and credits AP.',
+      'Receive goods on the PO or SCO first (GRNI) for PO-matched bills.',
+      'Go to Finance → Supplier Invoices / Bills. Use Create Bill from an approved PO/SCO, or Create Non-PO Invoice for freight, customs duty, rent, utilities, or salaries.',
+      'For Non-PO invoices, choose Expense (GL distribution) or Landed Cost (optional goods-receipt allocation). No purchase order is required.',
+      'Select the vendor / source document. PO-matched lines default to unbilled received quantities at order prices.',
+      'Save as draft or submit for approval. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
       'Open Finance → Supplier Invoices and click a Bill # (VBILL-YYYY-NNNN) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
       'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add more banks from Cash Management. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
     ],
     callouts: [
-      { kind: 'required', text: 'Match bills to receipts. Billing a PO with no receipt breaks GRNI clearing.' },
+      { kind: 'required', text: 'Match PO bills to receipts. Billing a PO-matched invoice with no receipt breaks GRNI clearing. Non-PO expense invoices do not require a PO or receipt.' },
       { kind: 'tip', text: 'Overseas wire details come from the vendor master — verify SWIFT/IBAN before releasing payment.' },
     ],
     faqs: [
@@ -567,6 +601,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'How do I see which payment cleared a bill?',
         answer:
           'Click the Bill ID in AP Aging or the Bill # in Supplier Invoices. Payment & transaction history lists Check Issue cash references and amounts applied.',
+      },
+      {
+        question: 'How do I enter freight or rent without a purchase order?',
+        answer:
+          'Use Create Non-PO Invoice. Choose Landed Cost for freight/duty (optionally allocate to a goods receipt) or Expense for rent, utilities, and salaries, then distribute amounts to GL accounts.',
       },
       {
         question: 'Where is the Chart of Accounts?',

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.entities import BinLocation, ChartOfAccount, Supplier, WorkCenter
 from app import schemas
+from app.services.payment_terms import apply_payment_term_fields
 
 router = APIRouter(
     prefix="/suppliers",
@@ -40,6 +41,12 @@ def create_supplier(
     data = payload.model_dump()
     _validate_supplier_refs(db, data)
     db_supplier = Supplier(**data)
+    apply_payment_term_fields(
+        db,
+        db_supplier,
+        payment_term_id=data.get("payment_term_id"),
+        payment_terms=data.get("payment_terms"),
+    )
     db.add(db_supplier)
     try:
         db.commit()
@@ -104,6 +111,13 @@ def _apply_supplier_update(
     _validate_supplier_refs(db, update_data)
     for key, value in update_data.items():
         setattr(db_supplier, key, value)
+    if "payment_term_id" in update_data or "payment_terms" in update_data:
+        apply_payment_term_fields(
+            db,
+            db_supplier,
+            payment_term_id=update_data.get("payment_term_id", db_supplier.payment_term_id),
+            payment_terms=update_data.get("payment_terms", db_supplier.payment_terms),
+        )
 
     try:
         db.commit()

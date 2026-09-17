@@ -9,6 +9,7 @@ from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderI
 from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
 from app.services import o2c
 from app.services.document_sequences import DOC_SALES_ORDER, generate_document_number
+from app.services.payment_terms import apply_payment_term_fields
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
 
@@ -71,6 +72,14 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
         db, DOC_SALES_ORDER, payload.order_date
     )
     order = SalesOrder(**order_data)
+    customer = db.get(Customer, payload.customer_id)
+    apply_payment_term_fields(
+        db,
+        order,
+        payment_term_id=order_data.get("payment_term_id"),
+        payment_terms=order_data.get("payment_terms"),
+        fallback=customer,
+    )
     
     # 2. Add the parent order to the session and flush it to generate/register the ID
     db.add(order)
@@ -153,6 +162,13 @@ def update_sales_order(
     update_data = payload.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(order, key, value)
+    if "payment_term_id" in update_data or "payment_terms" in update_data:
+        apply_payment_term_fields(
+            db,
+            order,
+            payment_term_id=update_data.get("payment_term_id", order.payment_term_id),
+            payment_terms=update_data.get("payment_terms", order.payment_terms),
+        )
 
     # AR invoice creation happens when approval workflow finalizes APPROVED.
 

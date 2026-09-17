@@ -48,6 +48,34 @@ CREATE TABLE IF NOT EXISTS chart_of_accounts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+DROP TABLE IF EXISTS payment_terms CASCADE;
+CREATE TABLE IF NOT EXISTS payment_terms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code VARCHAR(20) UNIQUE NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    due_days INTEGER NOT NULL DEFAULT 30,
+    discount_days INTEGER,
+    discount_percentage NUMERIC(5, 2),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT chk_payment_terms_due_days CHECK (due_days >= 0),
+    CONSTRAINT chk_payment_terms_discount_days CHECK (discount_days IS NULL OR discount_days >= 0),
+    CONSTRAINT chk_payment_terms_discount_pct CHECK (
+        discount_percentage IS NULL OR (discount_percentage >= 0 AND discount_percentage <= 100)
+    )
+);
+INSERT INTO payment_terms (code, description, due_days, is_active) VALUES
+    ('NET15', 'Net 15 Days', 15, TRUE),
+    ('NET30', 'Net 30 Days', 30, TRUE),
+    ('NET60', 'Net 60 Days', 60, TRUE),
+    ('NET90', 'Net 90 Days', 90, TRUE),
+    ('DUE_ON_RECEIPT', 'Due on Receipt', 0, TRUE),
+    ('P02', 'Payment on 2nd of following month', 32, TRUE),
+    ('P10', 'Payment on 10th of following month', 40, TRUE),
+    ('ADVANCE', 'Advance Payment', 0, TRUE)
+ON CONFLICT (code) DO NOTHING;
+
 -- (legacy stub products table removed; item master is `items` below)
 
 DROP TABLE IF EXISTS audit_logs CASCADE;
@@ -123,6 +151,7 @@ CREATE TABLE Suppliers (
     country VARCHAR(50),
     vendor_number_ext VARCHAR(50),
     payment_terms VARCHAR(50) DEFAULT 'Net 30',
+    payment_term_id UUID REFERENCES payment_terms(id),
     status VARCHAR(20) DEFAULT 'Active',
     vendor_type VARCHAR(20) NOT NULL DEFAULT 'material',
     tax_id VARCHAR(50),
@@ -177,6 +206,7 @@ CREATE TABLE Customers (
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     credit_limit DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     payment_terms VARCHAR(50),                 -- NET30, NET60, ADVANCE
+    payment_term_id UUID REFERENCES payment_terms(id),
     preferred_incoterms VARCHAR(10),           -- FOB, CIF, EXW, DDP
     tax_exempt BOOLEAN NOT NULL DEFAULT FALSE,
     tax_exempt_certificate_id VARCHAR(100),
@@ -264,7 +294,8 @@ CREATE TABLE SalesOrders (
     customer_revision_date DATE, 
     
     -- Commercial & Freight Terms
-    payment_terms VARCHAR(50),                 
+    payment_terms VARCHAR(50),
+    payment_term_id UUID REFERENCES payment_terms(id),
     freight_terms VARCHAR(50),                 
     shipping_method VARCHAR(50),               
     currency VARCHAR(3) DEFAULT 'USD',
@@ -504,6 +535,7 @@ CREATE TABLE PurchaseOrders (
     order_date DATE NOT NULL DEFAULT CURRENT_DATE,
     expected_delivery_date DATE,
     payment_terms VARCHAR(50) DEFAULT 'Net 30',
+    payment_term_id UUID REFERENCES payment_terms(id),
     status VARCHAR(20) NOT NULL DEFAULT 'Draft', -- 'Draft', 'Submitted', 'Approved', 'Void'
 
     shipping_fee NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -578,6 +610,7 @@ CREATE TABLE ap_bills (
     amount NUMERIC(12, 2) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'Unpaid', -- Unpaid, Partial, Paid
     due_date DATE NOT NULL,
+    payment_term_id UUID REFERENCES payment_terms(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT chk_ap_bill_status CHECK (status IN ('Unpaid', 'Partial', 'Paid'))
@@ -791,6 +824,7 @@ CREATE TABLE sales_invoices (
     issue_date DATE NOT NULL,
     due_date DATE NOT NULL,
     payment_terms VARCHAR(50),
+    payment_term_id UUID REFERENCES payment_terms(id),
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
     tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -875,11 +909,14 @@ CREATE TABLE supplier_invoices (
     id SERIAL PRIMARY KEY,
     invoice_number VARCHAR(50) NOT NULL UNIQUE,
     vendor_id VARCHAR(50) NOT NULL REFERENCES Suppliers(supplier_id),
+    invoice_type VARCHAR(20) NOT NULL DEFAULT 'PO_MATCHED',
     source_type VARCHAR(30) NOT NULL,
-    source_order_id VARCHAR(50) NOT NULL,
+    source_order_id VARCHAR(50),
     vendor_invoice_number VARCHAR(100),
     invoice_date DATE NOT NULL,
     due_date DATE NOT NULL,
+    payment_term_id UUID REFERENCES payment_terms(id),
+    payment_terms VARCHAR(50),
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
     tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -891,7 +928,8 @@ CREATE TABLE supplier_invoices (
     match_warnings TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_supplier_invoice_source_type CHECK (source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')),
+    CONSTRAINT chk_supplier_invoice_type CHECK (invoice_type IN ('PO_MATCHED', 'LANDED_COST', 'EXPENSE')),
+    CONSTRAINT chk_supplier_invoice_source_type CHECK (source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER', 'NON_PO')),
     CONSTRAINT chk_supplier_invoice_status CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'CANCELLED'))
 );
 CREATE INDEX ix_supplier_invoices_source ON supplier_invoices(source_type, source_order_id);
@@ -900,7 +938,7 @@ CREATE TABLE supplier_invoice_lines (
     id SERIAL PRIMARY KEY,
     invoice_id INT NOT NULL REFERENCES supplier_invoices(id) ON DELETE CASCADE,
     source_line_id BIGINT,
-    item_id VARCHAR(50) NOT NULL REFERENCES items(item_id),
+    item_id VARCHAR(50) REFERENCES items(item_id),
     description VARCHAR(255),
     quantity_billed NUMERIC(12, 4) NOT NULL,
     unit_price NUMERIC(12, 4) NOT NULL,
@@ -908,6 +946,19 @@ CREATE TABLE supplier_invoice_lines (
     goods_receipt_line_id INT REFERENCES goods_receipt_lines(id),
     CONSTRAINT chk_si_line_qty_pos CHECK (quantity_billed > 0)
 );
+
+CREATE TABLE IF NOT EXISTS supplier_invoice_distributions (
+    id SERIAL PRIMARY KEY,
+    invoice_id INT NOT NULL REFERENCES supplier_invoices(id) ON DELETE CASCADE,
+    gl_account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
+    department_id VARCHAR(50),
+    amount NUMERIC(12, 2) NOT NULL,
+    description VARCHAR(255),
+    goods_receipt_id INT REFERENCES goods_receipts(id),
+    goods_receipt_line_id INT REFERENCES goods_receipt_lines(id),
+    CONSTRAINT chk_si_dist_amount_pos CHECK (amount > 0)
+);
+CREATE INDEX IF NOT EXISTS ix_si_distributions_invoice ON supplier_invoice_distributions(invoice_id);
 
 DO $$ BEGIN
   ALTER TABLE ap_bills

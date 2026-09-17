@@ -89,7 +89,7 @@ export function generateSupplierBillPdf(detail: APBillDetail): void {
   const lineRows =
     (detail.lines || []).length > 0
       ? detail.lines.map((line) => [
-          line.item_id,
+          line.item_id || '—',
           line.description || '—',
           formatQty(line.quantity),
           formatMoney(line.unit_price, currency),

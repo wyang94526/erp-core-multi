@@ -6,9 +6,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { customerService } from '../api/services'
+import { customerService, paymentTermsService } from '../api/services'
 import type { CustomerWrite, Location, TaxIdType } from '../types'
 import { INCOTERM_OPTIONS, SHIPPING_METHOD_OPTIONS } from '../data/orderOptions'
+import { findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
 
 type TabId = 'general' | 'billTo' | 'shipTo' | 'certs'
 
@@ -41,7 +42,6 @@ type CertFormRow = {
 
 const INDUSTRY_OPTIONS = ['Automotive', 'Electronics', 'Industrial', 'Aerospace', 'Medical', 'Energy', 'Other']
 const FACILITY_OPTIONS = ['OEM', 'Tier-1', 'Tier-2', 'Contract Manufacturer', 'Aftermarket', 'Distributor']
-const PAYMENT_OPTIONS = ['NET30', 'NET60', 'NET90', 'ADVANCE', 'Due on Receipt']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'JPY', 'TWD', 'CNY']
 const STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Active' },
@@ -208,6 +208,7 @@ export function CustomerForm() {
     primary_phone: '',
     currency: 'USD',
     credit_limit: '0.00',
+    payment_term_id: '',
     payment_terms: 'NET30',
     preferred_incoterms: '',
     preferred_shipping_method: '',
@@ -231,6 +232,23 @@ export function CustomerForm() {
     enabled: isEditMode,
   })
 
+  const { data: paymentTerms = [] } = useQuery({
+    queryKey: ['paymentTerms'],
+    queryFn: () => paymentTermsService.list(true),
+  })
+
+  useEffect(() => {
+    if (paymentTerms.length === 0) return
+    setFormData((prev) => {
+      if (prev.payment_term_id && paymentTerms.some((term) => term.id === prev.payment_term_id)) {
+        return prev
+      }
+      const matched = findPaymentTerm(paymentTerms, prev.payment_term_id, prev.payment_terms)
+      if (!matched) return prev
+      return { ...prev, payment_term_id: matched.id, payment_terms: matched.code }
+    })
+  }, [paymentTerms])
+
   useEffect(() => {
     if (!customer) return
     setFormData({
@@ -247,6 +265,7 @@ export function CustomerForm() {
       primary_phone: customer.primary_phone || '',
       currency: customer.currency || 'USD',
       credit_limit: String(customer.credit_limit ?? '0.00'),
+      payment_term_id: customer.payment_term_id || '',
       payment_terms: customer.payment_terms || 'NET30',
       preferred_incoterms: customer.preferred_incoterms || '',
       preferred_shipping_method: customer.preferred_shipping_method || '',
@@ -472,6 +491,7 @@ export function CustomerForm() {
     primary_phone: formData.primary_phone.trim() || undefined,
     currency: formData.currency || 'USD',
     credit_limit: Number(formData.credit_limit || 0).toFixed(2),
+    payment_term_id: formData.payment_term_id || undefined,
     payment_terms: formData.payment_terms || undefined,
     preferred_incoterms: formData.preferred_incoterms || undefined,
     preferred_shipping_method: formData.preferred_shipping_method || undefined,
@@ -670,10 +690,21 @@ export function CustomerForm() {
               />
               <SelectField
                 label="Payment Terms"
-                name="payment_terms"
-                value={formData.payment_terms}
-                onChange={handleChange}
-                options={PAYMENT_OPTIONS}
+                name="payment_term_id"
+                value={formData.payment_term_id}
+                onChange={(e) => {
+                  const selectedId = e.target.value
+                  const term = paymentTerms.find((row) => row.id === selectedId)
+                  setFormData((prev) => ({
+                    ...prev,
+                    payment_term_id: selectedId,
+                    payment_terms: term?.code || prev.payment_terms,
+                  }))
+                }}
+                options={paymentTerms
+                  .filter((term) => term.is_active || term.id === formData.payment_term_id)
+                  .map((term) => term.id)}
+                labels={Object.fromEntries(paymentTerms.map((term) => [term.id, paymentTermLabel(term)]))}
               />
               <SelectField
                 label="Preferred Incoterms"

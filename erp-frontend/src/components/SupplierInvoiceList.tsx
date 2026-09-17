@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { vendorInvoiceService } from '../api/services'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
@@ -21,6 +21,7 @@ const FILTERS: FilterField[] = [
     options: [
       { value: 'ALL', label: 'All' },
       { value: 'DRAFT', label: 'Draft' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
       { value: 'APPROVED', label: 'Approved' },
       { value: 'PAID', label: 'Paid' },
       { value: 'CANCELLED', label: 'Cancelled' },
@@ -34,6 +35,7 @@ const FILTERS: FilterField[] = [
       { value: 'ALL', label: 'All' },
       { value: 'PURCHASE_ORDER', label: 'Purchase Order' },
       { value: 'SUBCONTRACT_ORDER', label: 'Subcontract' },
+      { value: 'NON_PO', label: 'Non-PO' },
     ],
   },
 ]
@@ -53,6 +55,7 @@ const money = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n) || 0)
 
 export function SupplierInvoiceList() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const sourceOrderId = searchParams.get('source_order_id') || undefined
   const focusInvoice = (searchParams.get('invoice') || '').trim()
@@ -91,7 +94,13 @@ export function SupplierInvoiceList() {
     },
   })
 
-  const sourceTag = (t: string) => (t === 'SUBCONTRACT_ORDER' ? 'SCO' : 'PO')
+  const sourceTag = (inv: { invoice_type?: string; source_type: string }) => {
+    if (inv.invoice_type === 'EXPENSE') return 'EXPENSE'
+    if (inv.invoice_type === 'LANDED_COST') return 'LANDED'
+    if (inv.source_type === 'NON_PO') return 'NON-PO'
+    if (inv.source_type === 'SUBCONTRACT_ORDER') return 'SCO'
+    return 'PO'
+  }
 
   if (focusInvoice) {
     return <Navigate to={billDetailHref(focusInvoice)} replace />
@@ -103,9 +112,16 @@ export function SupplierInvoiceList() {
         <div>
           <h2 style={pageTitleStyle}>Supplier Invoices / Bills</h2>
           <p style={pageSubStyle}>
-            Vendor bills for purchase and subcontract orders — approval posts GRNI → AP
+            Vendor bills for purchase orders, subcontract orders, and Non-PO expenses
           </p>
         </div>
+        <button
+          type="button"
+          style={primaryButtonStyle}
+          onClick={() => navigate('/supplier-invoices/new?category=non-po')}
+        >
+          Create Non-PO Invoice
+        </button>
       </header>
 
       <ListFilterBar fields={FILTERS} />
@@ -118,7 +134,8 @@ export function SupplierInvoiceList() {
         </div>
       ) : filtered.length === 0 ? (
         <div style={emptyStyle}>
-          No supplier invoices yet. Receive goods on an approved PO/SCO, then Create Bill.
+          No supplier invoices yet. Receive goods on an approved PO/SCO to create a matched bill, or
+          create a Non-PO invoice for freight, duty, rent, or utilities.
         </div>
       ) : (
         <>
@@ -144,7 +161,9 @@ export function SupplierInvoiceList() {
                   const orderPath =
                     inv.source_type === 'SUBCONTRACT_ORDER'
                       ? `/subcontract-orders/${inv.source_order_id}`
-                      : `/purchase-orders/${inv.source_order_id}`
+                      : inv.source_type === 'PURCHASE_ORDER' && inv.source_order_id
+                        ? `/purchase-orders/${inv.source_order_id}`
+                        : null
                   return (
                     <tr
                       key={inv.id}
@@ -159,12 +178,16 @@ export function SupplierInvoiceList() {
                         </Link>
                       </td>
                       <td style={tdStyle}>
-                        <span style={tagStyle}>{sourceTag(inv.source_type)}</span>
+                        <span style={tagStyle}>{sourceTag(inv)}</span>
                       </td>
                       <td style={tdStyle}>
-                        <Link to={orderPath} style={linkStyle}>
-                          {inv.source_order_id}
-                        </Link>
+                        {orderPath && inv.source_order_id ? (
+                          <Link to={orderPath} style={linkStyle}>
+                            {inv.source_order_id}
+                          </Link>
+                        ) : (
+                          inv.source_order_id || '—'
+                        )}
                       </td>
                       <td style={tdStyle}>{inv.vendor_name || inv.vendor_id}</td>
                       <td style={tdStyle}>{new Date(inv.due_date).toLocaleDateString()}</td>
@@ -211,7 +234,16 @@ export function SupplierInvoiceList() {
 }
 
 const containerStyle: React.CSSProperties = { padding: 24, maxWidth: 1200, margin: '0 auto', textAlign: 'left' }
-const pageHeaderStyle: React.CSSProperties = { marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 16 }
+const pageHeaderStyle: React.CSSProperties = {
+  marginBottom: 20,
+  borderBottom: '1px solid var(--border)',
+  paddingBottom: 16,
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  flexWrap: 'wrap',
+}
 const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
 const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const emptyStyle: React.CSSProperties = { padding: 30, textAlign: 'center', color: 'var(--text)' }
@@ -231,6 +263,17 @@ const tagStyle: React.CSSProperties = {
 }
 const linkStyle: React.CSSProperties = { color: '#1565c0', textDecoration: 'none', fontWeight: 600 }
 const pagerStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16 }
+const primaryButtonStyle: React.CSSProperties = {
+  padding: '10px 18px',
+  backgroundColor: '#1976d2',
+  color: 'white',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontSize: 14,
+  fontWeight: 'bold',
+  fontFamily: 'inherit',
+}
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '8px 14px',
   backgroundColor: 'transparent',

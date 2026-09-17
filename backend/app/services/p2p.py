@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
+
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -12,13 +14,17 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
     APBill,
+    ChartOfAccount,
+    Department,
     GoodsReceipt,
     GoodsReceiptLine,
     Item,
     PurchaseOrder,
     PurchaseOrderItem,
     SubcontractOrder,
+    Supplier,
     SupplierInvoice,
+    SupplierInvoiceDistribution,
     SupplierInvoiceLine,
     VendorItemMapping,
 )
@@ -27,9 +33,9 @@ from app.services.po_totals import invoice_freight_default
 from app.services.finance import (
     AP_ACCOUNT_CODE,
     AP_ACCOUNT_NAME,
-    _parse_payment_terms_days,
     get_or_create_account,
 )
+from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 
 INVENTORY_ACCOUNT_CODE = "1300"
 INVENTORY_ACCOUNT_NAME = "Inventory Asset"
@@ -39,6 +45,73 @@ PPV_ACCOUNT_CODE = "5100"
 PPV_ACCOUNT_NAME = "Purchase Price Variance"
 TAX_EXPENSE_ACCOUNT_CODE = "5200"
 TAX_EXPENSE_ACCOUNT_NAME = "Freight & Tax Expense"
+
+PO_MATCHED_SOURCES = {"PURCHASE_ORDER", "SUBCONTRACT_ORDER"}
+INVOICE_TYPES = {"PO_MATCHED", "LANDED_COST", "EXPENSE"}
+NON_PO_TYPES = {"LANDED_COST", "EXPENSE"}
+
+
+def resolve_invoice_type(
+    invoice_type: str | None,
+    source_type: str | None,
+) -> str:
+    raw = (invoice_type or "").strip().upper()
+    if raw:
+        return raw
+    source = (source_type or "").strip().upper()
+    if source in PO_MATCHED_SOURCES:
+        return "PO_MATCHED"
+    if source == "NON_PO":
+        return "EXPENSE"
+    return "PO_MATCHED"
+
+
+def validate_supplier_invoice_payload(
+    *,
+    invoice_type: str | None,
+    source_type: str | None,
+    source_order_id: str | None,
+    vendor_id: str | None,
+    distributions: list[dict] | None,
+    lines: list[dict] | None,
+) -> tuple[str, str | None, str | None]:
+    """Return (invoice_type, source_type, source_order_id). Raises HTTPException on bad input."""
+    resolved_type = resolve_invoice_type(invoice_type, source_type)
+    if resolved_type not in INVOICE_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid invoice_type")
+
+    source = (source_type or "").strip().upper() or None
+    order_id = (source_order_id or "").strip() or None
+    vendor = (vendor_id or "").strip() or None
+
+    if resolved_type == "PO_MATCHED":
+        if source not in PO_MATCHED_SOURCES:
+            raise HTTPException(
+                status_code=400,
+                detail="PO-matched invoices require source_type PURCHASE_ORDER or SUBCONTRACT_ORDER",
+            )
+        if not order_id:
+            raise HTTPException(status_code=400, detail="PO-matched invoices require a source_order_id")
+        return resolved_type, source, order_id
+
+    if not vendor:
+        raise HTTPException(status_code=400, detail="Non-PO invoices require vendor_id")
+    if not distributions:
+        raise HTTPException(
+            status_code=400,
+            detail="Non-PO invoices require at least one GL distribution line",
+        )
+    if source and source not in PO_MATCHED_SOURCES | {"NON_PO"}:
+        raise HTTPException(status_code=400, detail="Invalid source_type")
+    # Optional PO/SCO on landed-cost or expense bills must not switch source to
+    # PO_MATCHED; otherwise 3-way billing_status would count synthetic qty=1 lines.
+    source = "NON_PO"
+    if lines:
+        raise HTTPException(
+            status_code=400,
+            detail="Non-PO invoices use distributions[], not PO match lines[]",
+        )
+    return resolved_type, source, order_id
 
 
 def _next_number(db: Session, model, field: str, prefix: str) -> str:
@@ -102,11 +175,14 @@ def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
         "invoice_number": row.invoice_number,
         "vendor_id": row.vendor_id,
         "vendor_name": row.vendor.company_name if row.vendor else None,
+        "invoice_type": getattr(row, "invoice_type", None) or "PO_MATCHED",
         "source_type": row.source_type,
         "source_order_id": row.source_order_id,
         "vendor_invoice_number": row.vendor_invoice_number,
         "invoice_date": row.invoice_date,
         "due_date": row.due_date,
+        "payment_term_id": getattr(row, "payment_term_id", None),
+        "payment_terms": getattr(row, "payment_terms", None),
         "status": row.status,
         "subtotal": row.subtotal,
         "tax_amount": row.tax_amount,
@@ -132,6 +208,22 @@ def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
             }
             for line in (row.lines or [])
         ],
+        "distributions": [
+            {
+                "id": dist.id,
+                "invoice_id": dist.invoice_id,
+                "gl_account_id": dist.gl_account_id,
+                "gl_account_code": dist.gl_account.account_code if dist.gl_account else None,
+                "gl_account_name": dist.gl_account.account_name if dist.gl_account else None,
+                "department_id": dist.department_id,
+                "department_name": dist.department.name if dist.department else None,
+                "amount": dist.amount,
+                "description": dist.description,
+                "goods_receipt_id": dist.goods_receipt_id,
+                "goods_receipt_line_id": dist.goods_receipt_line_id,
+            }
+            for dist in (row.distributions or [])
+        ],
     }
 
 
@@ -141,6 +233,12 @@ def _load_invoice(db: Session, invoice_id: int) -> SupplierInvoice:
         .options(
             joinedload(SupplierInvoice.lines),
             joinedload(SupplierInvoice.vendor),
+            selectinload(SupplierInvoice.distributions).joinedload(
+                SupplierInvoiceDistribution.gl_account
+            ),
+            selectinload(SupplierInvoice.distributions).joinedload(
+                SupplierInvoiceDistribution.department
+            ),
         )
         .filter(SupplierInvoice.id == invoice_id)
         .first()
@@ -200,7 +298,9 @@ def _accrued_amount_for_order(db: Session, source_type: str, source_order_id: st
     return _d(total)
 
 
-def _update_billing_status(db: Session, source_type: str, source_order_id: str) -> None:
+def _update_billing_status(db: Session, source_type: str | None, source_order_id: str | None) -> None:
+    if source_type not in PO_MATCHED_SOURCES or not source_order_id:
+        return
     billed = _billed_qty_by_item(db, source_type, source_order_id)
     if source_type == "PURCHASE_ORDER":
         po = db.get(PurchaseOrder, source_order_id)
@@ -455,7 +555,16 @@ def list_supplier_invoices(
 
     q = (
         db.query(SupplierInvoice)
-        .options(joinedload(SupplierInvoice.lines), joinedload(SupplierInvoice.vendor))
+        .options(
+            joinedload(SupplierInvoice.lines),
+            joinedload(SupplierInvoice.vendor),
+            selectinload(SupplierInvoice.distributions).joinedload(
+                SupplierInvoiceDistribution.gl_account
+            ),
+            selectinload(SupplierInvoice.distributions).joinedload(
+                SupplierInvoiceDistribution.department
+            ),
+        )
         .order_by(SupplierInvoice.created_at.desc())
     )
     if source_type:
@@ -469,11 +578,36 @@ def list_supplier_invoices(
     return [serialize_supplier_invoice(r) for r in q.offset(skip).limit(limit).all()]
 
 
+def list_posted_goods_receipts(
+    db: Session,
+    *,
+    vendor_id: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[dict]:
+    q = (
+        db.query(GoodsReceipt)
+        .options(selectinload(GoodsReceipt.lines))
+        .filter(GoodsReceipt.status == "POSTED")
+        .order_by(GoodsReceipt.id.desc())
+    )
+    if vendor_id:
+        q = q.filter(GoodsReceipt.vendor_id == vendor_id)
+    return [serialize_goods_receipt(r) for r in q.offset(skip).limit(limit).all()]
+
+
+def list_departments(db: Session) -> list[dict]:
+    rows = db.query(Department).order_by(Department.name.asc()).all()
+    return [{"id": row.id, "name": row.name} for row in rows]
+
+
 def create_supplier_invoice(
     db: Session,
     *,
-    source_type: str,
-    source_order_id: str,
+    source_type: str | None = None,
+    source_order_id: str | None = None,
+    vendor_id: str | None = None,
+    invoice_type: str | None = None,
     vendor_invoice_number: str | None = None,
     invoice_date: date | None = None,
     due_date: date | None = None,
@@ -481,13 +615,43 @@ def create_supplier_invoice(
     freight_amount: Decimal | None = None,
     currency: str = "USD",
     lines: list[dict] | None = None,
+    distributions: list[dict] | None = None,
+    payment_term_id=None,
+    payment_terms: str | None = None,
 ) -> dict:
-    if source_type not in {"PURCHASE_ORDER", "SUBCONTRACT_ORDER"}:
+    resolved_type, source_type, source_order_id = validate_supplier_invoice_payload(
+        invoice_type=invoice_type,
+        source_type=source_type,
+        source_order_id=source_order_id,
+        vendor_id=vendor_id,
+        distributions=distributions,
+        lines=lines,
+    )
+    if resolved_type in NON_PO_TYPES:
+        return _create_non_po_invoice(
+            db,
+            invoice_type=resolved_type,
+            source_type=source_type or "NON_PO",
+            source_order_id=source_order_id,
+            vendor_id=vendor_id or "",
+            vendor_invoice_number=vendor_invoice_number,
+            invoice_date=invoice_date,
+            due_date=due_date,
+            tax_amount=tax_amount,
+            freight_amount=freight_amount,
+            currency=currency,
+            distributions=distributions or [],
+            payment_term_id=payment_term_id,
+            payment_terms=payment_terms,
+        )
+
+    if source_type not in PO_MATCHED_SOURCES:
         raise HTTPException(status_code=400, detail="Invalid source_type")
 
     issue = invoice_date or date.today()
     warnings: list[str] = []
     built: list[SupplierInvoiceLine] = []
+    fallback = None
 
     if source_type == "PURCHASE_ORDER":
         po = (
@@ -501,7 +665,7 @@ def create_supplier_invoice(
         if (po.approval_status or "").upper() != "APPROVED" and (po.status or "") != "Approved":
             raise HTTPException(status_code=400, detail="Purchase order must be APPROVED")
         vendor_id = po.supplier_id
-        terms = po.payment_terms
+        fallback = po
         received = _received_qty_by_item(db, source_type, source_order_id)
         billed = _billed_qty_by_item(db, source_type, source_order_id)
         if sum(received.values()) <= 0:
@@ -569,7 +733,7 @@ def create_supplier_invoice(
         if (sco.approval_status or "").upper() != "APPROVED":
             raise HTTPException(status_code=400, detail="Subcontract order must be APPROVED")
         vendor_id = sco.supplier_id
-        terms = "Net 30"
+        fallback = db.get(Supplier, vendor_id)
         received = _received_qty_by_item(db, source_type, source_order_id)
         billed = _billed_qty_by_item(db, source_type, source_order_id)
         if sum(received.values()) <= 0:
@@ -629,10 +793,18 @@ def create_supplier_invoice(
     if not built:
         raise HTTPException(status_code=400, detail="Invoice requires at least one line")
 
-    due = due_date or (issue + timedelta(days=_parse_payment_terms_days(terms)))
+    due, term = apply_due_date(
+        db,
+        invoice_date=issue,
+        due_date=due_date,
+        payment_term_id=payment_term_id,
+        payment_terms=payment_terms,
+        fallback=fallback,
+    )
     invoice = SupplierInvoice(
         invoice_number=_next_number(db, SupplierInvoice, "invoice_number", "VBILL"),
         vendor_id=vendor_id,
+        invoice_type="PO_MATCHED",
         source_type=source_type,
         source_order_id=source_order_id,
         vendor_invoice_number=vendor_invoice_number,
@@ -643,6 +815,13 @@ def create_supplier_invoice(
         freight_amount=_d(freight),
         currency=currency or "USD",
         match_warnings=json.dumps(warnings) if warnings else None,
+    )
+    apply_payment_term_fields(
+        db,
+        invoice,
+        payment_term_id=payment_term_id or (term.id if term else None),
+        payment_terms=payment_terms,
+        fallback=fallback,
     )
     db.add(invoice)
     db.flush()
@@ -658,6 +837,143 @@ def create_supplier_invoice(
     return serialize_supplier_invoice(_load_invoice(db, invoice.id))
 
 
+def _create_non_po_invoice(
+    db: Session,
+    *,
+    invoice_type: str,
+    source_type: str,
+    source_order_id: str | None,
+    vendor_id: str,
+    vendor_invoice_number: str | None,
+    invoice_date: date | None,
+    due_date: date | None,
+    tax_amount: Decimal | None,
+    freight_amount: Decimal | None,
+    currency: str,
+    distributions: list[dict],
+    payment_term_id=None,
+    payment_terms: str | None = None,
+) -> dict:
+    vendor = db.get(Supplier, vendor_id)
+    if vendor is None:
+        raise HTTPException(status_code=400, detail="Vendor not found")
+    if source_order_id:
+        po = db.get(PurchaseOrder, source_order_id)
+        sco = (
+            db.query(SubcontractOrder)
+            .filter(SubcontractOrder.sco_number == source_order_id)
+            .first()
+        )
+        if po is None and sco is None:
+            raise HTTPException(status_code=400, detail="Source order not found")
+
+    issue = invoice_date or date.today()
+    tax = _d(tax_amount)
+    freight = _d(freight_amount)
+    built_dist: list[SupplierInvoiceDistribution] = []
+    built_lines: list[SupplierInvoiceLine] = []
+
+    for raw in distributions:
+        account_id = raw.get("gl_account_id")
+        try:
+            account_uuid = account_id if isinstance(account_id, UUID) else UUID(str(account_id))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid gl_account_id") from exc
+        account = db.get(ChartOfAccount, account_uuid)
+        if account is None:
+            raise HTTPException(status_code=400, detail="GL account not found")
+        dept_id = (raw.get("department_id") or "").strip() or None
+        if dept_id and db.get(Department, dept_id) is None:
+            raise HTTPException(status_code=400, detail=f"Department '{dept_id}' not found")
+        amount = _d(raw.get("amount")).quantize(Decimal("0.01"))
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Distribution amount must be positive")
+        receipt_id = raw.get("goods_receipt_id")
+        receipt_line_id = raw.get("goods_receipt_line_id")
+        if receipt_id is not None and db.get(GoodsReceipt, int(receipt_id)) is None:
+            raise HTTPException(status_code=400, detail="Goods receipt not found")
+        if receipt_line_id is not None and db.get(GoodsReceiptLine, int(receipt_line_id)) is None:
+            raise HTTPException(status_code=400, detail="Goods receipt line not found")
+        description = raw.get("description") or account.account_name
+        built_dist.append(
+            SupplierInvoiceDistribution(
+                gl_account_id=account_uuid,
+                department_id=dept_id,
+                amount=amount,
+                description=description,
+                goods_receipt_id=int(receipt_id) if receipt_id is not None else None,
+                goods_receipt_line_id=int(receipt_line_id) if receipt_line_id is not None else None,
+            )
+        )
+        built_lines.append(
+            SupplierInvoiceLine(
+                item_id=None,
+                description=description,
+                quantity_billed=Decimal("1"),
+                unit_price=amount,
+                line_subtotal=amount,
+                goods_receipt_line_id=int(receipt_line_id) if receipt_line_id is not None else None,
+            )
+        )
+
+    due, term = apply_due_date(
+        db,
+        invoice_date=issue,
+        due_date=due_date,
+        payment_term_id=payment_term_id,
+        payment_terms=payment_terms,
+        fallback=vendor,
+    )
+    invoice = SupplierInvoice(
+        invoice_number=_next_number(db, SupplierInvoice, "invoice_number", "VBILL"),
+        vendor_id=vendor_id,
+        invoice_type=invoice_type,
+        source_type=source_type,
+        source_order_id=source_order_id,
+        vendor_invoice_number=vendor_invoice_number,
+        invoice_date=issue,
+        due_date=due,
+        status="DRAFT",
+        tax_amount=tax,
+        freight_amount=freight,
+        currency=currency or "USD",
+    )
+    apply_payment_term_fields(
+        db,
+        invoice,
+        payment_term_id=payment_term_id or (term.id if term else None),
+        payment_terms=payment_terms,
+        fallback=vendor,
+    )
+    db.add(invoice)
+    db.flush()
+    for line in built_lines:
+        line.invoice_id = invoice.id
+        db.add(line)
+    for dist in built_dist:
+        dist.invoice_id = invoice.id
+        db.add(dist)
+
+    subtotal = sum((dist.amount for dist in built_dist), Decimal("0"))
+    invoice.subtotal = subtotal
+    invoice.total_amount = (subtotal + tax + freight).quantize(Decimal("0.01"))
+    invoice.outstanding_balance = invoice.total_amount
+    db.flush()
+    return serialize_supplier_invoice(_load_invoice(db, invoice.id))
+
+
+def submit_supplier_invoice(db: Session, invoice_id: int) -> dict:
+    invoice = _load_invoice(db, invoice_id)
+    if invoice.status == "CANCELLED":
+        raise HTTPException(status_code=400, detail="Cannot submit a cancelled invoice")
+    if invoice.status in {"APPROVED", "PAID"}:
+        raise HTTPException(status_code=400, detail="Invoice is already approved")
+    invoice.status = "PENDING_APPROVAL"
+    invoice.updated_at = datetime.utcnow()
+    db.flush()
+    return serialize_supplier_invoice(_load_invoice(db, invoice_id))
+
+
 def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
     invoice = _load_invoice(db, invoice_id)
     if invoice.status == "CANCELLED":
@@ -665,22 +981,97 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
     if invoice.status in {"APPROVED", "PAID"}:
         return serialize_supplier_invoice(invoice)
 
-    grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
+    invoice_kind = getattr(invoice, "invoice_type", None) or "PO_MATCHED"
     ap_account = get_or_create_account(db, AP_ACCOUNT_CODE, AP_ACCOUNT_NAME, "Liability")
-    ppv_account = get_or_create_account(db, PPV_ACCOUNT_CODE, PPV_ACCOUNT_NAME, "Expense")
-    tax_exp = get_or_create_account(
-        db, TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, "Expense"
-    )
-
-    accrued = _accrued_amount_for_order(db, invoice.source_type, invoice.source_order_id)
-    invoice_goods = _d(invoice.subtotal)
-    tax = _d(invoice.tax_amount)
-    freight = _d(invoice.freight_amount)
     total = _d(invoice.total_amount)
     if total <= 0:
         raise HTTPException(status_code=400, detail="Invoice total must be positive")
 
-    # Clear GRNI for matched goods; PPV absorbs price variance vs accrual.
+    if invoice_kind in NON_PO_TYPES:
+        _post_non_po_approval(db, invoice, ap_account, total)
+    else:
+        _post_po_matched_approval(db, invoice, ap_account, total)
+
+    bill = None
+    if invoice.ap_bill_id:
+        bill = db.get(APBill, invoice.ap_bill_id)
+    if bill is None:
+        bill = APBill(
+            bill_id=invoice.invoice_number,
+            purchase_order_id=invoice.source_order_id
+            if invoice.source_type == "PURCHASE_ORDER"
+            else None,
+            vendor_id=invoice.vendor_id,
+            supplier_invoice_id=invoice.id,
+            source_type=invoice.source_type,
+            source_order_id=invoice.source_order_id,
+            amount=total,
+            status="Unpaid",
+            approval_status="APPROVED",
+            due_date=invoice.due_date,
+            payment_term_id=getattr(invoice, "payment_term_id", None),
+        )
+        db.add(bill)
+        db.flush()
+        invoice.ap_bill_id = bill.bill_id
+
+    invoice.status = "APPROVED"
+    invoice.outstanding_balance = total
+    invoice.updated_at = datetime.utcnow()
+    _update_billing_status(db, invoice.source_type, invoice.source_order_id)
+    db.flush()
+    return serialize_supplier_invoice(_load_invoice(db, invoice_id))
+
+
+def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
+    inventory_account = get_or_create_account(
+        db, INVENTORY_ACCOUNT_CODE, INVENTORY_ACCOUNT_NAME, "Asset"
+    )
+    tax_exp = get_or_create_account(
+        db, TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, "Expense"
+    )
+    dists = list(invoice.distributions or [])
+    if not dists:
+        raise HTTPException(status_code=400, detail="Non-PO invoice is missing GL distributions")
+    for dist in dists:
+        debit_account = dist.gl_account or db.get(ChartOfAccount, dist.gl_account_id)
+        if debit_account is None:
+            raise HTTPException(status_code=400, detail="GL account not found for distribution")
+        if invoice.invoice_type == "LANDED_COST" and dist.goods_receipt_id:
+            debit_account = inventory_account
+        finance._post_balanced_journal_entry(
+            db,
+            description=f"Supplier invoice {invoice.invoice_number} {dist.description or debit_account.account_name}",
+            debit_account=debit_account,
+            credit_account=ap_account,
+            amount=_d(dist.amount),
+        )
+    extra = _d(invoice.tax_amount) + _d(invoice.freight_amount)
+    if extra > 0:
+        finance._post_balanced_journal_entry(
+            db,
+            description=f"Supplier invoice {invoice.invoice_number} tax/freight",
+            debit_account=tax_exp,
+            credit_account=ap_account,
+            amount=extra.quantize(Decimal("0.01")),
+        )
+
+
+def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
+    grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
+    ppv_account = get_or_create_account(db, PPV_ACCOUNT_CODE, PPV_ACCOUNT_NAME, "Expense")
+    tax_exp = get_or_create_account(
+        db, TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, "Expense"
+    )
+    accrued = (
+        _accrued_amount_for_order(db, invoice.source_type, invoice.source_order_id)
+        if invoice.source_order_id
+        else Decimal("0")
+    )
+    invoice_goods = _d(invoice.subtotal)
+    tax = _d(invoice.tax_amount)
+    freight = _d(invoice.freight_amount)
+
     clear_amount = min(accrued, invoice_goods)
     variance = invoice_goods - clear_amount
 
@@ -717,7 +1108,6 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
             amount=(tax + freight).quantize(Decimal("0.01")),
         )
     if clear_amount <= 0 and variance == 0 and (tax + freight) <= 0:
-        # Fallback: recognize full AP against expense if no GRNI accrual exists
         finance._post_balanced_journal_entry(
             db,
             description=f"Supplier invoice {invoice.invoice_number}",
@@ -725,35 +1115,6 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
             credit_account=ap_account,
             amount=total,
         )
-
-    bill = None
-    if invoice.ap_bill_id:
-        bill = db.get(APBill, invoice.ap_bill_id)
-    if bill is None:
-        bill = APBill(
-            bill_id=invoice.invoice_number,
-            purchase_order_id=invoice.source_order_id
-            if invoice.source_type == "PURCHASE_ORDER"
-            else None,
-            vendor_id=invoice.vendor_id,
-            supplier_invoice_id=invoice.id,
-            source_type=invoice.source_type,
-            source_order_id=invoice.source_order_id,
-            amount=total,
-            status="Unpaid",
-            approval_status="APPROVED",
-            due_date=invoice.due_date,
-        )
-        db.add(bill)
-        db.flush()
-        invoice.ap_bill_id = bill.bill_id
-
-    invoice.status = "APPROVED"
-    invoice.outstanding_balance = total
-    invoice.updated_at = datetime.utcnow()
-    _update_billing_status(db, invoice.source_type, invoice.source_order_id)
-    db.flush()
-    return serialize_supplier_invoice(_load_invoice(db, invoice_id))
 
 
 def pay_supplier_invoice(

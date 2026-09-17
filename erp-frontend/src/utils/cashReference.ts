@@ -16,6 +16,7 @@ export function sourceOrderHref(
   const id = (sourceOrderId || '').trim()
   if (!id) return null
   const type = (sourceType || '').toUpperCase()
+  if (type === 'NON_PO' && !id) return null
   if (
     type === 'SUBCONTRACT_ORDER' ||
     id.toUpperCase().startsWith('SCO-') ||

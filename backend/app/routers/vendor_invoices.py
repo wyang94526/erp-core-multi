@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas import (
+    DepartmentRead,
+    GoodsReceiptRead,
     SupplierInvoiceCreate,
     SupplierInvoicePayRequest,
     SupplierInvoiceRead,
@@ -37,6 +39,21 @@ def list_vendor_invoices(
     )
 
 
+@router.get("/goods-receipts", response_model=list[GoodsReceiptRead])
+def list_posted_goods_receipts(
+    vendor_id: str | None = Query(default=None),
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    return p2p.list_posted_goods_receipts(db, vendor_id=vendor_id, skip=skip, limit=limit)
+
+
+@router.get("/departments", response_model=list[DepartmentRead])
+def list_departments(db: Session = Depends(get_db)):
+    return p2p.list_departments(db)
+
+
 @router.get("/{invoice_id}", response_model=SupplierInvoiceRead)
 def get_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
     return p2p.serialize_supplier_invoice(p2p._load_invoice(db, invoice_id))
@@ -46,8 +63,10 @@ def get_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
 def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(get_db)):
     result = p2p.create_supplier_invoice(
         db,
+        invoice_type=payload.invoice_type,
         source_type=payload.source_type,
         source_order_id=payload.source_order_id,
+        vendor_id=payload.vendor_id,
         vendor_invoice_number=payload.vendor_invoice_number,
         invoice_date=payload.invoice_date,
         due_date=payload.due_date,
@@ -55,7 +74,19 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         freight_amount=payload.freight_amount,
         currency=payload.currency,
         lines=[line.model_dump() for line in payload.lines] if payload.lines else None,
+        distributions=(
+            [row.model_dump() for row in payload.distributions] if payload.distributions else None
+        ),
+        payment_term_id=payload.payment_term_id,
+        payment_terms=payload.payment_terms,
     )
+    db.commit()
+    return result
+
+
+@router.patch("/{invoice_id}/submit", response_model=SupplierInvoiceRead)
+def submit_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    result = p2p.submit_supplier_invoice(db, invoice_id)
     db.commit()
     return result
 

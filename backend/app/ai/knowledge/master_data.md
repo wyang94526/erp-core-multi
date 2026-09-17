@@ -12,6 +12,12 @@ Ask: "How many active customers?" · "List customers" · "Show CUST-…"
 Status is typically `Active` / `Inactive`.
 Ask: "How many vendors?" · "List subcontract vendors"
 
+## Payment terms
+Global master at `/payment-terms` (`GET /api/v1/payment-terms`). Codes such as
+`NET30`, `P02`, `DUE_ON_RECEIPT`. Vendors, customers, POs, and AP/AR invoices store
+`payment_term_id` plus a string snapshot. Due date = invoice date + `due_days`.
+Ask: "List payment terms" · "What is vendor X payment term?"
+
 ## Items
 SKU = `item_id` (e.g. `PROD-1001G`). Flags: `is_purchase_item`, `is_raw_material`,
 `is_subcontract_assembly`. BOM versions live on `itembomheaders` (draft / active / obsolete)

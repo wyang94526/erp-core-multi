@@ -35,7 +35,8 @@ Submit requires `carrier_account` when freight is 3rd-party or routing.
 
 ## Procure-to-Pay
 After approval: **Receive Goods** (inventory + GRNI), then **Create Bill / Supplier Invoice**,
-approve the bill (GRNI → AP), then pay (AP → Cash).
+approve the bill (GRNI → AP), then pay (AP → Cash). Freight, customs duty, rent, and similar
+charges without a PO use **Create Non-PO Invoice** (`LANDED_COST` or `EXPENSE`).
 
 ## Permissions
 - `po:view` — list/detail

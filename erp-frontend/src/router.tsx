@@ -34,6 +34,7 @@ import SubcontractOrderForm from './components/SubcontractOrderForm'
 import SubcontractOrderDetail from './components/SubcontractOrderDetail'
 
 import ChartOfAccounts from './components/ChartOfAccounts'
+import PaymentTerms from './components/PaymentTerms'
 import ARInvoices from './components/ARInvoices'
 import APBills from './components/APBills'
 import SupplierInvoiceList from './components/SupplierInvoiceList'
@@ -199,6 +200,10 @@ export const router = createBrowserRouter([
       {
         path: 'vendors/:id/edit',
         element: <VendorForm />,
+      },
+      {
+        path: 'payment-terms',
+        element: <PaymentTerms />,
       },
       {
         path: 'items',

@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail } from 'lucide-react'
+import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Send } from 'lucide-react'
 import { apBillService, vendorInvoiceService } from '../api/services'
 import type { APBillDetail } from '../types'
 import { generateSupplierBillPdf } from '../utils/generateSupplierBillPdf'
@@ -31,6 +31,7 @@ function statusColors(status: string): { bg: string; text: string } {
     Overdue: { bg: '#ffebee', text: '#c62828' },
     Partial: { bg: '#fff3e0', text: '#e65100' },
     DRAFT: { bg: '#f5f5f5', text: '#616161' },
+    PENDING_APPROVAL: { bg: '#fff3e0', text: '#e65100' },
     APPROVED: { bg: '#e3f2fd', text: '#1565c0' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
   }
@@ -65,6 +66,7 @@ export function BillDetail() {
   const [loading, setLoading] = useState(true)
   const [printing, setPrinting] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [paying, setPaying] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
 
@@ -96,7 +98,13 @@ export function BillDetail() {
   const approved =
     (detail?.approval_status || '').toUpperCase() === 'APPROVED' || siStatus === 'APPROVED'
   const canPay = unpaid && approved
-  const canApprove = siStatus === 'DRAFT' && Boolean(detail?.supplier_invoice_id)
+  const canSubmit = siStatus === 'DRAFT' && Boolean(detail?.supplier_invoice_id)
+  const canApprove =
+    (siStatus === 'DRAFT' || siStatus === 'PENDING_APPROVAL') && Boolean(detail?.supplier_invoice_id)
+  const isNonPo =
+    (detail?.invoice_type || '').toUpperCase() === 'EXPENSE' ||
+    (detail?.invoice_type || '').toUpperCase() === 'LANDED_COST' ||
+    (detail?.source_type || '').toUpperCase() === 'NON_PO'
 
   const handlePrint = () => {
     if (!detail) return
@@ -127,6 +135,20 @@ export function BillDetail() {
       ].join('\n'),
     )
     window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank')
+  }
+
+  const handleSubmit = async () => {
+    if (!detail?.supplier_invoice_id) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await vendorInvoiceService.submit(detail.supplier_invoice_id)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submit failed')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleApprove = async () => {
@@ -208,6 +230,11 @@ export function BillDetail() {
                 Supplier invoice {siStatus}
               </span>
             ) : null}
+            {detail.invoice_type ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#37474f' }}>
+                {(detail.invoice_type || 'PO_MATCHED').replace(/_/g, ' ')}
+              </span>
+            ) : null}
           </div>
           <p style={pageSubStyle}>
             {detail.vendor_id}
@@ -238,8 +265,27 @@ export function BillDetail() {
                 Email vendor
               </button>
             </HoverTip>
+            {canSubmit ? (
+              <HoverTip label="Submit this draft bill for approval">
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  disabled={submitting}
+                  onClick={() => void handleSubmit()}
+                >
+                  {submitting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />}
+                  Submit
+                </button>
+              </HoverTip>
+            ) : null}
             {canApprove ? (
-              <HoverTip label="Approve this supplier invoice and post GRNI → AP to the general ledger">
+              <HoverTip
+                label={
+                  isNonPo
+                    ? 'Approve this Non-PO invoice and post expense or inventory to Accounts Payable'
+                    : 'Approve this supplier invoice and post GRNI → AP to the general ledger'
+                }
+              >
                 <button type="button" style={primaryButtonStyle} disabled={approving} onClick={() => void handleApprove()}>
                   {approving ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle2 size={15} />}
                   Approve
@@ -285,7 +331,7 @@ export function BillDetail() {
         </div>
       ) : null}
 
-      {(detail.match_warnings || []).length > 0 ? (
+      {(detail.match_warnings || []).length > 0 && !isNonPo ? (
         <div style={warningBannerStyle}>
           <strong>3-way match warnings</strong>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
@@ -308,7 +354,7 @@ export function BillDetail() {
               </div>
             </div>
             <div style={metaRowStyle}>
-              <div style={labelStyle}>Source Order</div>
+              <div style={labelStyle}>{isNonPo ? 'Related Order' : 'Source Order'}</div>
               {sourceHref && sourceId ? (
                 <Link to={sourceHref} style={cashReferenceLinkStyle}>
                   {sourceId}

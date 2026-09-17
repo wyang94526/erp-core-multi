@@ -6,7 +6,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { salesOrderService, customerService, itemService, locationService } from '../api/services'
+import { salesOrderService, customerService, itemService, locationService, paymentTermsService } from '../api/services'
 import type { Customer, Item, Location } from '../types'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 import ItemLookup from './ItemLookup'
@@ -15,6 +15,7 @@ import {
   SHIPPING_METHOD_OPTIONS,
   withCurrentOption,
 } from '../data/orderOptions'
+import { paymentTermLabel } from '../utils/paymentTerms'
 
 interface LineItem {
   line_number: number
@@ -65,6 +66,7 @@ function pickDefaultLocation(locations: Location[]): Location | undefined {
 function commercialDefaultsFromCustomer(customer: Customer | null | undefined) {
   return {
     payment_terms: (customer?.payment_terms || '').trim(),
+    payment_term_id: customer?.payment_term_id || '',
     freight_terms: (customer?.preferred_incoterms || '').trim(),
     shipping_method: (customer?.preferred_shipping_method || '').trim(),
   }
@@ -86,6 +88,7 @@ export function SalesOrderForm() {
     order_date: new Date().toISOString().split('T')[0],
     customer_revision_date: '',
     payment_terms: '',
+    payment_term_id: '',
     freight_terms: '',
     shipping_method: '',
     currency: 'USD',
@@ -132,6 +135,11 @@ export function SalesOrderForm() {
   const { data: items = [] } = useQuery({
     queryKey: ['items'],
     queryFn: () => itemService.listItems(0, 1000),
+  })
+
+  const { data: paymentTerms = [] } = useQuery({
+    queryKey: ['paymentTerms'],
+    queryFn: () => paymentTermsService.list(),
   })
 
   // Locations for the selected customer
@@ -189,6 +197,7 @@ export function SalesOrderForm() {
           ? String(salesOrder.customer_revision_date).slice(0, 10)
           : '',
         payment_terms: salesOrder.payment_terms || '',
+        payment_term_id: salesOrder.payment_term_id || '',
         freight_terms: salesOrder.freight_terms || '',
         shipping_method: salesOrder.shipping_method || '',
         currency: salesOrder.currency,
@@ -230,6 +239,7 @@ export function SalesOrderForm() {
         order_date: data.order_date,
         customer_revision_date: emptyToNull(data.customer_revision_date),
         payment_terms: emptyToNull(data.payment_terms) ?? undefined,
+        payment_term_id: emptyToNull(data.payment_term_id) ?? undefined,
         freight_terms: emptyToNull(data.freight_terms) ?? undefined,
         shipping_method: emptyToNull(data.shipping_method) ?? undefined,
         currency: data.currency || 'USD',
@@ -260,6 +270,7 @@ export function SalesOrderForm() {
         po_revision_number: data.po_revision_number,
         customer_revision_date: emptyToNull(data.customer_revision_date),
         payment_terms: emptyToNull(data.payment_terms),
+        payment_term_id: emptyToNull(data.payment_term_id),
         freight_terms: emptyToNull(data.freight_terms),
         shipping_method: emptyToNull(data.shipping_method),
         buyer_contact_name: emptyToNull(data.buyer_contact_name),
@@ -319,6 +330,7 @@ export function SalesOrderForm() {
         bill_to_location_id: '',
         ship_to_location_id: '',
         payment_terms: '',
+        payment_term_id: '',
         freight_terms: '',
         shipping_method: '',
       }))
@@ -349,6 +361,7 @@ export function SalesOrderForm() {
       bill_to_location_id: '',
       ship_to_location_id: '',
       payment_terms: overwriteTerms || !dirty.payment_terms ? defaults.payment_terms : prev.payment_terms,
+      payment_term_id: overwriteTerms || !dirty.payment_terms ? defaults.payment_term_id : prev.payment_term_id,
       freight_terms: overwriteTerms || !dirty.freight_terms ? defaults.freight_terms : prev.freight_terms,
       shipping_method:
         overwriteTerms || !dirty.shipping_method ? defaults.shipping_method : prev.shipping_method,
@@ -400,6 +413,7 @@ export function SalesOrderForm() {
       }
       if (pending.overwriteTerms || !dirty.payment_terms) {
         next.payment_terms = defaults.payment_terms
+        next.payment_term_id = defaults.payment_term_id
       }
       if (pending.overwriteTerms || !dirty.freight_terms) {
         next.freight_terms = defaults.freight_terms
@@ -809,15 +823,29 @@ export function SalesOrderForm() {
               <label htmlFor="payment_terms" style={labelStyle}>
                 Payment Terms
               </label>
-              <input
-                type="text"
+              <select
                 id="payment_terms"
-                name="payment_terms"
-                value={formData.payment_terms}
-                onChange={handleChange}
+                name="payment_term_id"
+                value={formData.payment_term_id}
+                onChange={(e) => {
+                  const selectedId = e.target.value
+                  const term = paymentTerms.find((row) => row.id === selectedId)
+                  setFormData((prev) => ({
+                    ...prev,
+                    payment_term_id: selectedId,
+                    payment_terms: term?.code || '',
+                  }))
+                  setHeaderDirty((prev) => ({ ...prev, payment_terms: true }))
+                }}
                 style={inputStyle}
-                placeholder="e.g., Net 30"
-              />
+              >
+                <option value="">Select payment terms</option>
+                {paymentTerms.map((term) => (
+                  <option key={term.id} value={term.id}>
+                    {paymentTermLabel(term)}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={fieldGroupStyle}>

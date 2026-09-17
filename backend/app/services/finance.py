@@ -27,7 +27,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
     APBill,
@@ -44,7 +44,9 @@ from app.models import (
     SalesOrder,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceDistribution,
 )
+from app.services.payment_terms import due_days_for, due_days_from_string
 
 # ------------------------------------------------------------------
 # Standard Chart of Accounts codes used by the finance automation.
@@ -84,15 +86,7 @@ def get_or_create_account(
 
 def _parse_payment_terms_days(payment_terms: str | None) -> int:
     """Best-effort parse of a 'Net 30' style string into an integer day count."""
-    if not payment_terms:
-        return _DEFAULT_PAYMENT_TERM_DAYS
-    digits = "".join(ch for ch in payment_terms if ch.isdigit())
-    if digits:
-        try:
-            return int(digits)
-        except ValueError:
-            pass
-    return _DEFAULT_PAYMENT_TERM_DAYS
+    return due_days_from_string(payment_terms, _DEFAULT_PAYMENT_TERM_DAYS)
 
 
 # ==================================================================
@@ -113,7 +107,11 @@ def create_ar_invoice_for_sales_order(db: Session, order: SalesOrder) -> ARInvoi
     if existing is not None:
         return existing
 
-    term_days = _parse_payment_terms_days(order.payment_terms)
+    term_days = due_days_for(
+        db,
+        payment_term_id=getattr(order, "payment_term_id", None),
+        payment_terms=order.payment_terms,
+    )
     due_date = order.order_date + timedelta(days=term_days) if order.order_date else date.today() + timedelta(days=term_days)
 
     invoice = ARInvoice(
@@ -148,7 +146,11 @@ def create_ap_bill_for_purchase_order(db: Session, po: PurchaseOrder) -> APBill:
     if existing is not None:
         return existing
 
-    term_days = _parse_payment_terms_days(po.payment_terms)
+    term_days = due_days_for(
+        db,
+        payment_term_id=getattr(po, "payment_term_id", None),
+        payment_terms=po.payment_terms,
+    )
     order_date = po.order_date or date.today()
     due_date = order_date + timedelta(days=term_days)
 
@@ -160,6 +162,7 @@ def create_ap_bill_for_purchase_order(db: Session, po: PurchaseOrder) -> APBill:
         status="Unpaid",
         approval_status="APPROVED",  # inherits parent PO approval
         due_date=due_date,
+        payment_term_id=getattr(po, "payment_term_id", None),
     )
     db.add(bill)
     db.flush()
@@ -939,7 +942,7 @@ def _supplier_invoice_for_ap(db: Session, bill: APBill) -> SupplierInvoice | Non
         filters.append(SupplierInvoice.id == bill.supplier_invoice_id)
     return (
         db.query(SupplierInvoice)
-        .options(selectinload(SupplierInvoice.lines))
+        .options(*_supplier_invoice_detail_options())
         .filter(or_(*filters))
         .order_by(SupplierInvoice.id.desc())
         .first()
@@ -949,7 +952,7 @@ def _supplier_invoice_for_ap(db: Session, bill: APBill) -> SupplierInvoice | Non
 def _lookup_supplier_invoice(db: Session, bill_id: str) -> SupplierInvoice | None:
     return (
         db.query(SupplierInvoice)
-        .options(selectinload(SupplierInvoice.lines))
+        .options(*_supplier_invoice_detail_options())
         .filter(
             (SupplierInvoice.invoice_number == bill_id) | (SupplierInvoice.ap_bill_id == bill_id)
         )
@@ -971,6 +974,18 @@ def get_bill_detail(db: Session, bill_id: str) -> dict:
     return serialize_ap_bill_detail(db, bill)
 
 
+def _supplier_invoice_detail_options():
+    return (
+        selectinload(SupplierInvoice.lines),
+        selectinload(SupplierInvoice.distributions).joinedload(
+            SupplierInvoiceDistribution.gl_account
+        ),
+        selectinload(SupplierInvoice.distributions).joinedload(
+            SupplierInvoiceDistribution.department
+        ),
+    )
+
+
 def _ap_line_from_supplier(line) -> dict:
     return {
         "item_id": line.item_id,
@@ -979,6 +994,23 @@ def _ap_line_from_supplier(line) -> dict:
         "unit_price": _money(line.unit_price),
         "line_subtotal": _money(line.line_subtotal),
     }
+
+
+def _ap_lines_for_invoice(supplier_invoice: SupplierInvoice) -> list[dict]:
+    dists = list(getattr(supplier_invoice, "distributions", None) or [])
+    if dists:
+        return [
+            {
+                "item_id": dist.gl_account.account_code if dist.gl_account else None,
+                "description": dist.description
+                or (dist.gl_account.account_name if dist.gl_account else None),
+                "quantity": Decimal("1"),
+                "unit_price": _money(dist.amount),
+                "line_subtotal": _money(dist.amount),
+            }
+            for dist in dists
+        ]
+    return [_ap_line_from_supplier(line) for line in (supplier_invoice.lines or [])]
 
 
 def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInvoice) -> dict:
@@ -990,7 +1022,7 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
         if supplier_invoice.source_type == "PURCHASE_ORDER"
         else None
     )
-    lines = [_ap_line_from_supplier(line) for line in (supplier_invoice.lines or [])]
+    lines = _ap_lines_for_invoice(supplier_invoice)
     return {
         "bill_id": supplier_invoice.invoice_number,
         "purchase_order_id": po_number,
@@ -1010,7 +1042,10 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
         "vendor_invoice_number": supplier_invoice.vendor_invoice_number,
         "issue_date": supplier_invoice.invoice_date,
         "payment_date": None,
-        "payment_terms": vendor.payment_terms if vendor else None,
+        "payment_terms": (
+            getattr(supplier_invoice, "payment_terms", None)
+            or (vendor.payment_terms if vendor else None)
+        ),
         "currency": supplier_invoice.currency or (vendor.currency if vendor else None) or "USD",
         "subtotal": _money(supplier_invoice.subtotal),
         "tax_amount": _money(supplier_invoice.tax_amount),
@@ -1019,6 +1054,7 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
         "outstanding_balance": _money(supplier_invoice.outstanding_balance or invoice_total),
         "supplier_invoice_number": supplier_invoice.invoice_number,
         "supplier_invoice_status": supplier_invoice.status,
+        "invoice_type": getattr(supplier_invoice, "invoice_type", None) or "PO_MATCHED",
         "match_warnings": _match_warnings(supplier_invoice.match_warnings),
         "lines": lines,
         "payments": [],
@@ -1050,7 +1086,7 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
         source_type = supplier_invoice.source_type or source_type
         source_order_id = supplier_invoice.source_order_id or source_order_id
         vendor_invoice_number = supplier_invoice.vendor_invoice_number
-        lines = [_ap_line_from_supplier(line) for line in (supplier_invoice.lines or [])]
+        lines = _ap_lines_for_invoice(supplier_invoice)
 
     po_number = bill.purchase_order_id
     if not po_number and source_type == "PURCHASE_ORDER":
@@ -1164,6 +1200,9 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
         "outstanding_balance": remaining,
         "supplier_invoice_number": supplier_invoice.invoice_number if supplier_invoice else None,
         "supplier_invoice_status": supplier_invoice.status if supplier_invoice else None,
+        "invoice_type": (
+            getattr(supplier_invoice, "invoice_type", None) if supplier_invoice else None
+        ),
         "match_warnings": _match_warnings(
             supplier_invoice.match_warnings if supplier_invoice else None
         ),

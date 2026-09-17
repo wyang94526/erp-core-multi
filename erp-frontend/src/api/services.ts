@@ -31,6 +31,8 @@ import type {
   JournalEntry,
   ChartOfAccount,
   ChartOfAccountCreate,
+  PaymentTerm,
+  PaymentTermWrite,
   ApprovalHistory,
   CurrentUser,
   InventoryStockItem,
@@ -40,6 +42,7 @@ import type {
   ItemFulfillment,
   SalesInvoiceDoc,
   SupplierInvoice,
+  Department,
   BinLocation,
   VendorItemMapping,
   SubcontractBOM,
@@ -438,6 +441,7 @@ export const salesOrderService = {
     order_date: string; // ISO date
     customer_revision_date?: string | null;
     payment_terms?: string;
+    payment_term_id?: string | null;
     freight_terms?: string;
     shipping_method?: string;
     currency?: string;
@@ -586,11 +590,15 @@ export const vendorInvoiceService = {
   },
 
   create(data: {
-    source_type: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER';
-    source_order_id: string;
+    invoice_type?: 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | null;
+    source_type?: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | 'NON_PO' | null;
+    source_order_id?: string | null;
+    vendor_id?: string | null;
     vendor_invoice_number?: string | null;
     invoice_date?: string | null;
     due_date?: string | null;
+    payment_term_id?: string | null;
+    payment_terms?: string | null;
     tax_amount?: number | null;
     freight_amount?: number | null;
     currency?: string;
@@ -601,8 +609,20 @@ export const vendorInvoiceService = {
       quantity_billed: number;
       unit_price: number;
     }> | null;
+    distributions?: Array<{
+      gl_account_id: string;
+      department_id?: string | null;
+      amount: number;
+      description?: string | null;
+      goods_receipt_id?: number | null;
+      goods_receipt_line_id?: number | null;
+    }> | null;
   }): Promise<SupplierInvoice> {
     return apiClient.post<SupplierInvoice>('/api/v1/vendor-invoices', data);
+  },
+
+  submit(id: number): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/submit`);
   },
 
   approve(id: number): Promise<SupplierInvoice> {
@@ -614,6 +634,30 @@ export const vendorInvoiceService = {
     data: CashPaymentPayload = {},
   ): Promise<SupplierInvoice> {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/pay`, data);
+  },
+
+  listGoodsReceipts(params: { vendor_id?: string; skip?: number; limit?: number } = {}) {
+    const query: Record<string, string | number> = {
+      skip: params.skip ?? 0,
+      limit: params.limit ?? 100,
+    };
+    if (params.vendor_id) query.vendor_id = params.vendor_id;
+    return apiClient.get<
+      Array<{
+        id: number;
+        receipt_number: string;
+        source_type: string;
+        source_order_id: string;
+        vendor_id: string;
+        receipt_date: string;
+        status: string;
+        lines: Array<{ id: number; item_id: string; description?: string | null }>;
+      }>
+    >('/api/v1/vendor-invoices/goods-receipts', { params: query });
+  },
+
+  listDepartments() {
+    return apiClient.get<Department[]>('/api/v1/vendor-invoices/departments');
   },
 };
 
@@ -744,6 +788,7 @@ export const purchaseOrderService = {
     order_date?: string;
     expected_delivery_date?: string | null;
     payment_terms?: string | null;
+    payment_term_id?: string | null;
     status: PurchaseOrder['status'];
     shipping_fee: number;
     discount_type: PurchaseOrder['discount_type'];
@@ -784,6 +829,7 @@ export const purchaseOrderService = {
       order_date?: string;
       expected_delivery_date?: string | null;
       payment_terms?: string | null;
+      payment_term_id?: string | null;
       status?: PurchaseOrder['status'];
       shipping_fee?: number;
       discount_type?: PurchaseOrder['discount_type'];
@@ -1676,6 +1722,30 @@ export const dataImportService = {
 };
 
 // ==========================================
+// PAYMENT TERMS MASTER
+// ==========================================
+
+export const paymentTermsService = {
+  async list(includeInactive = false): Promise<PaymentTerm[]> {
+    return apiClient.get<PaymentTerm[]>('/api/v1/payment-terms', {
+      params: includeInactive ? { include_inactive: true } : undefined,
+    })
+  },
+
+  async create(data: PaymentTermWrite): Promise<PaymentTerm> {
+    return apiClient.post<PaymentTerm>('/api/v1/payment-terms', data)
+  },
+
+  async update(id: string, data: Partial<PaymentTermWrite>): Promise<PaymentTerm> {
+    return apiClient.put<PaymentTerm>(`/api/v1/payment-terms/${id}`, data)
+  },
+
+  async deactivate(id: string): Promise<PaymentTerm> {
+    return apiClient.delete<PaymentTerm>(`/api/v1/payment-terms/${id}`)
+  },
+};
+
+// ==========================================
 // CHART OF ACCOUNTS SERVICES
 // ==========================================
 
@@ -2022,6 +2092,7 @@ export const apiServices = {
   items: itemService,
   subcontractBoms: subcontractBomService,
   chartOfAccounts: chartOfAccountsService,
+  paymentTerms: paymentTermsService,
   arInvoices: arInvoiceService,
   apBills: apBillService,
   cashTransactions: cashTransactionService,

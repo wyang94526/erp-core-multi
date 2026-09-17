@@ -204,6 +204,38 @@ class ChartOfAccount(Base):
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
 
 
+class PaymentTerm(Base):
+    """Global payment-term master used by vendors, customers, POs, and invoices."""
+
+    __tablename__ = "payment_terms"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(20), unique=True, nullable=False)
+    description = Column(String(255), nullable=False)
+    due_days = Column(Integer, nullable=False, server_default=text("30"))
+    discount_days = Column(Integer, nullable=True)
+    discount_percentage = Column(Numeric(5, 2), nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint("due_days >= 0", name="chk_payment_terms_due_days"),
+        CheckConstraint(
+            "discount_days IS NULL OR discount_days >= 0",
+            name="chk_payment_terms_discount_days",
+        ),
+        CheckConstraint(
+            "discount_percentage IS NULL OR (discount_percentage >= 0 AND discount_percentage <= 100)",
+            name="chk_payment_terms_discount_pct",
+        ),
+    )
+
+
 class AuditLog(Base):
     __tablename__ = 'audit_logs'
 
@@ -282,6 +314,7 @@ class Customer(Base):
     currency = Column(String(3), nullable=False, server_default=text("'USD'"))
     credit_limit = Column(Numeric(14, 2), nullable=False, server_default=text('0.00'))
     payment_terms = Column(String(50), nullable=True)
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     preferred_incoterms = Column(String(10), nullable=True)
     preferred_shipping_method = Column(String(50), nullable=True)
     tax_exempt = Column(Boolean, nullable=False, server_default=text('false'))
@@ -304,6 +337,7 @@ class Customer(Base):
         back_populates="customer",
         cascade="all, delete-orphan",
     )
+    payment_term = relationship("PaymentTerm")
 
 
 class CustomerLocation(Base):
@@ -408,6 +442,7 @@ class SalesOrder(Base):
     customer_revision_date = Column(Date, nullable=True)
     
     payment_terms = Column(String(50))
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     freight_terms = Column(String(50))
     shipping_method = Column(String(50))
     currency = Column(String(3), default='USD')
@@ -424,6 +459,7 @@ class SalesOrder(Base):
 
     # Relationships
     customer = relationship("Customer")
+    payment_term = relationship("PaymentTerm")
     bill_to_location = relationship("CustomerLocation", foreign_keys=[bill_to_location_id])
     ship_to_location = relationship("CustomerLocation", foreign_keys=[ship_to_location_id])
     items = relationship("SalesOrderItem", back_populates="sales_order")
@@ -506,6 +542,7 @@ class Supplier(Base):
     country = Column(String(50))
     vendor_number_ext = Column(String(50))
     payment_terms = Column(String(50), default='Net 30')
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     status = Column(String(20), default='Active')
     vendor_type = Column(String(20), nullable=False, server_default=text("'material'"))
     tax_id = Column(String(50), nullable=True)
@@ -567,6 +604,7 @@ class Supplier(Base):
     )
 
     ap_account = relationship("ChartOfAccount", foreign_keys=[ap_account_id])
+    payment_term = relationship("PaymentTerm")
     work_center = relationship("WorkCenter", foreign_keys=[work_center_id])
     consignment_location = relationship("BinLocation", foreign_keys=[consignment_stock_loc_id])
 
@@ -995,6 +1033,7 @@ class APBill(Base):
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
     due_date = Column(Date, nullable=False)
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
@@ -1005,6 +1044,7 @@ class APBill(Base):
     purchase_order = relationship("PurchaseOrder")
     vendor = relationship("Supplier")
     supplier_invoice = relationship("SupplierInvoice", foreign_keys=[supplier_invoice_id])
+    payment_term = relationship("PaymentTerm")
 
 
 class PurchaseOrder(Base):
@@ -1020,6 +1060,7 @@ class PurchaseOrder(Base):
     order_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
     expected_delivery_date = Column(Date)
     payment_terms = Column(String(50), default='Net 30')
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     status = Column(String(20), nullable=False, default='Draft')  # Draft, Submitted, Approved, Void
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
@@ -1052,6 +1093,7 @@ class PurchaseOrder(Base):
 
     # Relationships
     supplier = relationship("Supplier")
+    payment_term = relationship("PaymentTerm")
     subcontract_order = relationship("SubcontractOrder", foreign_keys=[sco_number])
     items = relationship("PurchaseOrderItem", back_populates="purchase_order", cascade="all, delete-orphan")
 
@@ -1319,6 +1361,7 @@ class SalesInvoice(Base):
     issue_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
     payment_terms = Column(String(50), nullable=True)
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     subtotal = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     tax_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     total_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
@@ -1342,6 +1385,7 @@ class SalesInvoice(Base):
     fulfillment = relationship("ItemFulfillment")
     customer = relationship("Customer")
     ar_invoice = relationship("ARInvoice")
+    payment_term = relationship("PaymentTerm")
     lines = relationship(
         "SalesInvoiceLine",
         back_populates="invoice",
@@ -1435,11 +1479,14 @@ class SupplierInvoice(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     invoice_number = Column(String(50), unique=True, nullable=False)
     vendor_id = Column(String(50), ForeignKey("suppliers.supplier_id"), nullable=False)
+    invoice_type = Column(String(20), nullable=False, server_default=text("'PO_MATCHED'"))
     source_type = Column(String(30), nullable=False)
-    source_order_id = Column(String(50), nullable=False)
+    source_order_id = Column(String(50), nullable=True)
     vendor_invoice_number = Column(String(100), nullable=True)
     invoice_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
+    payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
+    payment_terms = Column(String(50), nullable=True)
     status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     subtotal = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     tax_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
@@ -1458,7 +1505,11 @@ class SupplierInvoice(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER')",
+            "invoice_type IN ('PO_MATCHED', 'LANDED_COST', 'EXPENSE')",
+            name="chk_supplier_invoice_type",
+        ),
+        CheckConstraint(
+            "source_type IN ('PURCHASE_ORDER', 'SUBCONTRACT_ORDER', 'NON_PO')",
             name="chk_supplier_invoice_source_type",
         ),
         CheckConstraint(
@@ -1469,8 +1520,14 @@ class SupplierInvoice(Base):
 
     vendor = relationship("Supplier")
     ap_bill = relationship("APBill", foreign_keys=[ap_bill_id])
+    payment_term = relationship("PaymentTerm")
     lines = relationship(
         "SupplierInvoiceLine",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+    distributions = relationship(
+        "SupplierInvoiceDistribution",
         back_populates="invoice",
         cascade="all, delete-orphan",
     )
@@ -1484,7 +1541,7 @@ class SupplierInvoiceLine(Base):
         Integer, ForeignKey("supplier_invoices.id", ondelete="CASCADE"), nullable=False
     )
     source_line_id = Column(BigInteger, nullable=True)
-    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=True)
     description = Column(String(255), nullable=True)
     quantity_billed = Column(Numeric(12, 4), nullable=False)
     unit_price = Column(Numeric(12, 4), nullable=False)
@@ -1499,6 +1556,33 @@ class SupplierInvoiceLine(Base):
 
     invoice = relationship("SupplierInvoice", back_populates="lines")
     item = relationship("Item")
+    goods_receipt_line = relationship("GoodsReceiptLine")
+
+
+class SupplierInvoiceDistribution(Base):
+    """GL / cost-center split for Non-PO expense and landed-cost invoices."""
+
+    __tablename__ = "supplier_invoice_distributions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_id = Column(
+        Integer, ForeignKey("supplier_invoices.id", ondelete="CASCADE"), nullable=False
+    )
+    gl_account_id = Column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id"), nullable=False)
+    department_id = Column(String(50), ForeignKey("departments.id"), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    description = Column(String(255), nullable=True)
+    goods_receipt_id = Column(Integer, ForeignKey("goods_receipts.id"), nullable=True)
+    goods_receipt_line_id = Column(Integer, ForeignKey("goods_receipt_lines.id"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="chk_si_dist_amount_pos"),
+    )
+
+    invoice = relationship("SupplierInvoice", back_populates="distributions")
+    gl_account = relationship("ChartOfAccount")
+    department = relationship("Department")
+    goods_receipt = relationship("GoodsReceipt")
     goods_receipt_line = relationship("GoodsReceiptLine")
 
 

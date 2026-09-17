@@ -112,11 +112,13 @@ def default_data_dir() -> Path:
 DEFAULT_DATA_DIR = default_data_dir()
 
 PAYMENT_TERMS_MAP = {
-    "T000": "Due on Receipt",
+    "T000": "DUE_ON_RECEIPT",
     "T010": "NET30",
     "T020": "NET60",
     "T030": "NET90",
     "M020": "NET30",
+    "P02": "P02",
+    "P10": "P10",
 }
 
 OCC_STATUS_MAP = {"Y": "ACTIVE", "P": "ON_HOLD", "N": "INACTIVE"}
@@ -1032,7 +1034,7 @@ def map_supplier(row: dict[str, str], subcontract_ids: set[str]) -> MappedSuppli
         "postal_code": None,
         "country": None,
         "vendor_number_ext": clip(row.get("pmc03"), 50),
-        "payment_terms": clip(row.get("pmc17") or "Net 30", 50),
+        "payment_terms": clip(map_payment_terms(row.get("pmc17") or "Net 30"), 50),
         "status": "Active" if (row.get("pmcacti") or "Y").upper() == "Y" else "Inactive",
         "vendor_type": vendor_type,
         "tax_id": clip(row.get("pmc24"), 50),

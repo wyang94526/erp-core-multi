@@ -6,11 +6,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { chartOfAccountsService, inventoryService, vendorService, workCenterService } from '../api/services'
+import { chartOfAccountsService, inventoryService, paymentTermsService, vendorService, workCenterService } from '../api/services'
 import type { SupplierWrite, TaxDocumentType, VendorPaymentMethod, VendorQcStatus, VendorType } from '../types'
 import { INCOTERM_OPTIONS } from '../data/orderOptions'
-
-const PAYMENT_TERMS_OPTIONS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 60', 'Net 90']
+import { findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
 const VENDOR_TYPE_OPTIONS: Array<{ value: VendorType; label: string }> = [
   { value: 'material', label: 'Material supplier' },
   { value: 'subcontractor', label: 'Subcontractor' },
@@ -134,6 +133,7 @@ type VendorFormData = {
   state: string
   postal_code: string
   country: string
+  payment_term_id: string
   payment_terms: string
   payment_method: VendorPaymentMethod | ''
   currency: string
@@ -175,7 +175,8 @@ const EMPTY_FORM: VendorFormData = {
   state: '',
   postal_code: '',
   country: '',
-  payment_terms: 'Net 30',
+  payment_term_id: '',
+  payment_terms: 'NET30',
   payment_method: '',
   currency: 'USD',
   ap_account_id: '',
@@ -229,6 +230,22 @@ export function VendorForm() {
     queryKey: ['inventoryBins'],
     queryFn: () => inventoryService.listBins(),
   })
+  const { data: paymentTerms = [] } = useQuery({
+    queryKey: ['paymentTerms'],
+    queryFn: () => paymentTermsService.list(true),
+  })
+
+  useEffect(() => {
+    if (paymentTerms.length === 0) return
+    setFormData((prev) => {
+      if (prev.payment_term_id && paymentTerms.some((term) => term.id === prev.payment_term_id)) {
+        return prev
+      }
+      const matched = findPaymentTerm(paymentTerms, prev.payment_term_id, prev.payment_terms)
+      if (!matched) return prev
+      return { ...prev, payment_term_id: matched.id, payment_terms: matched.code }
+    })
+  }, [paymentTerms])
 
   useEffect(() => {
     if (!vendor) return
@@ -254,7 +271,8 @@ export function VendorForm() {
       state: vendor.state || '',
       postal_code: vendor.postal_code || '',
       country: vendor.country || '',
-      payment_terms: vendor.payment_terms || 'Net 30',
+      payment_term_id: vendor.payment_term_id || '',
+      payment_terms: vendor.payment_terms || 'NET30',
       payment_method: (vendor.payment_method as VendorPaymentMethod) || '',
       currency: vendor.currency || 'USD',
       ap_account_id: vendor.ap_account_id || '',
@@ -309,6 +327,7 @@ export function VendorForm() {
     state: blankToUndef(data.state) || null,
     postal_code: blankToUndef(data.postal_code) || null,
     country: blankToUndef(data.country) || null,
+    payment_term_id: blankToUndef(data.payment_term_id) || null,
     payment_terms: blankToUndef(data.payment_terms) || null,
     payment_method: data.payment_method || null,
     currency: data.currency || 'USD',
@@ -561,10 +580,21 @@ export function VendorForm() {
         <Section title="Commercial & Payment Terms">
           <SelectField
             label="Payment Terms"
-            name="payment_terms"
-            value={formData.payment_terms}
-            onChange={handleChange}
-            options={PAYMENT_TERMS_OPTIONS.map((term) => ({ value: term, label: term }))}
+            name="payment_term_id"
+            value={formData.payment_term_id}
+            onChange={(e) => {
+              const id = e.target.value
+              const term = paymentTerms.find((row) => row.id === id)
+              setFormData((prev) => ({
+                ...prev,
+                payment_term_id: id,
+                payment_terms: term?.code || prev.payment_terms,
+              }))
+            }}
+            options={paymentTerms
+              .filter((term) => term.is_active || term.id === formData.payment_term_id)
+              .map((term) => ({ value: term.id, label: paymentTermLabel(term) }))}
+            allowBlank
           />
           <SelectField
             label="Payment Method"

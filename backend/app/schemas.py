@@ -158,6 +158,50 @@ class ChartOfAccountUpdate(BaseModel):
     account_name: str | None = Field(default=None, min_length=1, max_length=255)
     account_type: str | None = Field(default=None, min_length=1, max_length=50)
 
+class PaymentTermCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    description: str = Field(min_length=1, max_length=255)
+    due_days: int = Field(ge=0)
+    discount_days: int | None = Field(default=None, ge=0)
+    discount_percentage: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=2)
+    is_active: bool = True
+
+    @field_validator("code", "description", mode="before")
+    @classmethod
+    def strip_payment_term_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class PaymentTermUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=20)
+    description: str | None = Field(default=None, min_length=1, max_length=255)
+    due_days: int | None = Field(default=None, ge=0)
+    discount_days: int | None = Field(default=None, ge=0)
+    discount_percentage: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=2)
+    is_active: bool | None = None
+
+    @field_validator("code", "description", mode="before")
+    @classmethod
+    def strip_payment_term_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class PaymentTermRead(ORMModel):
+    id: UUID
+    code: str
+    description: str
+    due_days: int
+    discount_days: int | None = None
+    discount_percentage: Decimal | None = None
+    is_active: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class ChartOfAccountRead(ORMModel):
     id: UUID
     account_code: str
@@ -488,6 +532,7 @@ class CustomerBase(BaseModel):
     currency: str = Field(default='USD', min_length=3, max_length=3)
     credit_limit: Decimal = Field(default=Decimal('0.00'), ge=0, decimal_places=2)
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     preferred_incoterms: str | None = Field(default=None, max_length=10)
     preferred_shipping_method: str | None = Field(default=None, max_length=50)
     tax_exempt: bool = False
@@ -504,6 +549,7 @@ class CustomerBase(BaseModel):
         'primary_email',
         'primary_phone',
         'payment_terms',
+        'payment_term_id',
         'preferred_incoterms',
         'preferred_shipping_method',
         'tax_exempt_certificate_id',
@@ -572,6 +618,7 @@ class CustomerUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     credit_limit: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     preferred_incoterms: str | None = Field(default=None, max_length=10)
     preferred_shipping_method: str | None = Field(default=None, max_length=50)
     tax_exempt: bool | None = None
@@ -588,6 +635,7 @@ class CustomerUpdate(BaseModel):
         'primary_email',
         'primary_phone',
         'payment_terms',
+        'payment_term_id',
         'preferred_incoterms',
         'preferred_shipping_method',
         'tax_exempt_certificate_id',
@@ -650,6 +698,7 @@ class CustomerRead(ORMModel):
     currency: str = 'USD'
     credit_limit: Decimal = Decimal('0.00')
     payment_terms: str | None = None
+    payment_term_id: UUID | None = None
     preferred_incoterms: str | None = None
     preferred_shipping_method: str | None = None
     tax_exempt: bool = False
@@ -740,6 +789,7 @@ class SalesOrderCreate(BaseModel):
     order_date: date
     customer_revision_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     freight_terms: str | None = Field(default=None, max_length=50)
     shipping_method: str | None = Field(default=None, max_length=50)
     currency: str = Field(default="USD", max_length=3)
@@ -759,6 +809,7 @@ class SalesOrderUpdate(BaseModel):
     po_revision_number: int | None = None
     customer_revision_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     freight_terms: str | None = Field(default=None, max_length=50)
     shipping_method: str | None = Field(default=None, max_length=50)
     buyer_contact_name: str | None = Field(default=None, max_length=100)
@@ -777,6 +828,7 @@ class SalesOrderRead(ORMModel):
     order_date: date
     customer_revision_date: date | None = None
     payment_terms: str | None
+    payment_term_id: UUID | None = None
     freight_terms: str | None
     shipping_method: str | None
     currency: str
@@ -889,6 +941,7 @@ class SupplierBase(BaseModel):
     country: str | None = Field(default=None, max_length=50)
     vendor_number_ext: str | None = Field(default=None, max_length=50)
     payment_terms: str | None = Field(default="Net 30", max_length=50)
+    payment_term_id: UUID | None = None
     status: str | None = Field(default="Active", max_length=20)
     vendor_type: Literal['material', 'subcontractor', 'both', 'service'] = 'material'
     tax_id: str | None = Field(default=None, max_length=50)
@@ -927,6 +980,7 @@ class SupplierBase(BaseModel):
         'country',
         'vendor_number_ext',
         'payment_terms',
+        'payment_term_id',
         'tax_id',
         'tax_document_type',
         'ap_account_id',
@@ -1034,6 +1088,7 @@ class SupplierUpdate(BaseModel):
     country: str | None = Field(default=None, max_length=50)
     vendor_number_ext: str | None = Field(default=None, max_length=50)
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     status: str | None = Field(default=None, max_length=20)
     vendor_type: Literal['material', 'subcontractor', 'both', 'service'] | None = None
     tax_id: str | None = Field(default=None, max_length=50)
@@ -1072,6 +1127,7 @@ class SupplierUpdate(BaseModel):
         'country',
         'vendor_number_ext',
         'payment_terms',
+        'payment_term_id',
         'tax_id',
         'tax_document_type',
         'ap_account_id',
@@ -1617,6 +1673,7 @@ class PurchaseOrderCreate(BaseModel):
     order_date: date | None = None
     expected_delivery_date: date | None = None
     payment_terms: str | None = Field(default="Net 30", max_length=50)
+    payment_term_id: UUID | None = None
     status: Literal['Draft', 'Submitted', 'Approved', 'Void'] = Field(default='Draft')
 
     shipping_fee: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
@@ -1659,6 +1716,7 @@ class PurchaseOrderUpdate(BaseModel):
     order_date: date | None = None
     expected_delivery_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     status: Literal['Draft', 'Submitted', 'Approved', 'Void'] | None = None
 
     shipping_fee: Decimal | None = Field(default=None, ge=0, decimal_places=2)
@@ -1699,6 +1757,7 @@ class PurchaseOrderRead(ORMModel):
     order_date: date
     expected_delivery_date: date | None
     payment_terms: str | None
+    payment_term_id: UUID | None = None
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
@@ -1828,6 +1887,7 @@ class APBillRead(ORMModel):
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
     due_date: date
+    payment_term_id: UUID | None = None
     created_at: datetime | None
 
 class APBillPaymentRead(BaseModel):
@@ -1839,7 +1899,7 @@ class APBillPaymentRead(BaseModel):
 
 
 class APBillLineDetailRead(BaseModel):
-    item_id: str
+    item_id: str | None = None
     description: str | None = None
     quantity: Decimal
     unit_price: Decimal
@@ -1862,6 +1922,7 @@ class APBillDetailRead(APBillRead):
     outstanding_balance: Decimal = Decimal("0.00")
     supplier_invoice_number: str | None = None
     supplier_invoice_status: str | None = None
+    invoice_type: str | None = None
     match_warnings: list[str] = Field(default_factory=list)
     lines: list[APBillLineDetailRead] = Field(default_factory=list)
     payments: list[APBillPaymentRead] = Field(default_factory=list)
@@ -2393,6 +2454,7 @@ class SalesInvoiceCreate(BaseModel):
     fulfillment_id: int | None = None
     issue_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
+    payment_term_id: UUID | None = None
     lines: list[SalesInvoiceLineCreate] | None = None
 
 
@@ -2417,6 +2479,7 @@ class SalesInvoiceRead(BaseModel):
     issue_date: date
     due_date: date
     payment_terms: str | None = None
+    payment_term_id: UUID | None = None
     subtotal: Decimal
     tax_amount: Decimal
     total_amount: Decimal
@@ -2468,6 +2531,11 @@ class GoodsReceiptRead(BaseModel):
     lines: list[GoodsReceiptLineRead] = Field(default_factory=list)
 
 
+class DepartmentRead(BaseModel):
+    id: str
+    name: str
+
+
 class SupplierInvoiceLineCreate(BaseModel):
     source_line_id: int | None = None
     item_id: str | None = None
@@ -2476,27 +2544,55 @@ class SupplierInvoiceLineCreate(BaseModel):
     unit_price: Decimal = Field(ge=0, decimal_places=4)
 
 
+class SupplierInvoiceDistributionCreate(BaseModel):
+    gl_account_id: UUID
+    department_id: str | None = Field(default=None, max_length=50)
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    description: str | None = Field(default=None, max_length=255)
+    goods_receipt_id: int | None = None
+    goods_receipt_line_id: int | None = None
+
+
 class SupplierInvoiceCreate(BaseModel):
-    source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER"]
-    source_order_id: str = Field(min_length=1, max_length=50)
+    invoice_type: Literal["PO_MATCHED", "LANDED_COST", "EXPENSE"] | None = None
+    source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER", "NON_PO"] | None = None
+    source_order_id: str | None = Field(default=None, max_length=50)
+    vendor_id: str | None = Field(default=None, max_length=50)
     vendor_invoice_number: str | None = Field(default=None, max_length=100)
     invoice_date: date | None = None
     due_date: date | None = None
+    payment_term_id: UUID | None = None
+    payment_terms: str | None = Field(default=None, max_length=50)
     tax_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     freight_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     lines: list[SupplierInvoiceLineCreate] | None = None
+    distributions: list[SupplierInvoiceDistributionCreate] | None = None
 
 
 class SupplierInvoiceLineRead(BaseModel):
     id: int
     invoice_id: int
     source_line_id: int | None = None
-    item_id: str
+    item_id: str | None = None
     description: str | None = None
     quantity_billed: Decimal
     unit_price: Decimal
     line_subtotal: Decimal
+    goods_receipt_line_id: int | None = None
+
+
+class SupplierInvoiceDistributionRead(BaseModel):
+    id: int
+    invoice_id: int
+    gl_account_id: UUID
+    gl_account_code: str | None = None
+    gl_account_name: str | None = None
+    department_id: str | None = None
+    department_name: str | None = None
+    amount: Decimal
+    description: str | None = None
+    goods_receipt_id: int | None = None
     goods_receipt_line_id: int | None = None
 
 
@@ -2505,11 +2601,14 @@ class SupplierInvoiceRead(BaseModel):
     invoice_number: str
     vendor_id: str
     vendor_name: str | None = None
+    invoice_type: str
     source_type: str
-    source_order_id: str
+    source_order_id: str | None = None
     vendor_invoice_number: str | None = None
     invoice_date: date
     due_date: date
+    payment_term_id: UUID | None = None
+    payment_terms: str | None = None
     status: str
     subtotal: Decimal
     tax_amount: Decimal
@@ -2522,6 +2621,7 @@ class SupplierInvoiceRead(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     lines: list[SupplierInvoiceLineRead] = Field(default_factory=list)
+    distributions: list[SupplierInvoiceDistributionRead] = Field(default_factory=list)
     payment_transaction_id: str | None = None
 
 

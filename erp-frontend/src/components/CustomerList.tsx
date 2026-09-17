@@ -150,6 +150,7 @@ export function CustomerList() {
                     <SortableTh label="Customer ID" columnKey="customer_id" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Company Name" columnKey="company_name" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Customer Number Ext" columnKey="customer_number_ext" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Payment Terms" columnKey="payment_terms" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <th style={{ ...directoryThStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
@@ -159,6 +160,7 @@ export function CustomerList() {
                       <td style={directoryTdStyle}>{customer.customer_id}</td>
                       <td style={directoryTdStyle}>{customer.company_name}</td>
                       <td style={directoryTdStyle}>{customer.customer_number_ext || '-'}</td>
+                      <td style={directoryTdStyle}>{customer.payment_terms || '-'}</td>
                       <td style={{ ...directoryTdStyle, textAlign: 'center' }}>
                         <button
                           onClick={() => navigate(`/customers/${customer.customer_id}/edit`)}

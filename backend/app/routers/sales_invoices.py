@@ -30,6 +30,7 @@ def create_sales_invoice(payload: SalesInvoiceCreate, db: Session = Depends(get_
         fulfillment_id=payload.fulfillment_id,
         issue_date=payload.issue_date,
         payment_terms=payload.payment_terms,
+        payment_term_id=payload.payment_term_id,
         line_overrides=(
             [line.model_dump() for line in payload.lines] if payload.lines else None
         ),

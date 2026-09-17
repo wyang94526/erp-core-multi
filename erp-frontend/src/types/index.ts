@@ -67,6 +67,7 @@ export interface Customer {
   currency?: string
   credit_limit?: number | string
   payment_terms?: string | null
+  payment_term_id?: string | null
   preferred_incoterms?: string | null
   preferred_shipping_method?: string | null
   tax_exempt?: boolean
@@ -95,6 +96,7 @@ export type CustomerWrite = {
   currency?: string
   credit_limit?: number | string
   payment_terms?: string | null
+  payment_term_id?: string | null
   preferred_incoterms?: string | null
   preferred_shipping_method?: string | null
   tax_exempt?: boolean
@@ -425,6 +427,7 @@ export interface SalesOrder {
   order_date: string; // ISO date
   customer_revision_date?: string | null;
   payment_terms: string | null;
+  payment_term_id?: string | null;
   freight_terms: string | null;
   shipping_method: string | null;
   currency: string;
@@ -490,7 +493,8 @@ export interface Supplier {
   postal_code?: string | null;
   country?: string | null;
   vendor_number_ext?: string | null;
-  payment_terms?: string | null;
+  payment_terms?: string | null
+  payment_term_id?: string | null;
   status?: 'Active' | 'Inactive' | string | null;
   vendor_type?: VendorType | string;
   tax_id?: string | null;
@@ -555,6 +559,7 @@ export interface PurchaseOrder {
   order_date: string;
   expected_delivery_date: string;
   payment_terms: string;
+  payment_term_id?: string | null;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Void';
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
@@ -712,6 +717,7 @@ export interface SubcontractOrder {
 // ==========================================
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | string;
+export type { PaymentTerm, PaymentTermWrite } from '../utils/paymentTerms';
 
 export interface ChartOfAccount {
   id: string; // UUID
@@ -761,7 +767,8 @@ export interface ARInvoiceDetail extends ARInvoice {
   display_status?: 'Paid' | 'Overdue' | 'Partial' | 'Open' | string;
   issue_date?: string | null;
   payment_date?: string | null;
-  payment_terms?: string | null;
+  payment_terms?: string | null
+  payment_term_id?: string | null;
   currency?: string;
   subtotal?: number;
   tax_amount?: number;
@@ -825,7 +832,8 @@ export interface SalesInvoiceDoc {
   status: SalesInvoiceStatus;
   issue_date: string;
   due_date: string;
-  payment_terms?: string | null;
+  payment_terms?: string | null
+  payment_term_id?: string | null;
   subtotal: number;
   tax_amount: number;
   total_amount: number;
@@ -860,7 +868,7 @@ export interface APBillPayment {
 }
 
 export interface APBillLineDetail {
-  item_id: string;
+  item_id?: string | null;
   description?: string | null;
   quantity: number;
   unit_price: number;
@@ -874,7 +882,8 @@ export interface APBillDetail extends APBill {
   display_status?: 'Paid' | 'Overdue' | 'Partial' | 'Open' | string;
   issue_date?: string | null;
   payment_date?: string | null;
-  payment_terms?: string | null;
+  payment_terms?: string | null
+  payment_term_id?: string | null;
   currency?: string;
   subtotal?: number;
   tax_amount?: number;
@@ -883,12 +892,14 @@ export interface APBillDetail extends APBill {
   outstanding_balance?: number;
   supplier_invoice_number?: string | null;
   supplier_invoice_status?: string | null;
+  invoice_type?: 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | string | null;
   match_warnings?: string[];
   lines: APBillLineDetail[];
   payments: APBillPayment[];
 }
 
-export type VendorInvoiceSourceType = 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | string;
+export type VendorInvoiceSourceType = 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | 'NON_PO' | string;
+export type VendorInvoiceType = 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | string;
 export type VendorInvoiceStatus =
   | 'DRAFT'
   | 'PENDING_APPROVAL'
@@ -901,11 +912,25 @@ export interface SupplierInvoiceLine {
   id: number;
   invoice_id: number;
   source_line_id?: number | null;
-  item_id: string;
+  item_id?: string | null;
   description?: string | null;
   quantity_billed: number;
   unit_price: number;
   line_subtotal: number;
+  goods_receipt_line_id?: number | null;
+}
+
+export interface SupplierInvoiceDistribution {
+  id: number;
+  invoice_id: number;
+  gl_account_id: string;
+  gl_account_code?: string | null;
+  gl_account_name?: string | null;
+  department_id?: string | null;
+  department_name?: string | null;
+  amount: number;
+  description?: string | null;
+  goods_receipt_id?: number | null;
   goods_receipt_line_id?: number | null;
 }
 
@@ -914,11 +939,14 @@ export interface SupplierInvoice {
   invoice_number: string;
   vendor_id: string;
   vendor_name?: string | null;
+  invoice_type: VendorInvoiceType;
   source_type: VendorInvoiceSourceType;
-  source_order_id: string;
+  source_order_id?: string | null;
   vendor_invoice_number?: string | null;
   invoice_date: string;
   due_date: string;
+  payment_term_id?: string | null;
+  payment_terms?: string | null;
   status: VendorInvoiceStatus;
   subtotal: number;
   tax_amount: number;
@@ -931,7 +959,13 @@ export interface SupplierInvoice {
   created_at?: string | null;
   updated_at?: string | null;
   lines: SupplierInvoiceLine[];
+  distributions?: SupplierInvoiceDistribution[];
   payment_transaction_id?: string | null;
+}
+
+export interface Department {
+  id: string;
+  name: string;
 }
 
 export type CashPaymentMethod = 'CHECK' | 'WIRE' | 'ACH' | 'CARD'

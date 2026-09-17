@@ -10,8 +10,9 @@ import {
   requiresCarrierAccount,
   withCurrentOption,
 } from '../data/orderOptions';
-import { subcontractOrderService } from '../api/services';
+import { paymentTermsService, subcontractOrderService } from '../api/services';
 import { SubcontractOrderLookup } from './SubcontractOrderLookup';
+import { findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms';
 
 interface POHeaderProps {
   state: POFormState;
@@ -77,6 +78,10 @@ export function POHeader({
     if (!state.incoterms && supplier.incoterms) {
       setHeader('incoterms', supplier.incoterms);
     }
+    if (supplier.payment_term_id || supplier.payment_terms) {
+      setHeader('payment_term_id', supplier.payment_term_id || '');
+      setHeader('payment_terms', supplier.payment_terms || '');
+    }
     setSearchTerm(supplier.company_name);
     setShowDropdown(false);
   };
@@ -127,13 +132,22 @@ export function POHeader({
   };
 
   // Payment terms options
-  const PAYMENT_TERMS_OPTIONS = [
-    'Due on Receipt',
-    'Net 15',
-    'Net 30',
-    'Net 60',
-    'Net 90',
-  ];
+  const { data: paymentTerms = [] } = useQuery({
+    queryKey: ['paymentTerms'],
+    queryFn: () => paymentTermsService.list(),
+  });
+
+  useEffect(() => {
+    if (paymentTerms.length === 0) return;
+    if (state.payment_term_id && paymentTerms.some((term) => term.id === state.payment_term_id)) {
+      return;
+    }
+    const matched = findPaymentTerm(paymentTerms, state.payment_term_id, state.payment_terms);
+    if (matched && matched.id !== state.payment_term_id) {
+      setHeader('payment_term_id', matched.id);
+      setHeader('payment_terms', matched.code);
+    }
+  }, [paymentTerms, state.payment_term_id, state.payment_terms, setHeader]);
 
   // Status option badges colors
   const getStatusColor = (status: string) => {
@@ -394,17 +408,27 @@ export function POHeader({
         <div style={fieldGroupStyle}>
           <label style={labelStyle} htmlFor="payment_terms">Payment Terms</label>
           {isReadOnly ? (
-            <div style={readOnlyValueStyle}>{state.payment_terms || 'N/A'}</div>
+            <div style={readOnlyValueStyle}>
+              {paymentTerms.find((term) => term.id === state.payment_term_id)
+                ? paymentTermLabel(paymentTerms.find((term) => term.id === state.payment_term_id)!)
+                : state.payment_terms || 'N/A'}
+            </div>
           ) : (
             <select
               id="payment_terms"
-              value={state.payment_terms}
-              onChange={(e) => setHeader('payment_terms', e.target.value)}
+              value={state.payment_term_id || ''}
+              onChange={(e) => {
+                const selectedId = e.target.value;
+                const term = paymentTerms.find((row) => row.id === selectedId);
+                setHeader('payment_term_id', selectedId);
+                setHeader('payment_terms', term?.code || '');
+              }}
               style={inputStyle}
             >
-              {PAYMENT_TERMS_OPTIONS.map((term) => (
-                <option key={term} value={term}>
-                  {term}
+              <option value="">Select payment terms</option>
+              {paymentTerms.map((term) => (
+                <option key={term.id} value={term.id}>
+                  {paymentTermLabel(term)}
                 </option>
               ))}
             </select>
