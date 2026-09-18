@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { purchaseOrderService, vendorService } from '../api/services'
 import type { PurchaseOrder, Supplier } from '../types'
 import { useMemo, useState } from 'react'
+import { isPurchaseOrderEditable, purchaseOrderLockReason } from '../utils/poWorkflow'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
@@ -231,6 +232,8 @@ export function PurchaseOrderList() {
                     const supplierName =
                       po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
                     const approval = (po.approval_status || 'DRAFT').replace(/_/g, ' ')
+                    const canEditPo = isPurchaseOrderEditable(po)
+                    const editLockReason = purchaseOrderLockReason(po)
                     return (
                       <tr key={po.po_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{po.po_number}</td>
@@ -280,13 +283,25 @@ export function PurchaseOrderList() {
                             View / Approve
                           </button>
                           <button
-                            onClick={() => navigate(`/purchase-orders/${po.po_number}?edit=1`)}
+                            type="button"
+                            onClick={() => {
+                              if (!canEditPo) return
+                              navigate(`/purchase-orders/${po.po_number}?edit=1`)
+                            }}
+                            disabled={!canEditPo}
+                            title={
+                              canEditPo
+                                ? 'Edit this purchase order'
+                                : editLockReason || 'This purchase order cannot be edited inline'
+                            }
                             style={{
                               ...directoryActionButtonStyle,
-                              backgroundColor: '#fff3e0',
-                              color: '#e65100',
-                              border: '1px solid #ffe0b2',
+                              backgroundColor: canEditPo ? '#fff3e0' : '#eceff1',
+                              color: canEditPo ? '#e65100' : '#78909c',
+                              border: canEditPo ? '1px solid #ffe0b2' : '1px solid #cfd8dc',
                               marginRight: '6px',
+                              cursor: canEditPo ? 'pointer' : 'not-allowed',
+                              opacity: canEditPo ? 1 : 0.75,
                             }}
                           >
                             Edit

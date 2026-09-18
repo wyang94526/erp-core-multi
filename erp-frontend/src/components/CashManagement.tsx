@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cashTransactionService, bankAccountService } from '../api/services'
+import { cashTransactionService } from '../api/services'
 import type { CashTransaction } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
 import { useSortableData } from '../hooks/useSortableData'
@@ -68,14 +68,6 @@ function CashManagement() {
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [addBankOpen, setAddBankOpen] = useState(false)
-  const [addingBank, setAddingBank] = useState(false)
-  const [bankForm, setBankForm] = useState({
-    bank_name: '',
-    account_name: '',
-    account_number: '',
-    routing_number: '',
-  })
   const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
     useListFilterParams(CASH_FILTERS)
 
@@ -142,29 +134,6 @@ function CashManagement() {
 
   const detailTxn = transactions.find((t) => t.transaction_id === detailId) || null
 
-  const handleAddBank = async () => {
-    if (!bankForm.bank_name.trim() || !bankForm.account_name.trim() || !bankForm.account_number.trim()) {
-      setError('Bank name, account name, and account number are required')
-      return
-    }
-    setAddingBank(true)
-    setError(null)
-    try {
-      await bankAccountService.createAccount({
-        bank_name: bankForm.bank_name.trim(),
-        account_name: bankForm.account_name.trim(),
-        account_number: bankForm.account_number.trim(),
-        routing_number: bankForm.routing_number.trim() || null,
-      })
-      setAddBankOpen(false)
-      setBankForm({ bank_name: '', account_name: '', account_number: '', routing_number: '' })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add bank account')
-    } finally {
-      setAddingBank(false)
-    }
-  }
-
   return (
     <div style={containerStyle}>
       <div style={pageHeaderStyle}>
@@ -172,9 +141,9 @@ function CashManagement() {
           <h1 style={pageTitleStyle}>Cash Management</h1>
           <p style={pageSubStyle}>Chronological ledger of all cash inflows and outflows</p>
         </div>
-        <button type="button" style={addBankButtonStyle} onClick={() => setAddBankOpen(true)}>
-          Add bank account
-        </button>
+        <Link to="/bank-accounts" style={bankAccountsLinkStyle}>
+          Manage bank accounts
+        </Link>
       </div>
 
       {fromDashboard ? (
@@ -363,69 +332,6 @@ function CashManagement() {
           </aside>
         </div>
       ) : null}
-
-      {addBankOpen ? (
-        <div style={centerOverlayStyle} onClick={() => setAddBankOpen(false)}>
-          <form
-            style={addBankDialogStyle}
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => {
-              e.preventDefault()
-              void handleAddBank()
-            }}
-          >
-            <h3 style={{ margin: 0, color: '#212121' }}>Add bank account</h3>
-            <p style={{ margin: '8px 0 0', color: '#616161', fontSize: 13 }}>
-              New accounts appear in the payment bank selector.
-            </p>
-            <label style={addBankLabelStyle}>
-              Bank name
-              <input
-                style={addBankInputStyle}
-                value={bankForm.bank_name}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, bank_name: e.target.value }))}
-                required
-              />
-            </label>
-            <label style={addBankLabelStyle}>
-              Account name
-              <input
-                style={addBankInputStyle}
-                value={bankForm.account_name}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, account_name: e.target.value }))}
-                placeholder="Operating, Payroll, Reserve…"
-                required
-              />
-            </label>
-            <label style={addBankLabelStyle}>
-              Account number
-              <input
-                style={addBankInputStyle}
-                value={bankForm.account_number}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, account_number: e.target.value }))}
-                required
-              />
-            </label>
-            <label style={addBankLabelStyle}>
-              Routing number
-              <input
-                style={addBankInputStyle}
-                value={bankForm.routing_number}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, routing_number: e.target.value.replace(/\D/g, '').slice(0, 9) }))}
-                placeholder="9 digits"
-              />
-            </label>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button type="button" style={approvalButtonStyle} onClick={() => setAddBankOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" style={addBankButtonStyle} disabled={addingBank}>
-                {addingBank ? 'Saving…' : 'Save account'}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -582,18 +488,7 @@ const metaDdStyle: React.CSSProperties = {
   color: '#212121',
 }
 
-const centerOverlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.35)',
-  zIndex: 50,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 16,
-}
-
-const addBankButtonStyle: React.CSSProperties = {
+const bankAccountsLinkStyle: React.CSSProperties = {
   padding: '8px 14px',
   backgroundColor: '#1976d2',
   color: 'white',
@@ -603,34 +498,7 @@ const addBankButtonStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 700,
   fontFamily: 'inherit',
-}
-
-const addBankDialogStyle: React.CSSProperties = {
-  width: 'min(440px, 100%)',
-  background: '#fff',
-  borderRadius: 8,
-  padding: 24,
-  margin: 'auto',
-  boxShadow: '0 12px 32px rgba(0,0,0,0.2)',
-}
-
-const addBankLabelStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  marginTop: 14,
-  fontSize: 12,
-  fontWeight: 700,
-  color: '#757575',
-  textTransform: 'uppercase',
-}
-
-const addBankInputStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid #ddd',
-  fontSize: 14,
-  fontFamily: 'inherit',
+  textDecoration: 'none',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

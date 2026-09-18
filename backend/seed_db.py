@@ -580,10 +580,14 @@ def seed_data():
     #    (Cash transactions and journal entries are only created on payment.)
     # ------------------------------------------------------------------
     chart_of_accounts = [
-        {"account_code": "1000", "account_name": "Cash", "account_type": "Asset"},
-        {"account_code": "1100", "account_name": "Accounts Receivable", "account_type": "Asset"},
-        {"account_code": "2000", "account_name": "Accounts Payable", "account_type": "Liability"},
-        {"account_code": "4000", "account_name": "Sales Revenue", "account_type": "Revenue"},
+        {"account_code": "1103", "account_name": "Cash in Banks", "account_type": "Asset"},
+        {"account_code": "1172", "account_name": "Accounts Receivable", "account_type": "Asset"},
+        {"account_code": "1313", "account_name": "Half-finished Goods", "account_type": "Asset"},
+        {"account_code": "2171", "account_name": "Accounts Payable", "account_type": "Liability"},
+        {"account_code": "2181", "account_name": "Accounts Payable - related parties", "account_type": "Liability"},
+        {"account_code": "4110001", "account_name": "Sales Revenue", "account_type": "Revenue"},
+        {"account_code": "5146", "account_name": "Processing Fees", "account_type": "Expense"},
+        {"account_code": "5190", "account_name": "Purchase Expenses", "account_type": "Expense"},
         {"account_code": "5000", "account_name": "Cost of Goods Sold", "account_type": "Expense"},
     ]
     for acct in chart_of_accounts:

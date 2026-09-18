@@ -49,6 +49,11 @@ import ApprovalActionModal from '../ApprovalActionModal'
 import InteractiveTransactionTable from './InteractiveTransactionTable'
 import StatusBadge from './StatusBadge'
 import {
+  isSalesOrderEditable,
+  salesOrderEditPath,
+  SALES_ORDER_LOCKED_EDIT_MESSAGE,
+} from '../../utils/salesOrders'
+import {
   directoryTableStyle,
   directoryTbodyRowStyle,
   directoryTdStyle,
@@ -287,8 +292,12 @@ export default function MetricDetailSlideOver({
           onApprove={(module, id) => actions.setConfirm({ mode: 'approve', module, id })}
           onReject={(module, id) => actions.setConfirm({ mode: 'reject', module, id })}
           onRequestEdit={(doc) => {
-            if (doc.kind === 'SO') navigate(`/orders/${doc.id}/edit`)
-            else navigate(`/purchase-orders/${doc.id}`)
+            if (doc.kind === 'SO') {
+              window.alert(SALES_ORDER_LOCKED_EDIT_MESSAGE)
+              navigate(`/orders/${doc.id}`)
+            } else {
+              navigate(`/purchase-orders/${doc.id}`)
+            }
             onClose()
           }}
         />
@@ -559,8 +568,12 @@ export default function MetricDetailSlideOver({
                 type="button"
                 style={primaryButtonStyle}
                 onClick={() => {
-                  if (pending.kind === 'SO') navigate(`/orders/${pending.id}/edit`)
-                  else navigate(`/purchase-orders/${pending.id}`)
+                  if (pending.kind === 'SO') {
+                    window.alert(SALES_ORDER_LOCKED_EDIT_MESSAGE)
+                    navigate(`/orders/${pending.id}`)
+                  } else {
+                    navigate(`/purchase-orders/${pending.id}`)
+                  }
                   onClose()
                 }}
               >
@@ -1460,7 +1473,13 @@ function SalesOrdersInteractivePanel({
           {
             id: 'edit',
             label: 'Edit',
-            onClick: () => window.location.assign(`/orders/${o.sales_order_id}/edit`),
+            onClick: () => {
+              if (isSalesOrderEditable(o)) {
+                window.location.assign(salesOrderEditPath(o.sales_order_id))
+                return
+              }
+              window.alert(SALES_ORDER_LOCKED_EDIT_MESSAGE)
+            },
           },
         ]}
         renderExpanded={(o) => {

@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS chart_of_accounts (
     account_type VARCHAR(50) NOT NULL, -- Asset, Liability, Equity, Revenue, Expense
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+INSERT INTO chart_of_accounts (account_code, account_name, account_type)
+VALUES ('1103', 'Cash in Banks', 'Asset')
+ON CONFLICT (account_code) DO NOTHING;
 
 DROP TABLE IF EXISTS payment_terms CASCADE;
 CREATE TABLE IF NOT EXISTS payment_terms (
@@ -101,6 +104,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     posted_by_user_id UUID REFERENCES users(id),
     -- Finance module additions: accounting period (YYYY-MM) and posting workflow status
     period VARCHAR(7),
+    posting_date DATE,
+    reference VARCHAR(100),
     posting_status VARCHAR(20) NOT NULL DEFAULT 'Posted'
 );
 
@@ -114,6 +119,7 @@ CREATE TABLE IF NOT EXISTS ledger_postings (
     debit NUMERIC(15, 4) DEFAULT 0.0000,
     credit NUMERIC(15, 4) DEFAULT 0.0000,
     currency VARCHAR(3) DEFAULT 'USD',
+    description TEXT,
     CONSTRAINT check_balanced_line CHECK (
         (debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0)
     )
@@ -632,22 +638,34 @@ CREATE TABLE bank_accounts (
     bank_name VARCHAR(150) NOT NULL,
     account_name VARCHAR(100) NOT NULL,
     account_number VARCHAR(34) NOT NULL,
-    routing_number VARCHAR(9),
+    routing_number VARCHAR(34),
+    account_type VARCHAR(20) NOT NULL DEFAULT 'CHECKING',
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    gl_account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_bank_account_type CHECK (
+        account_type IN ('CHECKING', 'SAVINGS', 'MONEY_MARKET', 'OTHER')
+    ),
+    CONSTRAINT chk_bank_account_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 
 CREATE UNIQUE INDEX uq_bank_accounts_one_default
     ON bank_accounts (is_default)
     WHERE is_default = TRUE;
+CREATE INDEX ix_bank_accounts_gl_account_id ON bank_accounts (gl_account_id);
 
 INSERT INTO bank_accounts (
-    bank_account_id, bank_name, account_name, account_number, routing_number, is_default, is_active
+    bank_account_id, bank_name, account_name, account_number, routing_number,
+    account_type, currency, gl_account_id, is_default, is_active
 ) VALUES
-    ('BANK-OPERATING', 'Amerant Bank', 'Operating', '0000008420', '067000123', TRUE, TRUE),
-    ('BANK-PAYROLL', 'Amerant Bank', 'Payroll', '0000003198', '067000123', FALSE, TRUE),
-    ('BANK-RESERVE', 'First Citizens Bank', 'Reserve', '0000007701', '053100300', FALSE, TRUE);
+    ('BANK-OPERATING', 'Amerant Bank', 'Operating', '0000008420', '067000123',
+     'CHECKING', 'USD', (SELECT id FROM chart_of_accounts WHERE account_code = '1103'), TRUE, TRUE),
+    ('BANK-PAYROLL', 'Amerant Bank', 'Payroll', '0000003198', '067000123',
+     'CHECKING', 'USD', (SELECT id FROM chart_of_accounts WHERE account_code = '1103'), FALSE, TRUE),
+    ('BANK-RESERVE', 'First Citizens Bank', 'Reserve', '0000007701', '053100300',
+     'SAVINGS', 'USD', (SELECT id FROM chart_of_accounts WHERE account_code = '1103'), FALSE, TRUE);
 
 -- 17. Cash Management Ledger — records Check Issue (AP payment) / Check Deposit (AR payment)
 CREATE TABLE cash_transactions (

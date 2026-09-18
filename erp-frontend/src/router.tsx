@@ -32,15 +32,24 @@ import ItemDetail from './components/ItemDetail'
 import SubcontractOrderList from './components/SubcontractOrderList'
 import SubcontractOrderForm from './components/SubcontractOrderForm'
 import SubcontractOrderDetail from './components/SubcontractOrderDetail'
+import GoodsReceiptDetail from './components/GoodsReceiptDetail'
 
 import ChartOfAccounts from './components/ChartOfAccounts'
+import PostingRules from './components/PostingRules'
 import PaymentTerms from './components/PaymentTerms'
 import ARInvoices from './components/ARInvoices'
 import APBills from './components/APBills'
 import SupplierInvoiceList from './components/SupplierInvoiceList'
 import SupplierInvoiceForm from './components/SupplierInvoiceForm'
 import CashManagement from './components/CashManagement'
+import BankAccounts from './components/BankAccounts'
+import BankAccountDetail from './components/BankAccountDetail'
+import BankAccountForm from './components/BankAccountForm'
 import GeneralLedger from './components/GeneralLedger'
+import { ManualJournalEntryPage } from './components/ManualJournalEntryPage'
+import { MonthEndClosePage } from './components/MonthEndClosePage'
+import FinancialReports from './components/FinancialReports'
+import FinancialReportViewer from './components/FinancialReportViewer'
 import InventoryOverview from './components/InventoryOverview'
 import StockMovements from './components/StockMovements'
 import WarehousesBins from './components/WarehousesBins'
@@ -158,6 +167,10 @@ export const router = createBrowserRouter([
         element: <PurchaseOrderForm />,
       },
       {
+        path: 'goods-receipts/:receiptId',
+        element: <GoodsReceiptDetail />,
+      },
+      {
         path: 'orders/new',
         element: <SalesOrderForm />,
       },
@@ -258,6 +271,10 @@ export const router = createBrowserRouter([
         element: <ChartOfAccounts />,
       },
       {
+        path: 'posting-rules',
+        element: <PostingRules />,
+      },
+      {
         path: 'accounts-receivable',
         element: <ARInvoices />,
       },
@@ -282,8 +299,48 @@ export const router = createBrowserRouter([
         element: <CashManagement />,
       },
       {
+        path: 'cash-management/bank-accounts',
+        element: <Navigate to="/bank-accounts" replace />,
+      },
+      {
+        path: 'bank-accounts',
+        element: <BankAccounts />,
+      },
+      {
+        path: 'bank-accounts/new',
+        element: <BankAccountForm />,
+      },
+      {
+        path: 'bank-accounts/:id/edit',
+        element: <BankAccountForm />,
+      },
+      {
+        path: 'bank-accounts/:id',
+        element: <BankAccountDetail />,
+      },
+      {
         path: 'general-ledger',
         element: <GeneralLedger />,
+      },
+      {
+        path: 'general-ledger/journals/new',
+        element: <ManualJournalEntryPage />,
+      },
+      {
+        path: 'general-ledger/journals/:id/edit',
+        element: <ManualJournalEntryPage />,
+      },
+      {
+        path: 'general-ledger/month-end-close',
+        element: <MonthEndClosePage />,
+      },
+      {
+        path: 'financial-reports',
+        element: <FinancialReports />,
+      },
+      {
+        path: 'financial-reports/:reportType',
+        element: <FinancialReportViewer />,
       },
       // Legacy finance path redirects (preserve filters / deep links)
       {

@@ -55,7 +55,7 @@ export const HELP_MODULES: Array<{ id: HelpModule; label: string; blurb: string 
   { id: 'manufacturing', label: 'Manufacturing', blurb: 'Subcontract / outside processing orders' },
   { id: 'inventory', label: 'Inventory', blurb: 'Stock, movements, warehouses, and receiving' },
   { id: 'master-data', label: 'Master Data', blurb: 'Customers, vendors, payment terms, tax IDs, and banking' },
-  { id: 'finance', label: 'Finance & Accounting', blurb: 'Invoices, AP, AR, cash, and the general ledger' },
+  { id: 'finance', label: 'Finance & Accounting', blurb: 'Invoices, AP, AR, cash, the general ledger, and financial reports' },
   { id: 'admin', label: 'Administration', blurb: 'Users, roles, permissions, and data import' },
 ]
 
@@ -154,7 +154,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     steps: [
       'Go to Sales & Procurement → Sales Orders.',
-      'Click Create (or use Dashboard → Quick Actions → New Sales Order). The form lives at /orders/new. The sales order ID (PUB61-YYMMXXXX) is assigned on save from the order date.',
+      'Click Create (or use Dashboard → Quick Actions → New Sales Order). The form lives at /orders/new. The sales order ID (PU61-YYMMXXXX) is assigned on save from the order date.',
       'Select the customer. Bill-To and Ship-To locations load from the customer master; pick the correct sites.',
       'Set Freight Terms to the customer Incoterm (FOB, FCA, CIF, DDP, …) and Shipping Method including inland modes (Local Trucking, LTL, Ground).',
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
@@ -568,6 +568,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       '/supplier-invoices',
       '/accounts-payable',
       '/cash-management',
+      '/bank-accounts',
       '/chart-of-accounts',
       '/general-ledger',
     ],
@@ -585,7 +586,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Save as draft or submit for approval. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
       'Open Finance → Supplier Invoices and click a Bill # (VBILL-YYYY-NNNN) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
-      'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add more banks from Cash Management. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
+      'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add or edit company banks under Cash & Treasury → Bank Accounts. Open a bank with View to see the detail page, or Edit to change the mapped G/L account. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
     ],
     callouts: [
       { kind: 'required', text: 'Match PO bills to receipts. Billing a PO-matched invoice with no receipt breaks GRNI clearing. Non-PO expense invoices do not require a PO or receipt.' },
@@ -616,6 +617,43 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Invoice lines are zero',
         fix: 'Nothing unbilled remains. Receive goods on the PO/SCO, or check billing_status on the PO.',
+      },
+    ],
+  },
+  {
+    id: 'finance-reports',
+    module: 'finance',
+    title: 'Financial Reports',
+    routeMatch: ['/financial-reports'],
+    summary:
+      'Finance & Accounting → Reports & Analytics → Financial Reports produces statements and sub-ledger reports from posted journals, open AR/AP, and cash clearing.',
+    steps: [
+      'Open Finance & Accounting → Reports & Analytics. Click the group name (or a category such as Primary Financial Statements) to land on the Financial Reports hub. Nested report names open that statement’s generator; Generate Report / View on a card does the same.',
+      'On the hub, reports are grouped as Primary Financial Statements, Operational & Sub-Ledger, and Managerial & Cash. Each card shows parameters (As Of Date, Currency, and so on) and Generate Report or View.',
+      'Set As Of Date, Date Range, Period / Fiscal Year, and Currency. Branch is company-wide until a branch dimension is added.',
+      'Click Generate Report. Amounts are right-aligned; section totals use a single underline and net values use a double underline.',
+      'Export as PDF (print), CSV, or Excel. Aging rows link back to AR/AP workspaces; bank rows open Bank Account Detail.',
+    ],
+    callouts: [
+      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L.' },
+      { kind: 'tip', text: 'Budget vs. Actual uses the budget book when rows exist; otherwise it compares to the same dates in the prior year.' },
+    ],
+    faqs: [
+      {
+        question: 'Who can see financial statements?',
+        answer:
+          'Users with report:view (Finance Approver, Manager, and Admin). Other roles will not see the Reports & Analytics menu.',
+      },
+      {
+        question: 'Why is the Balance Sheet missing net income in equity?',
+        answer:
+          'Current-year net income is shown as a plug under Equity until you close the year into retained earnings.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'A report is empty',
+        fix: 'Confirm journals are Posted (not Draft), widen the date range, and check Currency matches ledger postings (usually USD).',
       },
     ],
   },

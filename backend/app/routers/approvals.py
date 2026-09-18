@@ -1,6 +1,6 @@
 """Approval workflow endpoints — uniform transactions API + legacy aliases."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -73,6 +73,28 @@ def reject_transaction(
 ):
     return approval_service.reject_document(
         db, type, document_id, user, _comments(payload)
+    )
+
+
+@router.post(
+    "/transactions/{type}/{document_id}/recall",
+    response_model=TransactionActionResult,
+)
+def recall_transaction(
+    type: str,
+    document_id: str,
+    payload: ApprovalActionRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    canonical = approval_service.normalize_module(type)
+    if canonical != "PURCHASE_ORDER":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recall is only available for purchase orders",
+        )
+    return approval_service.recall_purchase_order(
+        db, document_id, user, _comments(payload)
     )
 
 

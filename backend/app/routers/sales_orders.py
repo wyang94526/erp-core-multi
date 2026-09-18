@@ -151,7 +151,9 @@ def update_sales_order(
     order = db.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Sales Order not found")
-        
+
+    o2c.require_sales_order_editable(order)
+
     # --- Business Logic & State Machine ---
     
     # 1. Prevent updates if the order is already cancelled

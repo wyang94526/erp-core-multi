@@ -13,6 +13,9 @@ import { itemService, purchaseOrderService, subcontractOrderService, vendorServi
 import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { defaultCostSheet } from '../utils/scoCostSheet'
+import { SCO_KIT_MUST_BE_ISSUED_MESSAGE, scoHasUnissuedKitComponents } from '../utils/scoKitIssue'
+import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
+import { scoCanReceiveFinishedGoods, scoReceiveBlockedReason } from '../utils/scoReceive'
 import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
@@ -279,7 +282,9 @@ export function SubcontractOrderDetail() {
     isApproved &&
     isCancellable &&
     hasPermission('subcontract:submit')
-  const canOperateKit = isCancellable && (isApproved || isAmending)
+  const canOperateKit = isCancellable
+  const canReceiveFinishedGoods = scoCanReceiveFinishedGoods(sco)
+  const receiveBlockedReason = scoReceiveBlockedReason(sco)
 
   const assemblyLines =
     sco.lines && sco.lines.length > 0
@@ -346,6 +351,9 @@ export function SubcontractOrderDetail() {
           unit_cost: null,
         }))
   kitLinesRef.current = kitLines
+  const kitBlocksApproval = scoHasUnissuedKitComponents(
+    kitLines.length > 0 ? kitLines : sco.components,
+  )
 
   const handleExportVendorPdf = async () => {
     setExportError(null)
@@ -468,6 +476,13 @@ export function SubcontractOrderDetail() {
     e.preventDefault()
     setFormErrors({})
 
+    if (!canReceiveFinishedGoods) {
+      setFormErrors({
+        receive: receiveBlockedReason || 'Finished goods cannot be received on this order.',
+      })
+      return
+    }
+
     if (!receiveForm.receipt_id.trim()) {
       setFormErrors({ receive: 'Receipt ID is required' })
       return
@@ -553,6 +568,8 @@ export function SubcontractOrderDetail() {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
         }}
+        actionDisabled={kitBlocksApproval}
+        actionDisabledReason={kitBlocksApproval ? SCO_KIT_MUST_BE_ISSUED_MESSAGE : null}
       />
 
       {canEditCostSheet && !editingCostSheet && (
@@ -680,13 +697,13 @@ export function SubcontractOrderDetail() {
             <p style={valueStyle}>{sco.supplier_id}</p>
           </div>
           <div>
-            <label style={labelStyle}>Sales Order</label>
+            <label style={labelStyle}>Parent Sales Order</label>
             <p style={valueStyle}>
               {sco.sales_order_id ? (
                 <Link
-                  to={`/sales-orders/${encodeURIComponent(sco.sales_order_id)}`}
+                  to={`/orders/${encodeURIComponent(sco.sales_order_id)}`}
                   style={documentLinkStyle}
-                  title={`Open sales order ${sco.sales_order_id}`}
+                  title={`Open parent sales order ${sco.sales_order_id}`}
                 >
                   {sco.sales_order_id}
                 </Link>
@@ -851,9 +868,9 @@ export function SubcontractOrderDetail() {
                   <td style={tdStyle}>
                     {sco.sales_order_id && line.so_line_number != null ? (
                       <Link
-                        to={`/sales-orders/${encodeURIComponent(sco.sales_order_id)}`}
+                        to={`/orders/${encodeURIComponent(sco.sales_order_id)}`}
                         style={documentLinkStyle}
-                        title={`Open sales order ${sco.sales_order_id}`}
+                        title={`Open parent sales order ${sco.sales_order_id}`}
                       >
                         {line.so_line_number}
                       </Link>
@@ -899,6 +916,11 @@ export function SubcontractOrderDetail() {
           Exploded from the assembly Subcontract BOM (order qty × qty per + scrap / yield loss),
           compared to warehouse issues to the subcontractor.
         </p>
+        {kitBlocksApproval && (approvalStatus === 'DRAFT' || approvalStatus === 'REJECTED' || approvalStatus === 'PENDING_APPROVAL') && (
+          <div style={{ ...errorAlertStyle, marginBottom: 12 }} role="alert">
+            <span>⚠️ {SCO_KIT_MUST_BE_ISSUED_MESSAGE}</span>
+          </div>
+        )}
         {(() => {
           const lines: CalculatedComponentLine[] = kitLines
 
@@ -983,9 +1005,9 @@ export function SubcontractOrderDetail() {
           )}
         </div>
 
-        {isCancellable && !canOperateKit && (
+        {!canOperateKit && (
           <p style={{ color: '#e65100', fontSize: '13px', marginBottom: '12px' }}>
-            Approve this subcontract order before issuing materials.
+            This subcontract order is closed. Materials cannot be issued.
           </p>
         )}
 
@@ -1199,17 +1221,53 @@ export function SubcontractOrderDetail() {
         <div style={tableHeaderContainerStyle}>
           <h3 style={sectionHeadingStyleNoBorder}>Finished Goods Receipts</h3>
           {isCancellable && (
-            <button
-              type="button"
-              onClick={() => setShowReceiveForm((v) => !v)}
-              style={addButtonStyle}
+            <span
+              title={
+                canReceiveFinishedGoods
+                  ? 'Receive finished goods returned from the subcontractor'
+                  : receiveBlockedReason || undefined
+              }
+              style={{
+                display: 'inline-block',
+                cursor: canReceiveFinishedGoods ? 'pointer' : 'not-allowed',
+              }}
             >
-              {showReceiveForm ? 'Cancel' : '+ Receive Goods'}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canReceiveFinishedGoods) return
+                  setShowReceiveForm((v) => !v)
+                }}
+                disabled={!canReceiveFinishedGoods}
+                aria-disabled={!canReceiveFinishedGoods}
+                aria-label={
+                  canReceiveFinishedGoods
+                    ? showReceiveForm
+                      ? 'Cancel receive finished goods'
+                      : 'Receive Finished Goods'
+                    : `Receive Finished Goods. ${receiveBlockedReason || ''}`
+                }
+                style={{
+                  ...addButtonStyle,
+                  backgroundColor: canReceiveFinishedGoods ? '#1976d2' : '#9e9e9e',
+                  opacity: canReceiveFinishedGoods ? 1 : 0.75,
+                  cursor: canReceiveFinishedGoods ? 'pointer' : 'not-allowed',
+                  pointerEvents: canReceiveFinishedGoods ? 'auto' : 'none',
+                }}
+              >
+                {showReceiveForm ? 'Cancel' : '+ Receive Goods'}
+              </button>
+            </span>
           )}
         </div>
 
-        {showReceiveForm && (
+        {isCancellable && !canReceiveFinishedGoods && (
+          <p style={{ color: '#e65100', fontSize: '13px', marginBottom: '12px' }} role="status">
+            {receiveBlockedReason}
+          </p>
+        )}
+
+        {showReceiveForm && canReceiveFinishedGoods && (
           <form onSubmit={handleReceiveSubmit} style={{ marginBottom: '20px' }}>
             <div style={gridStyle}>
               <div style={fieldGroupStyle}>
@@ -1320,7 +1378,15 @@ export function SubcontractOrderDetail() {
               <tbody>
                 {sco.finished_goods_receipts.map((fgr) => (
                   <tr key={fgr.receipt_id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{fgr.receipt_id}</td>
+                    <td style={tdStyle}>
+                      <Link
+                        to={goodsReceiptHref(fgr.receipt_id)}
+                        style={receiptLinkStyle}
+                        title={`Open receipt ${fgr.receipt_id}`}
+                      >
+                        {fgr.receipt_id}
+                      </Link>
+                    </td>
                     <td style={tdStyle}>{new Date(fgr.receipt_date).toLocaleDateString()}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{fgr.quantity_received}</td>
                     <td style={tdStyle}>{fgr.notes || '-'}</td>

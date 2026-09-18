@@ -3,21 +3,38 @@
  * Supports category → optional subgroup → link nesting.
  */
 
+import {
+  REPORT_CATEGORY_META,
+  REPORT_CATEGORY_ORDER,
+  REPORT_HUB_CATALOG,
+  reportCategorySectionId,
+} from '../utils/financialReports'
+
 export type NavLinkItem = {
   kind: 'link'
   label: string
   to: string
   end?: boolean
   permission?: string
+  /** Optional Lucide icon key rendered in the sidebar. */
+  icon?: string
   /** Extra path prefixes that count as active for this link */
   matchPrefixes?: string[]
 }
+
+export type NavGroupItem = NavLinkItem | NavGroup
 
 export type NavGroup = {
   kind: 'group'
   id: string
   label: string
-  items: NavLinkItem[]
+  items: NavGroupItem[]
+  /** Optional Lucide icon key rendered in the sidebar. */
+  icon?: string
+  /** Optional destination — used so report category folders can open the hub. */
+  to?: string
+  /** Path prefixes that keep this group current even when no child hash matches. */
+  matchPrefixes?: string[]
 }
 
 export type NavEntry = NavLinkItem | NavGroup
@@ -46,6 +63,22 @@ export const ALL_ROLES = [
   'ROLE-FIN-APPR',
   'ROLE-MANAGER',
 ]
+
+const REPORT_NAV_ICONS: Record<string, string> = {
+  primary: 'scale',
+  operational: 'layers',
+  managerial: 'pie-chart',
+  'balance-sheet': 'file-spreadsheet',
+  'income-statement': 'trending-up',
+  'cash-flow': 'dollar-sign',
+  'ar-aging': 'clock',
+  'ap-aging': 'credit-card',
+  'trial-balance': 'list',
+  'fixed-asset-schedule': 'package',
+  'cash-flow-forecast': 'line-chart',
+  'budget-vs-actual': 'percent',
+  'bank-reconciliation': 'shield-check',
+}
 
 export const NAV_CATEGORIES: NavCategory[] = [
   {
@@ -170,6 +203,14 @@ export const NAV_CATEGORIES: NavCategory[] = [
             label: 'Cash Management',
             to: '/cash-management',
             permission: 'cash:view',
+            end: true,
+          },
+          {
+            kind: 'link',
+            label: 'Bank Accounts',
+            to: '/bank-accounts',
+            permission: 'cash:view',
+            matchPrefixes: ['/cash-management/bank-accounts'],
           },
         ],
       },
@@ -183,19 +224,68 @@ export const NAV_CATEGORIES: NavCategory[] = [
             label: 'Chart of Accounts',
             to: '/chart-of-accounts',
             permission: 'journal:view',
+            icon: 'list',
+          },
+          {
+            kind: 'link',
+            label: 'Posting Rules',
+            to: '/posting-rules',
+            permission: 'journal:view',
+            icon: 'scale',
           },
           {
             kind: 'link',
             label: 'Payment Terms',
             to: '/payment-terms',
+            icon: 'clock',
           },
           {
             kind: 'link',
             label: 'General Ledger',
             to: '/general-ledger',
             permission: 'journal:view',
+            end: true,
+            icon: 'scale',
+          },
+          {
+            kind: 'link',
+            label: 'Manual Journal Entry',
+            to: '/general-ledger/journals/new',
+            permission: 'journal:create',
+            matchPrefixes: ['/general-ledger/journals'],
+            icon: 'book-open',
+          },
+          {
+            kind: 'link',
+            label: 'Month-End Close',
+            to: '/general-ledger/month-end-close',
+            permission: 'journal:view',
+            end: true,
+            icon: 'calendar-check',
           },
         ],
+      },
+      {
+        kind: 'group',
+        id: 'financial-reports',
+        label: '📈 Reports & Analytics',
+        to: '/financial-reports',
+        matchPrefixes: ['/financial-reports'],
+        items: REPORT_CATEGORY_ORDER.map((category) => ({
+          kind: 'group' as const,
+          id: `rpt-${category}`,
+          label: REPORT_CATEGORY_META[category].label,
+          icon: REPORT_NAV_ICONS[category],
+          to: `/financial-reports#${reportCategorySectionId(category)}`,
+          items: REPORT_HUB_CATALOG.filter((report) => report.category === category).map((report) => ({
+            kind: 'link' as const,
+            label: report.title,
+            icon: REPORT_NAV_ICONS[report.id],
+            to: `/financial-reports/${report.id}`,
+            permission: 'report:view',
+            end: true,
+          })),
+        })),
       },
     ],
   },
@@ -215,34 +305,57 @@ export const NAV_CATEGORIES: NavCategory[] = [
   },
 ]
 
-export function flattenNavLinks(entries: NavEntry[]): NavLinkItem[] {
+export function flattenNavLinks(entries: Array<NavEntry | NavGroupItem>): NavLinkItem[] {
   const links: NavLinkItem[] = []
   for (const entry of entries) {
     if (entry.kind === 'link') links.push(entry)
-    else links.push(...entry.items)
+    else links.push(...flattenNavLinks(entry.items))
   }
   return links
 }
 
-export function isNavLinkActive(pathname: string, item: NavLinkItem): boolean {
-  if (item.to === '/') {
+export function splitNavTo(to: string): { path: string; hash: string } {
+  const index = to.indexOf('#')
+  if (index === -1) return { path: to, hash: '' }
+  return { path: to.slice(0, index), hash: to.slice(index) }
+}
+
+function normalizeHash(hash: string): string {
+  if (!hash) return ''
+  return hash.startsWith('#') ? hash : `#${hash}`
+}
+
+export function isNavLinkActive(pathname: string, item: NavLinkItem, hash = ''): boolean {
+  const { path, hash: itemHash } = splitNavTo(item.to)
+  const currentHash = normalizeHash(hash)
+
+  if (itemHash) {
+    if (pathname === path) return currentHash === itemHash
+    if (pathname.startsWith(`${path}/`)) {
+      const reportId = pathname.slice(path.length + 1)
+      return itemHash === `#${reportCardId(reportId)}`
+    }
+    return false
+  }
+
+  if (path === '/') {
     return pathname === '/'
   }
-  if (item.to === '/help/workflows') {
+  if (path === '/help/workflows') {
     return pathname === '/help/workflows' || pathname.startsWith('/help/workflows/')
   }
-  if (item.to === '/help') {
+  if (path === '/help') {
     if (pathname === '/help/workflows' || pathname.startsWith('/help/workflows/')) return false
     return pathname === '/help' || pathname.startsWith('/help/')
   }
-  if (item.to === '/sales-orders') {
+  if (path === '/sales-orders') {
     return (
       pathname === '/sales-orders' ||
       pathname.startsWith('/sales-orders/') ||
       pathname.startsWith('/orders')
     )
   }
-  const prefixes = [item.to, ...(item.matchPrefixes ?? [])]
+  const prefixes = [path, ...(item.matchPrefixes ?? [])]
   for (const prefix of prefixes) {
     if (item.end) {
       if (pathname === prefix) return true
@@ -253,22 +366,95 @@ export function isNavLinkActive(pathname: string, item: NavLinkItem): boolean {
   return false
 }
 
-export function findActiveCategoryId(pathname: string): string | null {
+export function isNavGroupDestinationActive(
+  pathname: string,
+  group: NavGroup,
+  hash = '',
+): boolean {
+  if (!group.to) return false
+  const { path, hash: itemHash } = splitNavTo(group.to)
+  if (itemHash) return pathname === path && normalizeHash(hash) === itemHash
+  return pathname === path && !normalizeHash(hash)
+}
+
+export function isNavGroupActive(pathname: string, group: NavGroup, hash = ''): boolean {
+  if (isNavGroupDestinationActive(pathname, group, hash)) return true
+  for (const item of group.items) {
+    if (item.kind === 'link' && isNavLinkActive(pathname, item, hash)) return true
+    if (item.kind === 'group' && isNavGroupActive(pathname, item, hash)) return true
+  }
+  return (group.matchPrefixes ?? []).some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )
+}
+
+export function collectActiveGroupIds(
+  pathname: string,
+  hash: string,
+  items: Array<NavEntry | NavGroupItem>,
+): string[] {
+  const ids: string[] = []
+  for (const item of items) {
+    if (item.kind !== 'group') continue
+    if (!isNavGroupActive(pathname, item, hash)) continue
+    ids.push(item.id)
+    ids.push(...collectActiveGroupIds(pathname, hash, item.items))
+  }
+  return ids
+}
+
+export function findActiveCategoryId(pathname: string, hash = ''): string | null {
   for (const category of NAV_CATEGORIES) {
-    if (flattenNavLinks(category.entries).some((item) => isNavLinkActive(pathname, item))) {
-      return category.id
+    const hit = category.entries.some((entry) =>
+      entry.kind === 'link'
+        ? isNavLinkActive(pathname, entry, hash)
+        : isNavGroupActive(pathname, entry, hash),
+    )
+    if (hit) return category.id
+  }
+  return null
+}
+
+export function findActiveGroupId(
+  pathname: string,
+  category: NavCategory,
+  hash = '',
+): string | null {
+  for (const entry of category.entries) {
+    if (entry.kind === 'group' && isNavGroupActive(pathname, entry, hash)) {
+      return entry.id
     }
   }
   return null
 }
 
-export function findActiveGroupId(pathname: string, category: NavCategory): string | null {
-  for (const entry of category.entries) {
-    if (entry.kind === 'group' && entry.items.some((item) => isNavLinkActive(pathname, item))) {
-      return entry.id
+function findActiveGroupDestination(
+  items: NavGroupItem[],
+  pathname: string,
+  hash: string,
+): NavGroup | undefined {
+  for (const item of items) {
+    if (item.kind !== 'group') continue
+    if (isNavGroupDestinationActive(pathname, item, hash)) return item
+    const nested = findActiveGroupDestination(item.items, pathname, hash)
+    if (nested) return nested
+  }
+  return undefined
+}
+
+function findActiveNavLink(
+  items: NavGroupItem[],
+  pathname: string,
+  hash: string,
+): NavLinkItem | undefined {
+  for (const item of items) {
+    if (item.kind === 'link' && isNavLinkActive(pathname, item, hash)) return item
+    if (item.kind === 'group') {
+      const nested = findActiveNavLink(item.items, pathname, hash)
+      if (nested) return nested
     }
   }
-  return null
+  return undefined
 }
 
 function stripLeadingEmoji(label: string): string {
@@ -276,22 +462,46 @@ function stripLeadingEmoji(label: string): string {
 }
 
 /** Build breadcrumb trail for the current path from nav config. */
-export function getBreadcrumbs(pathname: string): BreadcrumbCrumb[] {
+export function getBreadcrumbs(pathname: string, hash = ''): BreadcrumbCrumb[] {
   for (const category of NAV_CATEGORIES) {
     for (const entry of category.entries) {
-      if (entry.kind === 'link' && isNavLinkActive(pathname, entry)) {
-        if (entry.to === '/') return [{ label: entry.label }]
+      if (entry.kind === 'link' && isNavLinkActive(pathname, entry, hash)) {
+        if (splitNavTo(entry.to).path === '/') return [{ label: entry.label }]
         return [{ label: stripLeadingEmoji(category.label) }, { label: entry.label }]
       }
       if (entry.kind === 'group') {
-        for (const item of entry.items) {
-          if (isNavLinkActive(pathname, item)) {
-            return [
-              { label: stripLeadingEmoji(category.label) },
-              { label: stripLeadingEmoji(entry.label) },
-              { label: item.label },
-            ]
-          }
+        const groupLabel = stripLeadingEmoji(entry.label)
+        const categoryLabel = stripLeadingEmoji(category.label)
+        if (entry.id === 'financial-reports' && pathname.startsWith('/financial-reports/')) {
+          const reportId = pathname.slice('/financial-reports/'.length)
+          const report = REPORT_HUB_CATALOG.find((item) => item.id === reportId)
+          return [
+            { label: categoryLabel },
+            { label: groupLabel, to: '/financial-reports' },
+            { label: report?.title ?? 'Report' },
+          ]
+        }
+
+        const destGroup = findActiveGroupDestination(entry.items, pathname, hash)
+        if (destGroup) {
+          return [
+            { label: categoryLabel },
+            { label: groupLabel, to: '/financial-reports' },
+            { label: destGroup.label },
+          ]
+        }
+
+        const hashItem = findActiveNavLink(entry.items, pathname, hash)
+        if (hashItem) {
+          return [
+            { label: categoryLabel },
+            { label: groupLabel, to: entry.to || undefined },
+            { label: hashItem.label },
+          ]
+        }
+
+        if (isNavGroupActive(pathname, entry, hash)) {
+          return [{ label: categoryLabel }, { label: groupLabel }]
         }
       }
     }

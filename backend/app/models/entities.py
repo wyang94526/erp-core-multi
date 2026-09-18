@@ -175,14 +175,14 @@ class ApprovalAuditLog(Base):
     document_type = Column(String(50), nullable=False)
     document_id = Column(String(50), nullable=False)
     step_number = Column(Integer, nullable=True)
-    action = Column(String(20), nullable=False)  # SUBMITTED | APPROVED | REJECTED | DELEGATED | AMENDED
+    action = Column(String(20), nullable=False)  # SUBMITTED | APPROVED | REJECTED | DELEGATED | AMENDED | RECALLED
     performed_by_user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
     comments = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
 
     __table_args__ = (
         CheckConstraint(
-            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED')",
+            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED')",
             name='chk_approval_audit_action',
         ),
     )
@@ -202,6 +202,50 @@ class ChartOfAccount(Base):
     account_name = Column(String(255), nullable=False)
     account_type = Column(String(50), nullable=False) # Asset, Liability, Equity, Revenue, Expense
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+
+
+class PostingRule(Base):
+    """Action → debit/credit account mapping used by automated GL posting."""
+
+    __tablename__ = "posting_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_code = Column(String(50), unique=True, nullable=False)
+    event_code = Column(String(40), nullable=False)
+    variant = Column(String(40), nullable=False)
+    party_scope = Column(String(20), nullable=False, server_default=text("'ANY'"))
+    name = Column(String(255), nullable=False)
+    debit_account_id = Column(
+        UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    credit_account_id = Column(
+        UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    is_system = Column(Boolean, nullable=False, server_default=text("true"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    debit_account = relationship("ChartOfAccount", foreign_keys=[debit_account_id])
+    credit_account = relationship("ChartOfAccount", foreign_keys=[credit_account_id])
+
+    __table_args__ = (
+        UniqueConstraint("event_code", "variant", "party_scope", name="uq_posting_rules_event"),
+        CheckConstraint(
+            "party_scope IN ('TRADE', 'RELATED', 'ANY')",
+            name="chk_posting_rules_party_scope",
+        ),
+        CheckConstraint(
+            "debit_account_id <> credit_account_id",
+            name="chk_posting_rules_distinct_accounts",
+        ),
+        Index("ix_posting_rules_event_variant", "event_code", "variant"),
+    )
 
 
 class PaymentTerm(Base):
@@ -262,6 +306,8 @@ class JournalEntry(Base):
 
     # Finance module additions: accounting period (YYYY-MM) and posting workflow status
     period = Column(String(7), nullable=True)  # e.g. '2026-08'
+    posting_date = Column(Date, nullable=True)
+    reference = Column(String(100), nullable=True)
     posting_status = Column(String(20), nullable=False, server_default=text("'Posted'"))  # 'Draft' or 'Posted'
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
@@ -281,6 +327,7 @@ class LedgerPosting(Base):
     debit = Column(Numeric(15, 4), default=0.0000)
     credit = Column(Numeric(15, 4), default=0.0000)
     currency = Column(String(3), default='USD')
+    description = Column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -291,6 +338,32 @@ class LedgerPosting(Base):
 
     # Relationships
     entry = relationship("JournalEntry", back_populates="postings")
+    account = relationship("ChartOfAccount")
+
+
+class FinancialBudget(Base):
+    """Optional P&L budget book used by Budget vs. Actual reporting."""
+
+    __tablename__ = "financial_budgets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    fiscal_year = Column(Integer, nullable=False)
+    period = Column(String(7), nullable=False, server_default=text("''"))  # '' = annual; else YYYY-MM
+    account_id = Column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id"), nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False, default=0)
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "fiscal_year",
+            "period",
+            "account_id",
+            "currency",
+            name="uq_financial_budget_period_account",
+        ),
+    )
+
     account = relationship("ChartOfAccount")
 
 # ========================================================
@@ -734,6 +807,7 @@ class SubcontractOrder(Base):
 
     sco_number = Column(String(50), primary_key=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
+    # Parent Sales Order when this SCO is created from an SO (e.g. PU61-26060001).
     sales_order_id = Column(String(50), ForeignKey('salesorders.sales_order_id'), nullable=True)
     item_id = Column(String(50), ForeignKey('items.item_id'), nullable=False)
     bom_header_id = Column(
@@ -1169,10 +1243,23 @@ class BankAccount(Base):
     bank_name = Column(String(150), nullable=False)
     account_name = Column(String(100), nullable=False)
     account_number = Column(String(34), nullable=False)
-    routing_number = Column(String(9), nullable=True)
+    routing_number = Column(String(34), nullable=True)
+    account_type = Column(String(20), nullable=False, server_default=text("'CHECKING'"))
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    gl_account_id = Column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id"), nullable=False)
     is_default = Column(Boolean, nullable=False, server_default=text("false"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "account_type IN ('CHECKING', 'SAVINGS', 'MONEY_MARKET', 'OTHER')",
+            name="chk_bank_account_type",
+        ),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="chk_bank_account_currency"),
+    )
+
+    gl_account = relationship("ChartOfAccount")
 
 
 class CashTransaction(Base):

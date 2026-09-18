@@ -278,6 +278,16 @@ export interface SalesOrderSubcontractLine {
   is_subcontract_assembly?: boolean;
 }
 
+export interface SalesOrderSubcontractAvailability {
+  sales_order_id: string;
+  status?: string | null;
+  approval_status?: string | null;
+  can_create: boolean;
+  remaining_total: number;
+  message?: string | null;
+  lines: SalesOrderSubcontractLine[];
+}
+
 export interface PreviewComponentLine {
   so_item_id?: number | null;
   item_id: string;
@@ -347,7 +357,7 @@ export interface ApprovalHistory {
   transaction_id?: string;
   step_number?: number | null;
   step_name?: string | null;
-  action: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DELEGATED' | string;
+  action: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DELEGATED' | 'AMENDED' | 'RECALLED' | string;
   performed_by_user_id?: string | null;
   actor_user_id?: string | null;
   actor_name?: string | null;
@@ -547,6 +557,12 @@ export interface PurchaseOrderItem {
   line_subtotal: number; // qty * price
   line_tax: number; // line_subtotal * (tax_rate / 100)
   line_total: number; // line_subtotal + line_tax
+  estimated_landed_unit_cost?: number;
+  allocated_landed_expense?: number;
+  quantity_received?: number;
+  quantity_remaining_to_receive?: number;
+  quantity_billed?: number;
+  quantity_remaining_to_bill?: number;
 }
 
 export type FreightPaymentTerms = 'PREPAID_ON_PO' | 'THIRD_PARTY_COLLECT' | 'ROUTING_ACCOUNT';
@@ -578,6 +594,14 @@ export interface PurchaseOrder {
   discount_amount: number;
   grand_total: number;
   notes?: string;
+  can_recall?: boolean;
+  has_posted_receipts?: boolean;
+  has_supplier_invoices?: boolean;
+  recall_blocked_reason?: string | null;
+  can_receive_goods?: boolean;
+  receive_blocked_reason?: string | null;
+  can_create_bill?: boolean;
+  bill_blocked_reason?: string | null;
 }
 
 export interface EligibleMaterialPoSco {
@@ -680,6 +704,85 @@ export interface FinishedGoodsReceipt {
   created_at: string;
 }
 
+export type GoodsReceiptStatus = 'DRAFT' | 'POSTED' | 'CANCELLED' | string;
+
+export interface GoodsReceiptLine {
+  id: number;
+  receipt_id: number;
+  source_line_id?: number | null;
+  item_id: string;
+  description?: string | null;
+  item_description?: string | null;
+  quantity_ordered?: number | string | null;
+  quantity_received: number | string;
+  unit_cost: number | string;
+  line_amount: number | string;
+  uom?: string | null;
+  lot_number?: string | null;
+  serial_number?: string | null;
+}
+
+export interface GoodsReceiptJournalPosting {
+  id?: string | null;
+  account_id?: string | null;
+  account_code?: string | null;
+  account_name?: string | null;
+  description?: string | null;
+  debit?: number | string;
+  credit?: number | string;
+  currency?: string | null;
+}
+
+export interface GoodsReceiptJournal {
+  id: string;
+  created_at?: string | null;
+  description: string;
+  posted_by_user_id?: string | null;
+  posted_by_name?: string | null;
+  period?: string | null;
+  posting_date?: string | null;
+  reference?: string | null;
+  posting_status?: string | null;
+  approval_status?: string | null;
+  purpose?: string | null;
+  postings: GoodsReceiptJournalPosting[];
+}
+
+export interface GoodsReceiptInvoiceRef {
+  id: number;
+  invoice_number: string;
+  ap_bill_id?: string | null;
+  status: string;
+  invoice_date?: string | null;
+  total_amount?: number | string | null;
+  link_type?: string | null;
+}
+
+export interface GoodsReceipt {
+  id: number;
+  receipt_number: string;
+  source_type: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | string;
+  source_order_id: string;
+  vendor_id: string;
+  vendor_name?: string | null;
+  receipt_date: string;
+  status: GoodsReceiptStatus;
+  status_label?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  warehouse_id?: string | null;
+  warehouse_code?: string | null;
+  warehouse_name?: string | null;
+  bin_id?: string | null;
+  bin_code?: string | null;
+  received_by?: string | null;
+  operational_receipt_id?: string | null;
+  total_amount?: number | string | null;
+  lines: GoodsReceiptLine[];
+  journals?: GoodsReceiptJournal[];
+  related_invoices?: GoodsReceiptInvoiceRef[];
+}
+
 export type SubcontractOrderStatus =
   | 'PLANNED'
   | 'PARTIALLY_ISSUED'
@@ -733,6 +836,31 @@ export interface ChartOfAccountCreate {
   account_code: string;
   account_name: string;
   account_type: AccountType;
+}
+
+export interface PostingRule {
+  id: string;
+  rule_code: string;
+  event_code: string;
+  event_label: string;
+  variant: string;
+  variant_label: string;
+  party_scope: string;
+  party_label: string;
+  name: string;
+  debit_account_id: string;
+  debit_account_code?: string | null;
+  debit_account_name?: string | null;
+  debit_account_type?: string | null;
+  credit_account_id: string;
+  credit_account_code?: string | null;
+  credit_account_name?: string | null;
+  credit_account_type?: string | null;
+  default_debit_account_code?: string | null;
+  default_credit_account_code?: string | null;
+  is_system: boolean;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export interface ARInvoice {
@@ -980,6 +1108,8 @@ export type CashPaymentPayload = {
   payment_date?: string | null
 }
 
+export type BankAccountType = 'CHECKING' | 'SAVINGS' | 'MONEY_MARKET' | 'OTHER' | string
+
 export interface BankAccount {
   bank_account_id: string;
   bank_name: string;
@@ -987,7 +1117,25 @@ export interface BankAccount {
   account_number: string;
   account_number_masked?: string | null;
   routing_number?: string | null;
+  account_type?: BankAccountType | null;
+  currency?: string | null;
+  gl_account_id?: string | null;
+  gl_account_code?: string | null;
+  gl_account_name?: string | null;
+  gl_account_display?: string | null;
   display_name?: string | null;
+  is_default?: boolean;
+  is_active?: boolean;
+}
+
+export interface BankAccountWrite {
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  routing_number?: string | null;
+  account_type: BankAccountType;
+  currency: string;
+  gl_account_id: string;
   is_default?: boolean;
   is_active?: boolean;
 }
@@ -1006,6 +1154,7 @@ export interface CashTransaction {
   account_number?: string | null;
   account_number_masked?: string | null;
   routing_number?: string | null;
+  gl_account_id?: string | null;
   payment_method?: CashPaymentMethod | string;
   instrument_ref_no?: string | null;
   instrument_display_number?: string | null;
@@ -1023,6 +1172,7 @@ export interface LedgerPosting {
   debit: number;
   credit: number;
   currency: string;
+  description?: string | null;
   account_code?: string | null;
   account_name?: string | null;
 }
@@ -1033,10 +1183,26 @@ export interface JournalEntry {
   description: string;
   posted_by_user_id: string | null;
   period: string | null; // e.g. '2026-08'
+  posting_date?: string | null; // YYYY-MM-DD
+  reference?: string | null;
   posting_status: 'Draft' | 'Posted' | string | null;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
   postings: LedgerPosting[];
+}
+
+export interface JournalEntryCreatePayload {
+  description: string;
+  posting_date?: string;
+  period?: string;
+  reference?: string | null;
+  postings: {
+    account_id: string;
+    debit: number;
+    credit: number;
+    currency?: string;
+    description?: string | null;
+  }[];
 }
 
 // ==========================================
@@ -1119,3 +1285,66 @@ export interface DocumentAttachment {
   uploaded_by_name: string | null;
   uploaded_at: string;
 }
+
+export type FinancialReportCategory = 'primary' | 'operational' | 'managerial'
+export type FinancialReportEmphasis = 'normal' | 'section' | 'total' | 'net' | 'negative'
+export type FinancialReportCellFormat = 'text' | 'number' | 'percent' | 'date'
+export type FinancialReportExportFormat = 'pdf' | 'csv' | 'excel'
+
+export interface FinancialReportColumn {
+  key: string
+  label: string
+  align: 'left' | 'right' | 'center'
+  format: FinancialReportCellFormat
+}
+
+export interface FinancialReportRow {
+  id?: string | null
+  cells: Record<string, string | number | null | undefined>
+  indent?: number
+  emphasis?: FinancialReportEmphasis
+  link?: string | null
+}
+
+export interface FinancialReportCatalogItem {
+  id: string
+  title: string
+  category: FinancialReportCategory | string
+  category_label: string
+  description: string
+  parameters: string[]
+  default_action: string
+}
+
+export interface FinancialReportFilters {
+  as_of_date: string
+  date_from: string
+  date_to: string
+  period: string
+  fiscal_year: number
+  currency: string
+  branch: string
+}
+
+export interface FinancialReport {
+  report_type: string
+  title: string
+  subtitle?: string | null
+  generated_at: string
+  currency: string
+  filters: FinancialReportFilters
+  columns: FinancialReportColumn[]
+  rows: FinancialReportRow[]
+  summary: Record<string, unknown>
+  notes: string[]
+}
+
+export type FinancialReportQuery = Partial<{
+  as_of_date: string
+  date_from: string
+  date_to: string
+  period: string
+  fiscal_year: number
+  currency: string
+  branch: string
+}>

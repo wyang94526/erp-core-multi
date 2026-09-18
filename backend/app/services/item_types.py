@@ -24,9 +24,9 @@ SERVICE_SKU_ALIASES = {
     "SVC-FREIGHT",
 }
 
-DEFAULT_EXPENSE_ACCOUNT_CODE = "5200"
-DEFAULT_EXPENSE_ACCOUNT_NAME = "Freight & Tax Expense"
-DEFAULT_REVENUE_ACCOUNT_CODE = "4000"
+DEFAULT_EXPENSE_ACCOUNT_CODE = "5190"
+DEFAULT_EXPENSE_ACCOUNT_NAME = "Purchase Expenses"
+DEFAULT_REVENUE_ACCOUNT_CODE = "4110001"
 
 
 def normalize_item_type(value: Any) -> str:
@@ -36,6 +36,11 @@ def normalize_item_type(value: Any) -> str:
     if raw in ITEM_TYPES:
         return raw
     return INVENTORY
+
+
+def is_service_sku(sku: Any) -> bool:
+    raw = str(sku or "").strip().upper().replace(" ", "")
+    return raw in SERVICE_SKU_ALIASES
 
 
 def is_stock_type(item_type: Any) -> bool:

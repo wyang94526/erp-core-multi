@@ -621,7 +621,7 @@ def propose_draft_sales_order(
     items_json must be a JSON array like:
     [{"item_id":"PROD-1001G","quantity":2,"unit_price":10.5}]
     Bill-to / ship-to locations are auto-selected from the customer when possible.
-    The sales order ID is assigned on save as PUB61-YYMMXXXX from the order date.
+    The sales order ID is assigned on save as PU61-YYMMXXXX from the order date.
     """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "sales_order:create")

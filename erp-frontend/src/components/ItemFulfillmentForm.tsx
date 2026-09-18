@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { fulfillmentService, itemService, salesOrderService } from '../api/services'
 import { isStockItemType } from '../utils/itemTypes'
+import { fulfilledQtyByLine, overFulfillmentMessage } from '../utils/fulfillmentQty'
 
 type LineDraft = {
   sales_order_line_id: number
@@ -44,15 +45,7 @@ export function ItemFulfillmentForm() {
 
   const drafts: LineDraft[] = useMemo(() => {
     if (!order?.items) return []
-    const already: Record<number, number> = {}
-    for (const ful of fulfillments) {
-      if (ful.sales_order_id !== order.sales_order_id) continue
-      if (ful.status === 'DRAFT') continue
-      for (const line of ful.lines) {
-        already[line.sales_order_line_id] =
-          (already[line.sales_order_line_id] || 0) + line.quantity_fulfilled
-      }
-    }
+    const already = fulfilledQtyByLine(fulfillments, order.sales_order_id)
     return order.items
       .filter((item) => {
         const catalog = catalogItems.find((row) => row.item_id === item.item_id)
@@ -70,6 +63,22 @@ export function ItemFulfillmentForm() {
       }
     })
   }, [order, fulfillments, lineQty, catalogItems])
+
+  const lineErrors = useMemo(() => {
+    const errors: Record<number, string> = {}
+    for (const d of drafts) {
+      const remaining = d.quantity_ordered - d.already_fulfilled
+      if (d.quantity_fulfilled > remaining) {
+        errors[d.sales_order_line_id] = overFulfillmentMessage(d.quantity_ordered, d.item_id)
+      }
+    }
+    return errors
+  }, [drafts])
+  const hasOverFulfill = Object.keys(lineErrors).length > 0
+  const firstOverFulfillError = drafts.find((d) => lineErrors[d.sales_order_line_id])
+  const overFulfillBanner = firstOverFulfillError
+    ? overFulfillmentMessage(firstOverFulfillError.quantity_ordered, firstOverFulfillError.item_id)
+    : null
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -143,7 +152,7 @@ export function ItemFulfillmentForm() {
         <div style={cardStyle}>
           {drafts.length === 0
             ? 'No inventory lines to fulfill. Service and non-inventory charges skip stock movement and can be invoiced from the sales order.'
-            : 'All ordered quantities are already fulfilled (non-draft).'}
+            : 'All ordered quantities are already fulfilled.'}
         </div>
       ) : (
         <div style={cardStyle}>
@@ -160,6 +169,7 @@ export function ItemFulfillmentForm() {
             <tbody>
               {drafts.map((d) => {
                 const max = Math.max(0, d.quantity_ordered - d.already_fulfilled)
+                const error = lineErrors[d.sales_order_line_id]
                 return (
                   <tr key={d.sales_order_line_id} style={tbodyRowStyle}>
                     <td style={tdStyle}>{d.item_id}</td>
@@ -170,14 +180,27 @@ export function ItemFulfillmentForm() {
                         type="number"
                         min={0}
                         max={max}
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? `fulfill-qty-error-${d.sales_order_line_id}` : undefined}
                         value={d.quantity_fulfilled}
                         disabled={max === 0}
                         onChange={(e) => {
-                          const n = Math.min(max, Math.max(0, Number(e.target.value) || 0))
+                          const n = Math.max(0, Number(e.target.value) || 0)
                           setLineQty((prev) => ({ ...prev, [d.sales_order_line_id]: n }))
                         }}
-                        style={inputStyle}
+                        style={{
+                          ...inputStyle,
+                          borderColor: error ? '#c62828' : 'var(--border)',
+                        }}
                       />
+                      {error ? (
+                        <div
+                          id={`fulfill-qty-error-${d.sales_order_line_id}`}
+                          style={inlineErrorStyle}
+                        >
+                          {error}
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -211,6 +234,12 @@ export function ItemFulfillmentForm() {
             Ship immediately (deduct inventory and write stock movements)
           </label>
 
+          {overFulfillBanner ? (
+            <div role="alert" style={warningBannerStyle}>
+              {overFulfillBanner}
+            </div>
+          ) : null}
+
           {mutation.isError ? (
             <p style={{ color: '#c62828', marginTop: 12 }}>
               {mutation.error instanceof Error ? mutation.error.message : 'Create failed'}
@@ -220,9 +249,28 @@ export function ItemFulfillmentForm() {
           <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
             <button
               type="button"
-              style={primaryButtonStyle}
-              disabled={mutation.isPending || drafts.every((d) => d.quantity_fulfilled <= 0)}
-              onClick={() => mutation.mutate()}
+              style={{
+                ...primaryButtonStyle,
+                ...(hasOverFulfill || mutation.isPending || drafts.every((d) => d.quantity_fulfilled <= 0)
+                  ? disabledPrimaryButtonStyle
+                  : {}),
+              }}
+              disabled={
+                mutation.isPending ||
+                hasOverFulfill ||
+                drafts.every((d) => d.quantity_fulfilled <= 0)
+              }
+              title={
+                hasOverFulfill
+                  ? overFulfillBanner || undefined
+                  : shipNow
+                    ? 'Ship (deduct inventory)'
+                    : 'Create fulfillment'
+              }
+              onClick={() => {
+                if (hasOverFulfill) return
+                mutation.mutate()
+              }}
             >
               {mutation.isPending ? 'Saving…' : shipNow ? 'Create & Ship' : 'Create Fulfillment'}
             </button>
@@ -310,6 +358,28 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+const disabledPrimaryButtonStyle: React.CSSProperties = {
+  backgroundColor: '#9e9e9e',
+  cursor: 'not-allowed',
+}
+const warningBannerStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: '10px 12px',
+  borderRadius: 6,
+  backgroundColor: '#fdecea',
+  border: '1px solid #ef9a9a',
+  color: '#b71c1c',
+  fontSize: 13,
+  fontWeight: 600,
+}
+const inlineErrorStyle: React.CSSProperties = {
+  marginTop: 6,
+  color: '#c62828',
+  fontSize: 12,
+  fontWeight: 600,
+  textAlign: 'left',
+  maxWidth: 260,
 }
 
 export default ItemFulfillmentForm

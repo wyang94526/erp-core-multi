@@ -77,10 +77,11 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
       {
         id: 'o2c-cash',
         title: 'Payment Receipt & Cash Reconciliation',
-        navPath: 'Finance & Accounting ▸ Cash Management',
+        navPath: 'Finance & Accounting ▸ Cash & Treasury Management',
         body: 'Record customer remittance against open AR invoices and apply cash to the bank ledger so AR, cash, and the general ledger stay in sync.',
         links: [
           { label: 'Cash Management', to: '/cash-management' },
+          { label: 'Bank Accounts', to: '/bank-accounts' },
           { label: 'General Ledger', to: '/general-ledger' },
         ],
       },
@@ -209,11 +210,12 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
       {
         id: 'p2p-pay',
         title: 'Payment Execution',
-        navPath: 'Finance & Accounting ▸ Cash Management',
+        navPath: 'Finance & Accounting ▸ Cash & Treasury Management',
         body: 'Process disbursement by Check, ACH, or Wire. Overseas wires require beneficiary bank, SWIFT/BIC, and IBAN from the vendor remittance card.',
         links: [
           { label: 'AP Aging & Payments', to: '/accounts-payable' },
           { label: 'Cash Management', to: '/cash-management' },
+          { label: 'Bank Accounts', to: '/bank-accounts' },
         ],
       },
     ],
@@ -235,6 +237,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
           { label: 'AP Aging', to: '/accounts-payable' },
           { label: 'Stock On-Hand', to: '/inventory' },
           { label: 'Cash Management', to: '/cash-management' },
+          { label: 'Bank Accounts', to: '/bank-accounts' },
         ],
       },
       {
@@ -253,6 +256,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         navPath: 'Finance & Accounting ▸ General Ledger',
         body: 'Review the trial balance, then generate the Income Statement (P&L), Balance Sheet, and Cash Flow statement from posted GL activity.',
         links: [
+          { label: 'Financial Reports', to: '/financial-reports' },
           { label: 'General Ledger', to: '/general-ledger' },
           { label: 'Dashboard KPIs', to: '/' },
         ],

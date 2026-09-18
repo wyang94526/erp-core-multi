@@ -13,9 +13,11 @@ from app.routers import (
     auth,
     cash_transactions,
     bank_accounts,
+    financial_reports,
     customer_locations,
     customers,
     fulfillments,
+    goods_receipts,
     health,
     inventory,
     items,
@@ -35,6 +37,7 @@ from app.routers import (
     work_centers,
     data_import,
     payment_terms,
+    posting_rules,
 )
 
 
@@ -70,6 +73,7 @@ app.include_router(products.router, prefix="/api/v1")
 app.include_router(items.router, prefix="/api/v1")
 app.include_router(accounts.router, prefix="/api/v1")
 app.include_router(payment_terms.router, prefix="/api/v1")
+app.include_router(posting_rules.router, prefix="/api/v1")
 app.include_router(sales_orders.router, prefix="/api/v1")
 app.include_router(fulfillments.router, prefix="/api/v1")
 app.include_router(sales_invoices.router, prefix="/api/v1")
@@ -80,12 +84,14 @@ app.include_router(product_bom.router, prefix="/api/v1")
 app.include_router(subcontract_boms.router, prefix="/api/v1")
 app.include_router(subcontract_orders.router, prefix="/api/v1")
 app.include_router(purchase_orders.router, prefix="/api/v1")
+app.include_router(goods_receipts.router, prefix="/api/v1")
 app.include_router(ar_invoices.router, prefix="/api/v1")
 app.include_router(ap_bills.router, prefix="/api/v1")
 app.include_router(vendor_invoices.router, prefix="/api/v1")
 app.include_router(attachments.router, prefix="/api/v1")
 app.include_router(cash_transactions.router, prefix="/api/v1")
 app.include_router(bank_accounts.router, prefix="/api/v1")
+app.include_router(financial_reports.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(admin_rbac.router, prefix="/api/v1")

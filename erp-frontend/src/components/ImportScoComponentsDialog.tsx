@@ -2,12 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { subcontractOrderService } from '../api/services'
 import type { Item, PurchaseOrderItem, UnfulfilledScoComponent } from '../types'
+import {
+  extraQtyByScoComponent,
+  remainingQtyForScoComponent,
+  ALL_SCO_COMPONENTS_IMPORTED_MESSAGE,
+} from '../utils/scoPoDemand'
 
 type Props = {
   open: boolean
   scoNumber: string
   supplierId?: string
   excludePoNumber?: string
+  poItems?: PurchaseOrderItem[]
   products?: Item[]
   onClose: () => void
   onImport: (rows: PurchaseOrderItem[], replaceAll: boolean) => void
@@ -33,6 +39,7 @@ export function ImportScoComponentsDialog({
   scoNumber,
   supplierId,
   excludePoNumber,
+  poItems = [],
   products = [],
   onClose,
   onImport,
@@ -52,24 +59,38 @@ export function ImportScoComponentsDialog({
     enabled: open && Boolean(scoNumber),
   })
 
+  const extraOnThisPo = useMemo(() => extraQtyByScoComponent(poItems), [poItems])
+  const remainingById = useMemo(() => {
+    const next: Record<number, number> = {}
+    for (const line of lines) {
+      next[line.sco_component_id] = remainingQtyForScoComponent(line, extraOnThisPo)
+    }
+    return next
+  }, [lines, extraOnThisPo])
+
   useEffect(() => {
     if (!open) return
     const nextQty: Record<number, number> = {}
     const nextInc: Record<number, boolean> = {}
     for (const line of lines) {
-      nextQty[line.sco_component_id] = line.quantity_remaining
-      nextInc[line.sco_component_id] = line.quantity_remaining > 0
+      const remaining = remainingById[line.sco_component_id] ?? 0
+      nextQty[line.sco_component_id] = remaining
+      nextInc[line.sco_component_id] = remaining > 0
     }
     setQtyById(nextQty)
     setIncluded(nextInc)
-  }, [open, lines])
+  }, [open, lines, remainingById])
 
   const selectedLines = useMemo(
-    () => lines.filter((line) => included[line.sco_component_id]),
-    [lines, included]
+    () => lines.filter((line) => included[line.sco_component_id] && remainingById[line.sco_component_id] > 0),
+    [lines, included, remainingById],
+  )
+  const remainingTotal = useMemo(
+    () => lines.reduce((sum, line) => sum + (remainingById[line.sco_component_id] || 0), 0),
+    [lines, remainingById],
   )
   const overOrdered = selectedLines.some(
-    (line) => (qtyById[line.sco_component_id] || 0) > line.quantity_remaining + 1e-9
+    (line) => (qtyById[line.sco_component_id] || 0) > (remainingById[line.sco_component_id] || 0) + 1e-9,
   )
   const missingVendorPrice = selectedLines.some(
     (line) => resolveImportPrice(line, products) <= 0
@@ -78,22 +99,28 @@ export function ImportScoComponentsDialog({
   if (!open) return null
 
   const handleImport = () => {
+    if (overOrdered) return
     const rows: PurchaseOrderItem[] = selectedLines
       .filter((line) => (qtyById[line.sco_component_id] || 0) > 0)
-      .map((line) => ({
-        id: generateId(),
-        sku: line.component_item_id,
-        description: line.description || '',
-        uom: line.uom || 'Each',
-        bom_header_id: null,
-        sco_component_id: line.sco_component_id,
-        quantity: qtyById[line.sco_component_id] || 0,
-        unit_price: resolveImportPrice(line, products),
-        tax_rate: 0,
-        line_subtotal: 0,
-        line_tax: 0,
-        line_total: 0,
-      }))
+      .map((line) => {
+        const remaining = remainingById[line.sco_component_id] || 0
+        const qty = Math.min(qtyById[line.sco_component_id] || 0, remaining)
+        return {
+          id: generateId(),
+          sku: line.component_item_id,
+          description: line.description || '',
+          uom: line.uom || 'Each',
+          bom_header_id: null,
+          sco_component_id: line.sco_component_id,
+          quantity: qty,
+          unit_price: resolveImportPrice(line, products),
+          tax_rate: 0,
+          line_subtotal: 0,
+          line_tax: 0,
+          line_total: 0,
+        }
+      })
+      .filter((row) => row.quantity > 0)
     if (rows.length === 0) return
     onImport(rows, replaceAll)
     onClose()
@@ -115,6 +142,9 @@ export function ImportScoComponentsDialog({
             {error instanceof Error ? error.message : 'Failed to load component demand'}
           </p>
         )}
+        {!isFetching && !error && lines.length > 0 && remainingTotal <= 0 && (
+          <p style={warnStyle}>{ALL_SCO_COMPONENTS_IMPORTED_MESSAGE}</p>
+        )}
         <div style={{ overflowX: 'auto', maxHeight: 360 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -130,26 +160,34 @@ export function ImportScoComponentsDialog({
               </tr>
             </thead>
             <tbody>
-              {lines.map((line) => (
+              {lines.map((line) => {
+                const remaining = remainingById[line.sco_component_id] ?? 0
+                return (
                 <DemandRow
                   key={line.sco_component_id}
                   line={line}
-                  included={Boolean(included[line.sco_component_id])}
-                  qty={qtyById[line.sco_component_id] ?? line.quantity_remaining}
+                  remaining={remaining}
+                  included={Boolean(included[line.sco_component_id]) && remaining > 0}
+                  qty={qtyById[line.sco_component_id] ?? remaining}
                   unitCost={
                     toPrice(line.unit_cost) ??
                     toPrice(
                       products.find((item) => item.item_id === line.component_item_id)?.unit_price
                     )
                   }
-                  onToggle={(checked) =>
+                  onToggle={(checked) => {
+                    if (remaining <= 0) return
                     setIncluded((prev) => ({ ...prev, [line.sco_component_id]: checked }))
-                  }
+                  }}
                   onQty={(value) =>
-                    setQtyById((prev) => ({ ...prev, [line.sco_component_id]: value }))
+                    setQtyById((prev) => ({
+                      ...prev,
+                      [line.sco_component_id]: Math.max(0, Math.min(value, remaining)),
+                    }))
                   }
                 />
-              ))}
+                )
+              })}
               {!isFetching && lines.length === 0 && (
                 <tr>
                   <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#666' }}>
@@ -162,8 +200,7 @@ export function ImportScoComponentsDialog({
         </div>
         {overOrdered && (
           <p style={warnStyle}>
-            One or more quantities exceed remaining demand. Import is allowed (split vendors / extra
-            scrap), but please confirm this is intentional.
+            Quantities cannot exceed remaining demand. Reduce the order qty to import.
           </p>
         )}
         {missingVendorPrice && (
@@ -187,11 +224,11 @@ export function ImportScoComponentsDialog({
           <button
             type="button"
             onClick={handleImport}
-            disabled={selectedLines.length === 0}
+            disabled={selectedLines.length === 0 || overOrdered}
             style={{
               ...primaryBtn,
-              opacity: selectedLines.length === 0 ? 0.6 : 1,
-              cursor: selectedLines.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: selectedLines.length === 0 || overOrdered ? 0.6 : 1,
+              cursor: selectedLines.length === 0 || overOrdered ? 'not-allowed' : 'pointer',
             }}
           >
             Import selected
@@ -221,6 +258,7 @@ function priceSourceLabel(source?: UnfulfilledScoComponent['price_source']) {
 
 function DemandRow({
   line,
+  remaining,
   included,
   qty,
   unitCost,
@@ -228,13 +266,14 @@ function DemandRow({
   onQty,
 }: {
   line: UnfulfilledScoComponent
+  remaining: number
   included: boolean
   qty: number
   unitCost: number | null
   onToggle: (checked: boolean) => void
   onQty: (value: number) => void
 }) {
-  const over = qty > line.quantity_remaining + 1e-9
+  const over = qty > remaining + 1e-9
   const displayCost = unitCost ?? toPrice(line.unit_cost)
   const source: UnfulfilledScoComponent['price_source'] =
     toPrice(line.unit_cost) != null
@@ -242,12 +281,14 @@ function DemandRow({
       : unitCost != null
         ? 'CATALOG'
         : 'NONE'
+  const locked = remaining <= 0
   return (
     <tr>
       <td style={tdStyle}>
         <input
           type="checkbox"
           checked={included}
+          disabled={locked}
           onChange={(e) => onToggle(e.target.checked)}
           aria-label={`Include ${line.component_item_id}`}
         />
@@ -266,13 +307,15 @@ function DemandRow({
           </div>
         )}
       </td>
-      <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtQty(line.quantity_remaining)}</td>
+      <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtQty(remaining)}</td>
       <td style={{ ...tdStyle, textAlign: 'right' }}>
         <input
           type="number"
           min="0"
+          max={remaining}
           step="any"
-          value={qty === 0 ? '' : qty}
+          disabled={locked}
+          value={locked ? 0 : qty === 0 ? '' : qty}
           onChange={(e) => onQty(parseFloat(e.target.value) || 0)}
           style={{
             width: 88,
@@ -280,6 +323,8 @@ function DemandRow({
             padding: '4px 6px',
             border: over ? '1px solid #ef6c00' : '1px solid var(--border)',
             borderRadius: 4,
+            opacity: locked ? 0.6 : 1,
+            cursor: locked ? 'not-allowed' : 'text',
           }}
         />
       </td>

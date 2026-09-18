@@ -247,18 +247,19 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
     ('ROLE-FIN-APPR', 'PERM-CASH-VIEW'),
     ('ROLE-FIN-APPR', 'PERM-CASH-APPROVE'),
     ('ROLE-FIN-APPR', 'PERM-JE-VIEW'),
+    ('ROLE-FIN-APPR', 'PERM-JE-CREATE'),
+    ('ROLE-FIN-APPR', 'PERM-JE-SUBMIT'),
     ('ROLE-FIN-APPR', 'PERM-JE-APPROVE'),
     ('ROLE-FIN-APPR', 'PERM-SCO-VIEW'),
     ('ROLE-FIN-APPR', 'PERM-SCO-APPROVE')
 ON CONFLICT DO NOTHING;
 
 -- Workflow definitions for money modules
--- Helper pattern per module: AUTO / MGR / EXEC
+-- Helper pattern per module: Step 1 ($0–$10,000) / EXEC ($10,000.01+)
 
 -- SALES_ORDER
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-SO-AUTO', 'SALES_ORDER', 0, 1000, TRUE, 'SO Auto-Approve'),
-    ('WF-SO-MGR', 'SALES_ORDER', 1000.01, 10000, TRUE, 'SO Manager Approval'),
+    ('WF-SO-MGR', 'SALES_ORDER', 0, 10000, TRUE, 'SO Manager Approval'),
     ('WF-SO-EXEC', 'SALES_ORDER', 10000.01, NULL, TRUE, 'SO Executive Approval')
 ON CONFLICT DO NOTHING;
 
@@ -270,8 +271,7 @@ ON CONFLICT DO NOTHING;
 
 -- PURCHASE_ORDER
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-PO-AUTO', 'PURCHASE_ORDER', 0, 1000, TRUE, 'PO Auto-Approve'),
-    ('WF-PO-MGR', 'PURCHASE_ORDER', 1000.01, 10000, TRUE, 'PO Manager Approval'),
+    ('WF-PO-MGR', 'PURCHASE_ORDER', 0, 10000, TRUE, 'PO Manager Approval'),
     ('WF-PO-EXEC', 'PURCHASE_ORDER', 10000.01, NULL, TRUE, 'PO Executive Approval')
 ON CONFLICT DO NOTHING;
 
@@ -281,11 +281,10 @@ INSERT INTO workflow_step (id, workflow_definition_id, step_number, step_name, r
     ('WF-PO-EXEC-2', 'WF-PO-EXEC', 2, 'Finance Approval', 'ROLE-FIN-APPR')
 ON CONFLICT DO NOTHING;
 
--- SUBCONTRACT_ORDER (quantity bands)
+-- SUBCONTRACT_ORDER
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-SCO-AUTO', 'SUBCONTRACT_ORDER', 0, 10, TRUE, 'SCO Auto-Approve'),
-    ('WF-SCO-STD', 'SUBCONTRACT_ORDER', 10.01, 100, TRUE, 'SCO Supervisor Approval'),
-    ('WF-SCO-EXEC', 'SUBCONTRACT_ORDER', 100.01, NULL, TRUE, 'SCO Executive Approval')
+    ('WF-SCO-STD', 'SUBCONTRACT_ORDER', 0, 10000, TRUE, 'SCO Supervisor Approval'),
+    ('WF-SCO-EXEC', 'SUBCONTRACT_ORDER', 10000.01, NULL, TRUE, 'SCO Executive Approval')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO workflow_step (id, workflow_definition_id, step_number, step_name, required_role_id) VALUES
@@ -296,8 +295,7 @@ ON CONFLICT DO NOTHING;
 
 -- AR_INVOICE
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-AR-AUTO', 'AR_INVOICE', 0, 1000, TRUE, 'AR Auto-Approve'),
-    ('WF-AR-MGR', 'AR_INVOICE', 1000.01, 10000, TRUE, 'AR Manager Approval'),
+    ('WF-AR-MGR', 'AR_INVOICE', 0, 10000, TRUE, 'AR Manager Approval'),
     ('WF-AR-EXEC', 'AR_INVOICE', 10000.01, NULL, TRUE, 'AR Executive Approval')
 ON CONFLICT DO NOTHING;
 
@@ -309,8 +307,7 @@ ON CONFLICT DO NOTHING;
 
 -- AP_BILL
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-AP-AUTO', 'AP_BILL', 0, 1000, TRUE, 'AP Auto-Approve'),
-    ('WF-AP-MGR', 'AP_BILL', 1000.01, 10000, TRUE, 'AP Manager Approval'),
+    ('WF-AP-MGR', 'AP_BILL', 0, 10000, TRUE, 'AP Manager Approval'),
     ('WF-AP-EXEC', 'AP_BILL', 10000.01, NULL, TRUE, 'AP Executive Approval')
 ON CONFLICT DO NOTHING;
 
@@ -322,8 +319,7 @@ ON CONFLICT DO NOTHING;
 
 -- CASH_TRANSACTION
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-CASH-AUTO', 'CASH_TRANSACTION', 0, 1000, TRUE, 'Cash Auto-Approve'),
-    ('WF-CASH-MGR', 'CASH_TRANSACTION', 1000.01, 10000, TRUE, 'Cash Manager Approval'),
+    ('WF-CASH-MGR', 'CASH_TRANSACTION', 0, 10000, TRUE, 'Cash Manager Approval'),
     ('WF-CASH-EXEC', 'CASH_TRANSACTION', 10000.01, NULL, TRUE, 'Cash Executive Approval')
 ON CONFLICT DO NOTHING;
 
@@ -335,8 +331,7 @@ ON CONFLICT DO NOTHING;
 
 -- JOURNAL_ENTRY
 INSERT INTO workflow_definition (id, module, min_amount, max_amount, is_active, name) VALUES
-    ('WF-JE-AUTO', 'JOURNAL_ENTRY', 0, 1000, TRUE, 'JE Auto-Approve'),
-    ('WF-JE-MGR', 'JOURNAL_ENTRY', 1000.01, 10000, TRUE, 'JE Manager Approval'),
+    ('WF-JE-MGR', 'JOURNAL_ENTRY', 0, 10000, TRUE, 'JE Manager Approval'),
     ('WF-JE-EXEC', 'JOURNAL_ENTRY', 10000.01, NULL, TRUE, 'JE Executive Approval')
 ON CONFLICT DO NOTHING;
 

@@ -2,6 +2,7 @@ import { useReducer, useCallback } from 'react';
 import type { FreightPaymentTerms, PurchaseOrder, PurchaseOrderItem } from '../types';
 import { includesVendorFreight } from '../data/orderOptions';
 import { isAmountOnlyLine } from '../utils/itemTypes';
+import { applyEstimatedLandedUnitCosts } from '../utils/landedCost';
 
 export interface POFormState extends Omit<PurchaseOrder, 'subtotal' | 'total_tax' | 'discount_amount' | 'grand_total'> {
   subtotal: number;
@@ -69,6 +70,15 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
     discount_amount: 0,
     grand_total: 0,
     notes: '',
+    can_recall: false,
+    has_posted_receipts: false,
+    has_supplier_invoices: false,
+    recall_blocked_reason: null,
+    billing_status: 'UNBILLED',
+    can_receive_goods: false,
+    receive_blocked_reason: null,
+    can_create_bill: false,
+    bill_blocked_reason: null,
   };
 };
 
@@ -109,9 +119,10 @@ export const calculateTotals = (
       line_total,
     };
   });
+  const withLanded = applyEstimatedLandedUnitCosts(updatedItems, shippingFee);
 
-  const subtotal = round2(updatedItems.reduce((acc, item) => acc + item.line_subtotal, 0));
-  const total_tax = round2(updatedItems.reduce((acc, item) => acc + item.line_tax, 0));
+  const subtotal = round2(withLanded.reduce((acc, item) => acc + item.line_subtotal, 0));
+  const total_tax = round2(withLanded.reduce((acc, item) => acc + item.line_tax, 0));
 
   let discount_amount = 0;
   const rawDiscountVal = Math.max(0, cleanNum(discountValue));
@@ -127,7 +138,7 @@ export const calculateTotals = (
   const grand_total = Math.max(0, round2(subtotal + total_tax + vendorShipping - discount_amount));
 
   return {
-    items: updatedItems,
+    items: withLanded,
     subtotal,
     total_tax,
     discount_amount,
@@ -309,6 +320,15 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         freight_terms: freightTerms,
         carrier_account: po.carrier_account || '',
         notes: po.notes || '',
+        billing_status: po.billing_status || 'UNBILLED',
+        can_recall: Boolean(po.can_recall),
+        has_posted_receipts: Boolean(po.has_posted_receipts),
+        has_supplier_invoices: Boolean(po.has_supplier_invoices),
+        recall_blocked_reason: po.recall_blocked_reason || null,
+        can_receive_goods: po.can_receive_goods,
+        receive_blocked_reason: po.receive_blocked_reason || null,
+        can_create_bill: po.can_create_bill,
+        bill_blocked_reason: po.bill_blocked_reason || null,
         ...totals,
       };
     }

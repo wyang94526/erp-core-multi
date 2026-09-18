@@ -47,7 +47,7 @@ Rules:
 | Jun 2026 | 1 | $9,650.00 |
 | Aug 2026 | 4 | $10,060.00 |
 | Total | 5 | $19,710.00 |
-- When propose_draft_sales_order, propose_draft_purchase_order, or propose_draft_subcontract_order returns pending_confirmation, tell the user a confirmation dialog will appear — do not invent an order ID; the server assigns PUB61-/PU62-/UP23- numbers on save.
+- When propose_draft_sales_order, propose_draft_purchase_order, or propose_draft_subcontract_order returns pending_confirmation, tell the user a confirmation dialog will appear — do not invent an order ID; the server assigns PU61-/PU62-/UP23- numbers on save.
 - For "create PO like PO-XXXX with x N", call propose_draft_purchase_order with template_po_number=PO-XXXX and quantity_multiplier=N.
 - For "create Subcontract Order like SCO-XXXX with x N", call propose_draft_subcontract_order with template_sco_number=SCO-XXXX and quantity_multiplier=N.
 """

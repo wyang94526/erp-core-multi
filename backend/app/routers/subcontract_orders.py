@@ -14,6 +14,7 @@ from app.models import (
     Item,
     MaterialIssue,
     MaterialIssueLine,
+    SalesOrder,
     SubcontractOrder,
     SubcontractOrderComponent,
     SubcontractOrderItem,
@@ -33,7 +34,7 @@ from app.schemas import (
     PreviewComponentLine,
     PreviewComponentsRequest,
     PreviewComponentsResponse,
-    SalesOrderSubcontractLineRead,
+    SalesOrderSubcontractAvailabilityRead,
     SubcontractChargeRead,
     SubcontractOrderAmendRequest,
     SubcontractOrderCreate,
@@ -48,14 +49,18 @@ from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
 from app.services.subcontract import (
+    PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
     apply_line_charge_sheet,
     assert_sco_fulfillment_allowed,
+    assert_sco_receive_allowed,
     assert_so_line_allocatable,
     compute_charge_sheet,
     default_cost_sheet,
     list_eligible_sales_orders,
     remaining_qty_for_so_line,
-    sales_order_lines_for_subcontract,
+    sales_order_subcontract_availability,
+    so_is_approved_for_sco,
+    so_is_eligible,
 )
 
 router = APIRouter(prefix="/subcontract-orders", tags=["subcontract-orders"])
@@ -170,21 +175,29 @@ def _resolve_issue_component(
 
 @router.get("", response_model=list[SubcontractOrderRead])
 def list_subcontract_orders(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    sales_order_id: str | None = Query(
+        default=None,
+        max_length=50,
+        description="Return only subcontract orders linked to this parent sales order.",
+    ),
+    db: Session = Depends(get_db),
 ) -> list[SubcontractOrder]:
+    query = db.query(SubcontractOrder).options(
+        selectinload(SubcontractOrder.components),
+        selectinload(SubcontractOrder.bom_header),
+        selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.components),
+        selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.charges),
+        selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.bom_header),
+        selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.sales_order_item),
+        selectinload(SubcontractOrder.material_issues).selectinload(MaterialIssue.lines),
+        selectinload(SubcontractOrder.finished_goods_receipts),
+    )
+    if sales_order_id:
+        query = query.filter(SubcontractOrder.sales_order_id == sales_order_id)
     return (
-        db.query(SubcontractOrder)
-        .options(
-            selectinload(SubcontractOrder.components),
-            selectinload(SubcontractOrder.bom_header),
-            selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.components),
-            selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.charges),
-            selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.bom_header),
-            selectinload(SubcontractOrder.lines).selectinload(SubcontractOrderItem.sales_order_item),
-            selectinload(SubcontractOrder.material_issues).selectinload(MaterialIssue.lines),
-            selectinload(SubcontractOrder.finished_goods_receipts),
-        )
-        .order_by(SubcontractOrder.created_at.desc())
+        query.order_by(SubcontractOrder.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
@@ -231,11 +244,14 @@ def get_unfulfilled_components(
     )
 
 
-@router.get("/sales-order-lines/{sales_order_id}", response_model=list[SalesOrderSubcontractLineRead])
+@router.get(
+    "/sales-order-lines/{sales_order_id}",
+    response_model=SalesOrderSubcontractAvailabilityRead,
+)
 def get_sales_order_subcontract_lines(
     sales_order_id: str, db: Session = Depends(get_db)
-) -> list[dict]:
-    return sales_order_lines_for_subcontract(db, sales_order_id)
+) -> dict:
+    return sales_order_subcontract_availability(db, sales_order_id)
 
 
 @router.post("/preview-components", response_model=PreviewComponentsResponse)
@@ -381,6 +397,24 @@ def preview_components(
 def create_subcontract_order(
     payload: SubcontractOrderCreate, db: Session = Depends(get_db)
 ) -> SubcontractOrder:
+    if payload.sales_order_id:
+        parent_so = db.get(SalesOrder, payload.sales_order_id)
+        if parent_so is None:
+            raise HTTPException(status_code=404, detail="Sales order not found")
+        if not so_is_eligible(parent_so):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Sales order {payload.sales_order_id} is {parent_so.status} "
+                    "and cannot be subcontracted"
+                ),
+            )
+        if not so_is_approved_for_sco(getattr(parent_so, "approval_status", None)):
+            raise HTTPException(
+                status_code=400,
+                detail=PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
+            )
+
     if db.get(Supplier, payload.supplier_id) is None:
         raise HTTPException(status_code=400, detail="Supplier not found")
 
@@ -883,14 +917,16 @@ def issue_materials(
     status_code=status.HTTP_201_CREATED,
 )
 def receive_goods(
-    sco_number: str, payload: FinishedGoodsReceiptCreate, db: Session = Depends(get_db)
+    sco_number: str,
+    payload: FinishedGoodsReceiptCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SubcontractOrder:
     sco = _load_sco(db, sco_number)
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
 
-    if sco.status in _CLOSED_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Cannot receive goods on a {sco.status.lower()} order")
+    assert_sco_receive_allowed(sco)
 
     if db.get(FinishedGoodsReceipt, payload.receipt_id) is not None:
         raise HTTPException(status_code=400, detail="Receipt ID already exists")
@@ -965,9 +1001,10 @@ def receive_goods(
         unit_cost=payload.unit_cost if payload.unit_cost is not None else unit_price,
         receipt_date=payload.receipt_date,
         notes=payload.notes,
-        external_receipt_id=None,
+        external_receipt_id=payload.receipt_id,
         item_id=item_id,
         source_line_id=target_line.sco_line_id if target_line else None,
+        received_by_user_id=user.id,
     )
 
     all_receipts = (

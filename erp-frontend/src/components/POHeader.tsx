@@ -524,7 +524,12 @@ export function POHeader({
             >
               {state.status}
             </span>
-            {!isReadOnly && (
+            {!isReadOnly &&
+              !['APPROVED', 'PENDING_APPROVAL', 'SUBMITTED'].includes(
+                String(state.approval_status || '').toUpperCase(),
+              ) &&
+              state.status !== 'Approved' &&
+              state.status !== 'Submitted' && (
               <select
                 aria-label="Change status"
                 value={state.status}

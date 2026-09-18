@@ -209,12 +209,6 @@ def unfulfilled_components(
     )
     if sco is None:
         raise HTTPException(status_code=404, detail=f"Subcontract order '{sco_number}' not found")
-    if (sco.status or "").upper() in _CLOSED_SCO_STATUSES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Subcontract order '{sco_number}' is {sco.status} and cannot be purchased against",
-        )
-
     ordered, draft_ordered = ordered_qty_by_component(
         db, sco_number, exclude_po_number=exclude_po_number
     )
@@ -247,3 +241,54 @@ def unfulfilled_components(
             }
         )
     return lines
+
+
+def requested_qty_by_sco_component(items) -> dict[int, Decimal]:
+    totals: dict[int, Decimal] = {}
+    for item in items or []:
+        component_id = (
+            item.get("sco_component_id")
+            if isinstance(item, dict)
+            else getattr(item, "sco_component_id", None)
+        )
+        if not component_id:
+            continue
+        qty = item.get("quantity") if isinstance(item, dict) else getattr(item, "quantity", 0)
+        totals[int(component_id)] = totals.get(int(component_id), Decimal("0")) + Decimal(str(qty or 0))
+    return totals
+
+
+def over_import_message(
+    requested: dict[int, Decimal], remaining: dict[int, Decimal]
+) -> str | None:
+    for component_id, qty in requested.items():
+        leftover = remaining.get(int(component_id), Decimal("0"))
+        if qty > leftover:
+            return "Imported quantity cannot exceed remaining subcontract component demand"
+    return None
+
+
+def assert_sco_component_qty_within_demand(
+    db: Session,
+    sco_number: str | None,
+    items,
+    exclude_po_number: str | None = None,
+) -> None:
+    if not sco_number or not items:
+        return
+    requested = requested_qty_by_sco_component(items)
+    if not requested:
+        return
+    demand = unfulfilled_components(
+        db,
+        sco_number,
+        exclude_po_number=exclude_po_number,
+        include_fully_covered=True,
+    )
+    remaining = {
+        int(row["sco_component_id"]): Decimal(str(row["quantity_remaining"] or 0))
+        for row in demand
+    }
+    message = over_import_message(requested, remaining)
+    if message:
+        raise HTTPException(status_code=400, detail=message)

@@ -12,6 +12,7 @@ import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { validateFulfillmentAgainstOrder } from '../utils/fulfillmentQty'
 
 const PAGE_SIZE = 10
 
@@ -60,6 +61,16 @@ export function ItemFulfillmentList() {
   })
   const selectedFullyInvoiced = Boolean(selectedOrder && isFullyInvoiced(selectedOrder))
   const invoiceActionBlocked = selectedOrderLoading || selectedFullyInvoiced
+  const overFulfillErrors = useMemo(() => {
+    if (!selected || !selectedOrder || selected.status === 'SHIPPED') return []
+    return validateFulfillmentAgainstOrder(selectedOrder, rows, selected.lines, {
+      excludeFulfillmentId: selected.id,
+    })
+  }, [selected, selectedOrder, rows])
+  const overFulfillBanner = overFulfillErrors[0]?.message
+  const shipBlocked =
+    Boolean(selected) &&
+    (selectedOrderLoading || !selectedOrder || overFulfillErrors.length > 0)
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -81,6 +92,10 @@ export function ItemFulfillmentList() {
   })
 
   const advanceStatus = async (ful: ItemFulfillment, status: string) => {
+    if (shipBlocked && status !== 'DRAFT') {
+      window.alert(overFulfillBanner || 'Total fulfillment quantity cannot exceed the ordered quantity.')
+      return
+    }
     setBusy(true)
     try {
       const updated = await fulfillmentService.updateStatus(ful.id, { status })
@@ -214,35 +229,87 @@ export function ItemFulfillmentList() {
               <thead>
                 <tr style={theadRowStyle}>
                   <th style={thStyle}>Item</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>This shipment</th>
                 </tr>
               </thead>
               <tbody>
-                {selected.lines.map((line) => (
-                  <tr key={line.id} style={tbodyRowStyle}>
-                    <td style={tdStyle}>{line.item_id}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_fulfilled}</td>
-                  </tr>
-                ))}
+                {selected.lines.map((line) => {
+                  const ordered = selectedOrder?.items?.find(
+                    (item) => item.so_item_id === line.sales_order_line_id,
+                  )?.quantity_ordered
+                  const lineError = overFulfillErrors.find(
+                    (err) => err.sales_order_line_id === line.sales_order_line_id,
+                  )
+                  return (
+                    <tr key={line.id} style={tbodyRowStyle}>
+                      <td style={tdStyle}>{line.item_id}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {ordered == null ? '—' : ordered}
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          textAlign: 'right',
+                          color: lineError ? '#c62828' : 'var(--text)',
+                          fontWeight: lineError ? 700 : 400,
+                        }}
+                      >
+                        {line.quantity_fulfilled}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
 
+            {overFulfillBanner ? (
+              <div role="alert" style={warningBannerStyle}>
+                {overFulfillBanner}
+              </div>
+            ) : null}
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
               {selected.status === 'DRAFT' ? (
-                <button type="button" style={primaryButtonStyle} disabled={busy} onClick={() => advanceStatus(selected, 'PICKED')}>
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    ...(busy || shipBlocked ? disabledPrimaryButtonStyle : {}),
+                  }}
+                  disabled={busy || shipBlocked}
+                  title={overFulfillBanner || 'Mark this fulfillment as picked'}
+                  onClick={() => advanceStatus(selected, 'PICKED')}
+                >
                   Mark Picked
                 </button>
               ) : null}
               {selected.status === 'PICKED' ? (
-                <button type="button" style={primaryButtonStyle} disabled={busy} onClick={() => advanceStatus(selected, 'PACKED')}>
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    ...(busy || shipBlocked ? disabledPrimaryButtonStyle : {}),
+                  }}
+                  disabled={busy || shipBlocked}
+                  title={overFulfillBanner || 'Mark this fulfillment as packed'}
+                  onClick={() => advanceStatus(selected, 'PACKED')}
+                >
                   Mark Packed
                 </button>
               ) : null}
               {selected.status === 'PACKED' || selected.status === 'PICKED' || selected.status === 'DRAFT' ? (
                 <button
                   type="button"
-                  style={{ ...primaryButtonStyle, backgroundColor: '#2e7d32' }}
-                  disabled={busy}
+                  style={{
+                    ...primaryButtonStyle,
+                    backgroundColor: '#2e7d32',
+                    ...(busy || shipBlocked ? disabledPrimaryButtonStyle : {}),
+                  }}
+                  disabled={busy || shipBlocked}
+                  title={
+                    overFulfillBanner || 'Ship (deduct inventory)'
+                  }
                   onClick={() => advanceStatus(selected, 'SHIPPED')}
                 >
                   Ship (deduct inventory)
@@ -343,6 +410,20 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+const disabledPrimaryButtonStyle: React.CSSProperties = {
+  backgroundColor: '#9e9e9e',
+  cursor: 'not-allowed',
+}
+const warningBannerStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: '10px 12px',
+  borderRadius: 6,
+  backgroundColor: '#fdecea',
+  border: '1px solid #ef9a9a',
+  color: '#b71c1c',
+  fontSize: 13,
+  fontWeight: 600,
 }
 const drawerOverlayStyle: React.CSSProperties = {
   position: 'fixed',

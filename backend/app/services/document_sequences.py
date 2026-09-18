@@ -20,11 +20,21 @@ DOC_SUBCONTRACT_ORDER: Final = "SUBCONTRACT_ORDER"
 DOC_INVOICE: Final = "INVOICE"
 
 DOCUMENT_PREFIXES: Final[dict[str, str]] = {
-    DOC_SALES_ORDER: "PUB61-",
+    DOC_SALES_ORDER: "PU61-",
     DOC_PURCHASE_ORDER: "PU62-",
     DOC_SUBCONTRACT_ORDER: "UP23-",
     DOC_INVOICE: "PU65-",
 }
+
+LEGACY_SALES_ORDER_PREFIX: Final = "PUB61-"
+
+
+def remap_legacy_sales_order_id(doc_id: str) -> str:
+    """Correct the mistyped PUB61- sales-order prefix without changing YYMMXXXX."""
+    identifier = str(doc_id or "").strip()
+    if identifier.startswith(LEGACY_SALES_ORDER_PREFIX):
+        return DOCUMENT_PREFIXES[DOC_SALES_ORDER] + identifier[len(LEGACY_SALES_ORDER_PREFIX) :]
+    return identifier
 
 
 def parse_document_date(document_date: date | datetime | str | None) -> date:

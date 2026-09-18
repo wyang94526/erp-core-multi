@@ -22,4 +22,8 @@ Cash transactions: `Check Issue` (AP) and `Check Deposit` (AR).
 Journal entries have `posting_status` Draft/Posted and approval workflow.
 Chart of accounts: Asset, Liability, Equity, Revenue, Expense.
 
-Permissions: `ar_invoice:view`, `ap_bill:view`, `cash:view`, `journal:view`.
+Permissions: `ar_invoice:view`, `ap_bill:view`, `cash:view`, `journal:view`, `report:view`.
+
+## Financial reports
+Finance → Reports & Analytics → Financial Reports (`/financial-reports`).
+Statements (Balance Sheet, P&L, Cash Flow), AR/AP aging, trial balance, fixed-asset schedule, cash forecast, budget vs actual, and bank reconciliation. Permission `report:view`.

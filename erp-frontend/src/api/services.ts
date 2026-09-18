@@ -23,20 +23,27 @@ import type {
   UnfulfilledScoComponent,
   MaterialIssue,
   FinishedGoodsReceipt,
+  GoodsReceipt,
   ARInvoice,
   ARInvoiceDetail,
   APBill,
   APBillDetail,
   BankAccount,
+  BankAccountWrite,
   CashTransaction,
   JournalEntry,
+  JournalEntryCreatePayload,
   ChartOfAccount,
   ChartOfAccountCreate,
+  PostingRule,
   PaymentTerm,
   PaymentTermWrite,
   ApprovalHistory,
   CurrentUser,
   InventoryStockItem,
+  FinancialReport,
+  FinancialReportCatalogItem,
+  FinancialReportQuery,
   StockMovement,
   Warehouse,
   WorkCenter,
@@ -666,18 +673,7 @@ export const vendorInvoiceService = {
       limit: params.limit ?? 100,
     };
     if (params.vendor_id) query.vendor_id = params.vendor_id;
-    return apiClient.get<
-      Array<{
-        id: number;
-        receipt_number: string;
-        source_type: string;
-        source_order_id: string;
-        vendor_id: string;
-        receipt_date: string;
-        status: string;
-        lines: Array<{ id: number; item_id: string; description?: string | null }>;
-      }>
-    >('/api/v1/vendor-invoices/goods-receipts', { params: query });
+    return apiClient.get<GoodsReceipt[]>('/api/v1/vendor-invoices/goods-receipts', { params: query });
   },
 
   listDepartments() {
@@ -787,6 +783,12 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         line_subtotal: Number(row.line_subtotal ?? 0),
         line_tax: Number(row.line_tax ?? 0),
         line_total: Number(row.line_total ?? 0),
+        estimated_landed_unit_cost: Number(row.estimated_landed_unit_cost ?? 0),
+        allocated_landed_expense: Number(row.allocated_landed_expense ?? 0),
+        quantity_received: Number(row.quantity_received ?? 0),
+        quantity_remaining_to_receive: Number(row.quantity_remaining_to_receive ?? 0),
+        quantity_billed: Number(row.quantity_billed ?? 0),
+        quantity_remaining_to_bill: Number(row.quantity_remaining_to_bill ?? 0),
       };
     }),
     po_type: po.po_type || 'MATERIAL',
@@ -795,6 +797,14 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
     incoterms: po.incoterms || '',
     freight_terms: po.freight_terms || 'PREPAID_ON_PO',
     carrier_account: po.carrier_account || '',
+    can_recall: Boolean(po.can_recall),
+    has_posted_receipts: Boolean(po.has_posted_receipts),
+    has_supplier_invoices: Boolean(po.has_supplier_invoices),
+    recall_blocked_reason: po.recall_blocked_reason || null,
+    can_receive_goods: po.can_receive_goods == null ? undefined : Boolean(po.can_receive_goods),
+    receive_blocked_reason: po.receive_blocked_reason || null,
+    can_create_bill: po.can_create_bill == null ? undefined : Boolean(po.can_create_bill),
+    bill_blocked_reason: po.bill_blocked_reason || null,
   };
 }
 
@@ -918,6 +928,40 @@ export const purchaseOrderService = {
   ) {
     return apiClient.post(`/api/v1/purchase-orders/${poNumber}/receive`, data);
   },
+
+  async recallPurchaseOrder(poNumber: string, comments?: string): Promise<PurchaseOrder> {
+    const po = await apiClient.post<PurchaseOrder>(`/api/v1/purchase-orders/${poNumber}/recall`, {
+      comments: comments || 'Recalled for revision',
+    });
+    return mapPurchaseOrderFromApi(po);
+  },
+};
+
+export const goodsReceiptService = {
+  list(params: {
+    vendor_id?: string;
+    source_type?: string;
+    source_order_id?: string;
+    status?: string;
+    skip?: number;
+    limit?: number;
+  } = {}) {
+    const query: Record<string, string | number> = {
+      skip: params.skip ?? 0,
+      limit: params.limit ?? 100,
+    };
+    if (params.vendor_id) query.vendor_id = params.vendor_id;
+    if (params.source_type) query.source_type = params.source_type;
+    if (params.source_order_id) query.source_order_id = params.source_order_id;
+    if (params.status) query.status = params.status;
+    return apiClient.get<GoodsReceipt[]>('/api/v1/goods-receipts', { params: query });
+  },
+
+  get(receiptKey: string) {
+    return apiClient.get<GoodsReceipt>(
+      `/api/v1/goods-receipts/${encodeURIComponent((receiptKey || '').trim())}`,
+    );
+  },
 };
 
 // ==========================================
@@ -1018,10 +1062,15 @@ export const subcontractOrderService = {
    */
   async listSubcontractOrders(
     skip: number = 0,
-    limit: number = 100
+    limit: number = 100,
+    salesOrderId?: string | null,
   ): Promise<SubcontractOrder[]> {
     return apiClient.get<SubcontractOrder[]>('/api/v1/subcontract-orders', {
-      params: { skip, limit },
+      params: {
+        skip,
+        limit,
+        sales_order_id: salesOrderId || undefined,
+      },
     });
   },
 
@@ -1117,7 +1166,7 @@ export const subcontractOrderService = {
   },
 
   async listSalesOrderLines(salesOrderId: string) {
-    return apiClient.get<import('../types').SalesOrderSubcontractLine[]>(
+    return apiClient.get<import('../types').SalesOrderSubcontractAvailability>(
       `/api/v1/subcontract-orders/sales-order-lines/${encodeURIComponent(salesOrderId)}`,
     );
   },
@@ -1416,6 +1465,12 @@ export const approvalService = {
     return apiClient.get<ApprovalHistory[]>(
       `/api/v1/transactions/${module}/${documentId}/approval-history`,
     );
+  },
+
+  recall(module: string, documentId: string, comments?: string) {
+    return apiClient.post(`/api/v1/transactions/${module}/${documentId}/recall`, {
+      comments: comments || 'Recalled for revision',
+    });
   },
 };
 
@@ -1812,6 +1867,23 @@ export const chartOfAccountsService = {
   },
 };
 
+export const postingRulesService = {
+  async list(): Promise<PostingRule[]> {
+    return apiClient.get<PostingRule[]>('/api/v1/posting-rules')
+  },
+
+  async update(
+    id: string,
+    data: { debit_account_id?: string; credit_account_id?: string; is_active?: boolean },
+  ): Promise<PostingRule> {
+    return apiClient.patch<PostingRule>(`/api/v1/posting-rules/${id}`, data)
+  },
+
+  async reset(id: string): Promise<PostingRule> {
+    return apiClient.post<PostingRule>(`/api/v1/posting-rules/${id}/reset`)
+  },
+};
+
 // ==========================================
 // ACCOUNTS RECEIVABLE (AR INVOICE) SERVICES
 // ==========================================
@@ -1897,18 +1969,31 @@ export const apBillService = {
 // ==========================================
 
 export const bankAccountService = {
-  async listAccounts(): Promise<BankAccount[]> {
-    return apiClient.get<BankAccount[]>('/api/v1/bank-accounts');
+  async getBankAccounts(activeOnly = false): Promise<BankAccount[]> {
+    return apiClient.get<BankAccount[]>('/api/v1/bank-accounts', {
+      params: { active_only: activeOnly },
+    });
   },
 
-  async createAccount(data: {
-    bank_name: string;
-    account_name: string;
-    account_number: string;
-    routing_number?: string | null;
-    is_default?: boolean;
-  }): Promise<BankAccount> {
+  async getBankAccount(bankAccountId: string): Promise<BankAccount> {
+    return apiClient.get<BankAccount>(
+      `/api/v1/bank-accounts/${encodeURIComponent(bankAccountId)}`,
+    );
+  },
+
+  async createBankAccount(data: BankAccountWrite): Promise<BankAccount> {
     return apiClient.post<BankAccount>('/api/v1/bank-accounts', data);
+  },
+
+  async updateBankAccount(
+    bankAccountId: string,
+    data: Partial<BankAccountWrite>,
+  ): Promise<BankAccount> {
+    return apiClient.patch<BankAccount>(`/api/v1/bank-accounts/${bankAccountId}`, data);
+  },
+
+  async createAccount(data: BankAccountWrite): Promise<BankAccount> {
+    return this.createBankAccount(data);
   },
 };
 
@@ -1948,6 +2033,26 @@ export const cashTransactionService = {
 };
 
 // ==========================================
+// FINANCIAL REPORTS
+// ==========================================
+
+export const financialReportService = {
+  async listReports(): Promise<FinancialReportCatalogItem[]> {
+    return apiClient.get<FinancialReportCatalogItem[]>('/api/v1/financial-reports');
+  },
+
+  async getFinancialReport(
+    reportType: string,
+    filters: FinancialReportQuery = {},
+  ): Promise<FinancialReport> {
+    return apiClient.get<FinancialReport>(
+      `/api/v1/financial-reports/${encodeURIComponent(reportType)}`,
+      { params: filters },
+    );
+  },
+};
+
+// ==========================================
 // GENERAL LEDGER / JOURNAL ENTRY SERVICES
 // ==========================================
 
@@ -1969,6 +2074,25 @@ export const journalEntryService = {
    */
   async getJournalEntry(entryId: string): Promise<JournalEntry> {
     return apiClient.get<JournalEntry>(`/api/v1/journal-entries/${entryId}`);
+  },
+
+  async createJournalEntry(data: JournalEntryCreatePayload): Promise<JournalEntry> {
+    return apiClient.post<JournalEntry>('/api/v1/journal-entries', data);
+  },
+
+  async updateJournalEntry(
+    entryId: string,
+    data: JournalEntryCreatePayload,
+  ): Promise<JournalEntry> {
+    return apiClient.patch<JournalEntry>(`/api/v1/journal-entries/${entryId}`, data);
+  },
+
+  async previewMonthEndClose(): Promise<{
+    period: string;
+    ready: JournalEntry[];
+    held: JournalEntry[];
+  }> {
+    return apiClient.get('/api/v1/journal-entries/month-end-close');
   },
 
   /**
@@ -2128,10 +2252,12 @@ export const apiServices = {
   items: itemService,
   subcontractBoms: subcontractBomService,
   chartOfAccounts: chartOfAccountsService,
+  postingRules: postingRulesService,
   paymentTerms: paymentTermsService,
   arInvoices: arInvoiceService,
   apBills: apBillService,
   cashTransactions: cashTransactionService,
+  financialReports: financialReportService,
   journalEntries: journalEntryService,
   inventory: inventoryService,
   auditLogs: auditLogService,

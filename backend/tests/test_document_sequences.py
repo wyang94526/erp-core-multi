@@ -30,12 +30,13 @@ from app.services.document_sequences import (
     generate_document_number,
     parse_document_date,
     plan_document_renames,
+    remap_legacy_sales_order_id,
 )
 
 
 class DocumentSequenceFormatTests(unittest.TestCase):
     def test_format_uses_prefix_yy_mm_and_padded_sequence(self):
-        self.assertEqual(format_document_number("PUB61-", date(2026, 9, 14), 1), "PUB61-26090001")
+        self.assertEqual(format_document_number("PU61-", date(2026, 9, 14), 1), "PU61-26090001")
         self.assertEqual(format_document_number("PU62-", date(2026, 9, 1), 2), "PU62-26090002")
         self.assertEqual(format_document_number("UP23-", date(2026, 12, 31), 99), "UP23-26120099")
         self.assertEqual(format_document_number("PU65-", date(2027, 1, 5), 12), "PU65-27010012")
@@ -48,9 +49,9 @@ class DocumentSequenceFormatTests(unittest.TestCase):
 
     def test_format_rejects_out_of_range_sequence(self):
         with self.assertRaises(ValueError):
-            format_document_number("PUB61-", date(2026, 9, 1), 0)
+            format_document_number("PU61-", date(2026, 9, 1), 0)
         with self.assertRaises(ValueError):
-            format_document_number("PUB61-", date(2026, 9, 1), 10000)
+            format_document_number("PU61-", date(2026, 9, 1), 10000)
 
 
 class DocumentSequencePersistenceTests(unittest.TestCase):
@@ -63,9 +64,9 @@ class DocumentSequencePersistenceTests(unittest.TestCase):
         september = date(2026, 9, 14)
         october = date(2026, 10, 1)
 
-        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, september), "PUB61-26090001")
-        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, september), "PUB61-26090002")
-        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, october), "PUB61-26100001")
+        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, september), "PU61-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, september), "PU61-26090002")
+        self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, october), "PU61-26100001")
         self.assertEqual(generate_document_number(self.db, DOC_PURCHASE_ORDER, september), "PU62-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_SUBCONTRACT_ORDER, september), "UP23-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_INVOICE, september), "PU65-26090001")
@@ -82,28 +83,33 @@ class DocumentRenamePlanTests(unittest.TestCase):
             [
                 ("SO-20260901-001", date(2026, 9, 1), 1),
                 ("SO-20260915-002", date(2026, 9, 15), 2),
-                ("PUB61-26090005", date(2026, 9, 20), 3),
+                ("PU61-26090005", date(2026, 9, 20), 3),
                 ("SO-20261001-001", date(2026, 10, 1), 4),
             ],
-            "PUB61-",
+            "PU61-",
         )
         self.assertEqual(
             changes,
             {
-                "SO-20260901-001": "PUB61-26090001",
-                "SO-20260915-002": "PUB61-26090002",
-                "SO-20261001-001": "PUB61-26100001",
+                "SO-20260901-001": "PU61-26090001",
+                "SO-20260915-002": "PU61-26090002",
+                "SO-20261001-001": "PU61-26100001",
             },
         )
         self.assertEqual(last_value, {"202609": 5, "202610": 1})
 
     def test_reassigns_when_canonical_prefix_does_not_match_date(self):
         changes, last_value = plan_document_renames(
-            [("PUB61-26080001", date(2026, 9, 14), 1)],
-            "PUB61-",
+            [("PU61-26080001", date(2026, 9, 14), 1)],
+            "PU61-",
         )
-        self.assertEqual(changes, {"PUB61-26080001": "PUB61-26090001"})
+        self.assertEqual(changes, {"PU61-26080001": "PU61-26090001"})
         self.assertEqual(last_value, {"202609": 1})
+
+    def test_legacy_pub61_prefix_keeps_year_month_and_sequence(self):
+        self.assertEqual(remap_legacy_sales_order_id("PUB61-26090004"), "PU61-26090004")
+        self.assertEqual(remap_legacy_sales_order_id("PU61-26090004"), "PU61-26090004")
+        self.assertEqual(remap_legacy_sales_order_id("SO-20260901-001"), "SO-20260901-001")
 
 
 if __name__ == "__main__":

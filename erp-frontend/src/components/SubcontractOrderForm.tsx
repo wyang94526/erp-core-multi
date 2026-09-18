@@ -74,11 +74,21 @@ export function SubcontractOrderForm() {
     enabled: formData.standalone,
   })
 
-  const { data: soLines = [] } = useQuery({
+  const {
+    data: soAvailability,
+    isLoading: soLinesLoading,
+    isError: soLinesError,
+    error: soLinesErr,
+  } = useQuery({
     queryKey: ['scoSalesOrderLines', formData.sales_order_id],
     queryFn: () => subcontractOrderService.listSalesOrderLines(formData.sales_order_id),
     enabled: !!formData.sales_order_id && !formData.standalone,
   })
+  const soLines = soAvailability?.lines ?? []
+  const soCreateBlocked = Boolean(
+    formData.sales_order_id && !formData.standalone && soAvailability && !soAvailability.can_create,
+  )
+  const soBlockMessage = soAvailability?.message || ''
 
   useEffect(() => {
     if (formData.standalone || !soLines.length) return
@@ -203,7 +213,8 @@ export function SubcontractOrderForm() {
       if (!formData.quantity_ordered || formData.quantity_ordered <= 0) next.quantity_ordered = 'Quantity must be greater than 0'
     } else {
       if (!formData.sales_order_id) next.sales_order_id = 'Sales Order is required'
-      if (!activeDrafts.length) next.lines = 'Select at least one sales order line'
+      else if (soCreateBlocked) next.sales_order_id = soBlockMessage
+      else if (!activeDrafts.length) next.lines = 'Select at least one sales order line'
       activeDrafts.forEach((line) => {
         if (line.quantity_remaining != null && line.quantity_ordered > line.quantity_remaining) {
           next.lines = `${line.item_id} qty exceeds remaining ${line.quantity_remaining}`
@@ -236,6 +247,12 @@ export function SubcontractOrderForm() {
           and enter vendor labor / shipping / admin charges per line.
         </p>
       </header>
+
+      {soCreateBlocked ? (
+        <div role="alert" style={{ ...warningAlertStyle, fontWeight: 600 }}>
+          {soBlockMessage}
+        </div>
+      ) : null}
 
       <form
         noValidate
@@ -362,65 +379,85 @@ export function SubcontractOrderForm() {
         {!formData.standalone && formData.sales_order_id && (
           <div style={cardStyle}>
             <h3 style={sectionHeadingStyle}>Sales Order Lines</h3>
-            {errors.lines && <span style={errorTextStyle}>{errors.lines}</span>}
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle} />
-                  <th style={thStyle}>Line</th>
-                  <th style={thStyle}>Item</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Already on SCOs</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Remaining</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty this SCO</th>
-                  <th style={thStyle}>BOM</th>
-                </tr>
-              </thead>
-              <tbody>
-                {soLines.map((line) => {
-                  const key = `so-${line.so_item_id}`
-                  const checked = selectedKeys.includes(key)
-                  const draft = draftLines[key]
-                  const disabled = line.quantity_remaining <= 0 || !line.has_active_bom
-                  return (
-                    <tr key={line.so_item_id}>
-                      <td style={tdStyle}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={() => toggleLine(line)}
-                        />
-                      </td>
-                      <td style={tdStyle}>{line.line_number}</td>
-                      <td style={tdStyle}>
-                        {line.item_id}
-                        <div style={{ fontSize: 12, color: 'var(--text)' }}>{line.item_description}</div>
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_ordered}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_subcontracted}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_remaining}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>
-                        <input
-                          type="number"
-                          min={1}
-                          max={line.quantity_remaining}
-                          disabled={!checked}
-                          value={draft?.quantity_ordered ?? line.quantity_remaining}
-                          onChange={(event) =>
-                            updateDraft(key, { ...toDraft(line), quantity_ordered: Number(event.target.value) })
-                          }
-                          style={{ ...inputStyle, width: 90, textAlign: 'right' }}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        {line.has_active_bom ? `v${line.active_bom_version_no}` : 'No Material BOM'}
-                      </td>
+            {soCreateBlocked ? (
+              <div role="alert" style={warningAlertStyle}>
+                {soBlockMessage}
+              </div>
+            ) : soLinesLoading ? (
+              <p style={{ color: 'var(--text)', margin: 0 }}>Loading sales order lines…</p>
+            ) : soLinesError ? (
+              <div role="alert" style={errorAlertStyle}>
+                {soLinesErr instanceof Error
+                  ? soLinesErr.message
+                  : 'Failed to load sales order lines'}
+              </div>
+            ) : soLines.length === 0 ? (
+              <p style={{ color: 'var(--text)', margin: 0 }}>
+                No line items were found on this sales order.
+              </p>
+            ) : (
+              <>
+                {errors.lines && <span style={errorTextStyle}>{errors.lines}</span>}
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle} />
+                      <th style={thStyle}>Line</th>
+                      <th style={thStyle}>Item</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Already on SCOs</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Remaining</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Qty this SCO</th>
+                      <th style={thStyle}>BOM</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {soLines.map((line) => {
+                      const key = `so-${line.so_item_id}`
+                      const checked = selectedKeys.includes(key)
+                      const draft = draftLines[key]
+                      const disabled = line.quantity_remaining <= 0 || !line.has_active_bom
+                      return (
+                        <tr key={line.so_item_id}>
+                          <td style={tdStyle}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => toggleLine(line)}
+                            />
+                          </td>
+                          <td style={tdStyle}>{line.line_number}</td>
+                          <td style={tdStyle}>
+                            {line.item_id}
+                            <div style={{ fontSize: 12, color: 'var(--text)' }}>{line.item_description}</div>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_ordered}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_subcontracted}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{line.quantity_remaining}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={line.quantity_remaining}
+                              disabled={!checked}
+                              value={draft?.quantity_ordered ?? line.quantity_remaining}
+                              onChange={(event) =>
+                                updateDraft(key, { ...toDraft(line), quantity_ordered: Number(event.target.value) })
+                              }
+                              style={{ ...inputStyle, width: 90, textAlign: 'right' }}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            {line.has_active_bom ? `v${line.active_bom_version_no}` : 'No Material BOM'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
           </div>
         )}
 
@@ -545,14 +582,34 @@ export function SubcontractOrderForm() {
         )}
 
         <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            type="button"
-            disabled={createMutation.isPending}
-            onClick={handleCreate}
-            style={{ ...primaryButtonStyle, opacity: createMutation.isPending ? 0.7 : 1 }}
+          <span
+            title={soCreateBlocked ? soBlockMessage : 'Create Subcontract Order'}
+            style={{
+              display: 'inline-block',
+              cursor: createMutation.isPending || soCreateBlocked ? 'not-allowed' : 'pointer',
+            }}
           >
-            {createMutation.isPending ? 'Creating...' : 'Create Subcontract Order'}
-          </button>
+            <button
+              type="button"
+              disabled={createMutation.isPending || soCreateBlocked}
+              onClick={handleCreate}
+              aria-disabled={createMutation.isPending || soCreateBlocked}
+              aria-label={
+                soCreateBlocked
+                  ? `Create Subcontract Order. ${soBlockMessage}`
+                  : 'Create Subcontract Order'
+              }
+              style={{
+                ...primaryButtonStyle,
+                opacity: createMutation.isPending || soCreateBlocked ? 0.7 : 1,
+                backgroundColor: soCreateBlocked ? '#9e9e9e' : '#1976d2',
+                cursor: soCreateBlocked || createMutation.isPending ? 'not-allowed' : 'pointer',
+                pointerEvents: soCreateBlocked || createMutation.isPending ? 'none' : 'auto',
+              }}
+            >
+              {createMutation.isPending ? 'Creating...' : 'Create Subcontract Order'}
+            </button>
+          </span>
           <button type="button" onClick={() => navigate('/subcontract-orders')} style={secondaryButtonStyle}>
             Cancel
           </button>

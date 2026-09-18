@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Item, ItemBOMHeader, PurchaseOrderItem } from '../types';
-import { itemBomService, itemService } from '../api/services';
+import { itemBomService, itemService, subcontractOrderService } from '../api/services';
 import ItemLookup from './ItemLookup';
 import { ImportScoComponentsDialog } from './ImportScoComponentsDialog';
 import { isAmountOnlyLine, isStockItemType } from '../utils/itemTypes';
+import {
+  ALL_SCO_COMPONENTS_IMPORTED_MESSAGE,
+  remainingScoImportQty,
+} from '../utils/scoPoDemand';
 
 interface POLineItemsTableProps {
   items: PurchaseOrderItem[];
@@ -103,8 +107,41 @@ export function POLineItemsTable({
   };
 
   const isSubcontract = poType === 'SUBCONTRACT';
-  const canImportComponents = poType === 'MATERIAL' && Boolean(scoNumber) && !isReadOnly;
   const [importOpen, setImportOpen] = useState(false);
+  const scoDemandQuery = useQuery({
+    queryKey: ['unfulfilledScoComponents', scoNumber, supplierId, excludePoNumber],
+    queryFn: () =>
+      subcontractOrderService.listUnfulfilledComponents(scoNumber || '', {
+        supplier_id: supplierId || undefined,
+        exclude_po_number: excludePoNumber || undefined,
+        include_fully_covered: true,
+      }),
+    enabled: poType === 'MATERIAL' && Boolean(scoNumber),
+  });
+  const remainingImportQty = useMemo(
+    () => remainingScoImportQty(scoDemandQuery.data || [], items),
+    [scoDemandQuery.data, items],
+  );
+  const demandReady = scoDemandQuery.isSuccess || scoDemandQuery.isError;
+  const allComponentsImported =
+    Boolean(scoNumber) && scoDemandQuery.isSuccess && remainingImportQty <= 0;
+  const canImportComponents =
+    poType === 'MATERIAL' &&
+    Boolean(scoNumber) &&
+    !isReadOnly &&
+    scoDemandQuery.isSuccess &&
+    remainingImportQty > 0;
+  const importDisabledReason = !scoNumber
+    ? 'Link a subcontract order to import components'
+    : scoDemandQuery.isFetching || !demandReady
+      ? 'Checking remaining subcontract component demand…'
+      : scoDemandQuery.isError
+        ? 'Unable to verify remaining subcontract component demand'
+        : allComponentsImported
+          ? ALL_SCO_COMPONENTS_IMPORTED_MESSAGE
+          : isReadOnly
+            ? 'This purchase order cannot be edited'
+            : 'Import remaining subcontract components';
 
   const handleItemSelect = (rowId: string, catalog: Item | null) => {
     const fields: Partial<PurchaseOrderItem> = {
@@ -158,27 +195,40 @@ export function POLineItemsTable({
     <div style={containerStyle}>
       <div style={tableHeaderContainerStyle}>
         <h3 style={sectionHeadingStyle}>Line Items</h3>
-        {!isReadOnly && (
+        {(poType === 'MATERIAL' || !isReadOnly) && (
           <div style={tableActionGroupStyle}>
             {poType === 'MATERIAL' && (
+              <span
+                title={importDisabledReason}
+                style={{ display: 'inline-block', cursor: canImportComponents ? 'pointer' : 'not-allowed' }}
+              >
               <button
                 type="button"
-                onClick={() => setImportOpen(true)}
+                onClick={() => {
+                  if (!canImportComponents) return
+                  setImportOpen(true)
+                }}
                 disabled={!canImportComponents}
-                title={
-                  scoNumber
-                    ? 'Import remaining subcontract components'
-                    : 'Link a subcontract order to import components'
+                aria-disabled={!canImportComponents}
+                aria-label={
+                  canImportComponents
+                    ? 'Import Subcontract Components'
+                    : `Import Subcontract Components. ${importDisabledReason}`
                 }
                 style={{
                   ...addButtonStyle,
                   backgroundColor: canImportComponents ? '#2e7d32' : '#9e9e9e',
                   cursor: canImportComponents ? 'pointer' : 'not-allowed',
+                  opacity: canImportComponents ? 1 : 0.75,
+                  pointerEvents: canImportComponents ? 'auto' : 'none',
                 }}
               >
                 Import Subcontract Components
               </button>
+              </span>
             )}
+            {!isReadOnly ? (
+              <>
             <button
               type="button"
               onClick={clearAllRows}
@@ -197,6 +247,8 @@ export function POLineItemsTable({
             >
               + Add Item Row
             </button>
+              </>
+            ) : null}
           </div>
         )}
       </div>
@@ -211,6 +263,12 @@ export function POLineItemsTable({
               {!isSubcontract && <th style={{ ...thStyle, width: '80px' }}>UOM</th>}
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
               <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Unit Price ($) *</th>
+              <th style={{ ...thStyle, width: '160px', textAlign: 'right' }} title="Includes allocated freight, duty, and fees for estimation only.">
+                Est. Landed Unit Cost ($)
+                <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
+                  Freight / duty / fees
+                </div>
+              </th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
               <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Line Subtotal</th>
               {!isReadOnly && <th style={{ ...thStyle, width: '80px', textAlign: 'center' }}>Actions</th>}
@@ -360,6 +418,19 @@ export function POLineItemsTable({
                     )}
                   </td>
 
+                  {/* Estimated landed unit cost (read-only) */}
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <div
+                      style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}
+                      title="Includes allocated freight, duty, and fees for estimation only."
+                    >
+                      {formatCurrency(item.estimated_landed_unit_cost ?? item.unit_price)}
+                      <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
+                        Estimation only
+                      </span>
+                    </div>
+                  </td>
+
                   {/* Tax Rate */}
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isReadOnly ? (
@@ -427,6 +498,7 @@ export function POLineItemsTable({
           scoNumber={scoNumber || ''}
           supplierId={supplierId}
           excludePoNumber={excludePoNumber}
+          poItems={items}
           products={products}
           onClose={() => setImportOpen(false)}
           onImport={onImportComponents}

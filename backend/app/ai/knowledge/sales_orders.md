@@ -12,7 +12,7 @@ Required fields:
 - `order_date`
 - at least one line item with `item_id`, `quantity_ordered`, `unit_price`, `total_amount`
 
-The server assigns `sales_order_id` on create as `PUB61-{YY}{MM}{XXXX}` from the order date (not the system date). Do not invent an ID.
+The server assigns `sales_order_id` on create as `PU61-{YY}{MM}{XXXX}` from the order date (not the system date). Do not invent an ID.
 
 Default create status is `DRAFT`. Submitting enters the approval workflow based on amount bands.
 
@@ -25,5 +25,5 @@ Sales invoices may be created after a shipped fulfillment. Invoice numbers are a
 - `sales_order:submit` / `sales_order:approve` — workflow actions
 
 ## AI tool tips
-Ask: "list sales orders with status DRAFT" or "show PUB61-26090001".
+Ask: "list sales orders with status DRAFT" or "show PU61-26090001".
 To draft via AI: "create draft order for CUST-GTT-USA with 2x PROD-1001G".

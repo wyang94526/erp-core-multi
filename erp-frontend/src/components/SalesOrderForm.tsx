@@ -17,6 +17,7 @@ import {
 } from '../data/orderOptions'
 import { paymentTermLabel } from '../utils/paymentTerms'
 import { isAmountOnlyLine, isStockItemType } from '../utils/itemTypes'
+import { isSalesOrderEditable, SALES_ORDER_LOCKED_EDIT_MESSAGE } from '../utils/salesOrders'
 
 interface LineItem {
   line_number: number
@@ -585,6 +586,11 @@ export function SalesOrderForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (isEditMode && salesOrder && !isSalesOrderEditable(salesOrder)) {
+      setErrors({ submit: SALES_ORDER_LOCKED_EDIT_MESSAGE })
+      return
+    }
+
     if (!validateForm()) {
       return
     }
@@ -619,6 +625,29 @@ export function SalesOrderForm() {
     )
   }
 
+  if (isEditMode && salesOrder && !isSalesOrderEditable(salesOrder)) {
+    return (
+      <div style={containerStyle}>
+        <header style={pageHeaderStyle}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <h2 style={pageTitleStyle}>Edit Sales Order</h2>
+            <p style={pageSubStyle}>{salesOrder.sales_order_id}</p>
+          </div>
+        </header>
+        <div style={lockWarningStyle} role="alert">
+          {SALES_ORDER_LOCKED_EDIT_MESSAGE}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate(`/orders/${salesOrder.sales_order_id}`)}
+          style={secondaryButtonStyle}
+        >
+          Back to Order
+        </button>
+      </div>
+    )
+  }
+
   const isSubmitting = createMutation.isPending || updateMutation.isPending
 
   return (
@@ -641,7 +670,7 @@ export function SalesOrderForm() {
                   Sales Order ID
                 </label>
                 <div id="sales_order_id" style={{ ...inputStyle, backgroundColor: 'var(--bg-muted, #f5f5f5)', color: 'var(--text)' }}>
-                  Assigned on save (PUB61-YYMMXXXX)
+                  Assigned on save (PU61-YYMMXXXX)
                 </div>
               </div>
             )}
@@ -1360,6 +1389,17 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: '14px',
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+
+const lockWarningStyle: React.CSSProperties = {
+  marginBottom: 16,
+  backgroundColor: '#fff8e1',
+  color: '#e65100',
+  border: '1px solid #ffe082',
+  borderRadius: 6,
+  padding: '12px 16px',
+  fontSize: 14,
+  fontWeight: 600,
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

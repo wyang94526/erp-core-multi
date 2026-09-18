@@ -2,17 +2,27 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FileDown, Loader2 } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
-import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService } from '../api/services';
-import type { Supplier, PurchaseOrder, Item, SubcontractOrder } from '../types';
+import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService } from '../api/services';
+import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { requiresCarrierAccount } from '../data/orderOptions';
 import { isNonStockItem } from '../utils/itemTypes'
+import { isRecallablePurchaseOrder, isPurchaseOrderEditable, purchaseOrderLockReason } from '../utils/poWorkflow'
+import {
+  canCreatePoBill,
+  canReceivePoGoods,
+  createBillBlockedReason,
+  remainingReceiveQty,
+  receiveGoodsBlockedReason,
+} from '../utils/poP2p'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel';
 import { POHeader } from './POHeader';
 import { POLineItemsTable } from './POLineItemsTable';
 import { POSummaryCard } from './POSummaryCard';
 import { POActionToolbar } from './POActionToolbar';
 import { ApprovalPanel } from './ApprovalPanel';
+import { GoodsReceiptHistoryTable } from './GoodsReceiptHistoryTable';
+import { useAuth } from '../context/AuthContext';
 
 function roundTo(value: number, places: number) {
   const factor = 10 ** places;
@@ -87,6 +97,9 @@ export function PurchaseOrderForm() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [receivingGoods, setReceivingGoods] = useState(false);
   const [p2pError, setP2pError] = useState<string | null>(null);
+  const [recalling, setRecalling] = useState(false);
+  const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
+  const { hasAnyPermission } = useAuth();
 
   const {
     state,
@@ -153,7 +166,7 @@ export function PurchaseOrderForm() {
         if (!cancelled) setProducts(poCatalog);
         setFullPO(withSupplierName(po, sups));
         setIsExisting(true);
-        setIsReadOnly(searchParams.get('edit') !== '1');
+        setIsReadOnly(searchParams.get('edit') !== '1' || !isPurchaseOrderEditable(po));
         setSuccessMessage('');
       } catch (err) {
         if (cancelled) return;
@@ -186,6 +199,18 @@ export function PurchaseOrderForm() {
   }, [state.po_type]);
 
   useEffect(() => {
+    if (isExisting && !isPurchaseOrderEditable(state)) {
+      setIsReadOnly(true);
+    }
+  }, [
+    isExisting,
+    state.status,
+    state.approval_status,
+    state.has_posted_receipts,
+    state.has_supplier_invoices,
+  ]);
+
+  useEffect(() => {
     if ((state.po_type || 'MATERIAL') !== 'SUBCONTRACT') return;
     if (subcontractOrders.length > 0) return;
     let cancelled = false;
@@ -199,6 +224,25 @@ export function PurchaseOrderForm() {
       cancelled = true;
     };
   }, [state.po_type, subcontractOrders.length]);
+
+  useEffect(() => {
+    if (!isExisting || !state.po_number) {
+      setReceipts([]);
+      return;
+    }
+    let cancelled = false;
+    void goodsReceiptService
+      .list({ source_type: 'PURCHASE_ORDER', source_order_id: state.po_number })
+      .then((rows) => {
+        if (!cancelled) setReceipts(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setReceipts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isExisting, state.po_number, state.has_posted_receipts, successMessage]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -265,6 +309,12 @@ export function PurchaseOrderForm() {
   const hasValidationError = useMemo(() => Object.keys(errors).length > 0, [errors]);
 
   const persistPO = async (status: PurchaseOrder['status']) => {
+    if (isExisting && !isPurchaseOrderEditable(state)) {
+      throw new Error(
+        purchaseOrderLockReason(state) ||
+          'Approved purchase orders cannot be modified directly. Use Recall / Reopen for Revision.',
+      );
+    }
     const payload = buildPayload(state as PurchaseOrder, status);
     if (payload.items.length === 0 && status !== 'Draft') {
       throw new Error('At least one valid line item is required');
@@ -364,7 +414,7 @@ export function PurchaseOrderForm() {
       try {
         const po = await purchaseOrderService.getPurchaseOrder(poNumberParam!);
         setFullPO(withSupplierName(po, suppliers));
-        setIsReadOnly(false);
+        setIsReadOnly(!isPurchaseOrderEditable(po));
         setErrors({});
         setSuccessMessage('');
       } catch (err) {
@@ -376,6 +426,7 @@ export function PurchaseOrderForm() {
   };
 
   const handleToggleMode = () => {
+    if (isExisting && !isPurchaseOrderEditable(state)) return;
     setIsReadOnly((prev) => !prev);
   };
 
@@ -383,6 +434,12 @@ export function PurchaseOrderForm() {
     try {
       const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
       setFullPO(withSupplierName(refreshed, suppliers));
+      const next = (refreshed.approval_status || '').toUpperCase();
+      if (next === 'DRAFT' || next === 'REJECTED') {
+        setIsReadOnly(false);
+      } else {
+        setIsReadOnly(true);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -391,6 +448,44 @@ export function PurchaseOrderForm() {
   const isApproved =
     (state.approval_status || '').toUpperCase() === 'APPROVED' ||
     state.status === 'Approved';
+  const editLockedReason = isExisting ? purchaseOrderLockReason(state) : null;
+  const editLocked = Boolean(editLockedReason);
+  const fieldsReadOnly = isReadOnly || editLocked;
+  const isRecallableStatus = isExisting && isRecallablePurchaseOrder(state.status, state.approval_status);
+  const canRecallAction =
+    Boolean(state.can_recall) &&
+    hasAnyPermission(['po:submit_for_approval', 'po:approve']);
+  const recallDisabledReason =
+    state.recall_blocked_reason ||
+    (isRecallableStatus && !hasAnyPermission(['po:submit_for_approval', 'po:approve'])
+      ? 'You need po:submit_for_approval or po:approve to recall this purchase order'
+      : null);
+
+  const handleRecallPO = async () => {
+    if (!state.po_number) return;
+    if (
+      !window.confirm(
+        'Recall this purchase order to Draft for revision? Receive Goods and Create Bill stay blocked until it is approved again.',
+      )
+    ) {
+      return;
+    }
+    setRecalling(true);
+    setErrors({});
+    setP2pError(null);
+    try {
+      const updated = await purchaseOrderService.recallPurchaseOrder(state.po_number);
+      setFullPO(withSupplierName(updated, suppliers));
+      setIsReadOnly(false);
+      setSuccessMessage(`Purchase order ${updated.po_number} recalled to Draft for revision.`);
+    } catch (err) {
+      setErrors({
+        form: err instanceof Error ? err.message : 'Failed to recall purchase order',
+      });
+    } finally {
+      setRecalling(false);
+    }
+  };
 
   const handleExportVendorPdf = async () => {
     setExportError(null);
@@ -428,25 +523,28 @@ export function PurchaseOrderForm() {
 
   const handleReceiveAllGoods = async () => {
     if (!state.po_number || !state.items.length) return;
-    const stockLines = state.items.filter((item) => {
-      const itemType = item.item_type || products.find((p) => p.item_id === item.sku)?.item_type
-      return !isNonStockItem(itemType, item.sku) && Number(item.quantity) > 0
-    })
-    if (stockLines.length === 0) {
-      setP2pError('No inventory lines to receive. Service and non-inventory items skip goods receipt.')
+    if (!canReceivePoGoods(state)) {
+      setP2pError(receiveGoodsBlockedReason(state) || 'Nothing remaining to receive.');
+      return;
+    }
+    const receivableLines = state.items.filter((item) => remainingReceiveQty(item) > 0);
+    if (receivableLines.length === 0) {
+      setP2pError('No receivable lines. Enter a quantity or amount before receiving.')
       return
     }
     setP2pError(null);
     setReceivingGoods(true);
     try {
       await purchaseOrderService.receiveGoods(state.po_number, {
-        lines: stockLines.map((item) => ({
+        lines: receivableLines.map((item) => ({
           source_line_id: Number(item.id),
-          quantity_received: item.quantity,
+          quantity_received: remainingReceiveQty(item),
           unit_cost: item.unit_price,
         })),
       });
-      setSuccessMessage('Goods received — inventory and GRNI accrual posted.');
+      const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
+      setFullPO(withSupplierName(refreshed, suppliers));
+      setSuccessMessage('Goods received — inventory/expense accrual and GRNI posted.');
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : 'Failed to receive goods');
     } finally {
@@ -521,14 +619,48 @@ export function PurchaseOrderForm() {
 
       <>
           <POActionToolbar
-            isReadOnly={isReadOnly}
+            isReadOnly={fieldsReadOnly}
+            editLocked={editLocked}
+            editLockedReason={editLockedReason}
             onToggleMode={handleToggleMode}
             onSaveDraft={handleSaveDraft}
             onSubmit={handleSubmitPO}
             onReset={handleResetForm}
             isSubmitting={isSubmitting}
             hasValidationError={hasValidationError}
+            showRecall={isRecallableStatus}
+            canRecall={canRecallAction}
+            recallDisabledReason={recallDisabledReason}
+            onRecall={() => void handleRecallPO()}
+            isRecalling={recalling}
           />
+
+          {isExisting && isRecallableStatus && (
+            <div style={recallBarStyle} role="region" aria-label="Recall purchase order">
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
+                  Recall / Reopen for Revision
+                </div>
+                <div style={{ fontSize: 13, color: canRecallAction ? 'var(--text)' : '#c62828' }}>
+                  {canRecallAction
+                    ? 'Return this purchase order to Draft so you can revise lines and resubmit for approval.'
+                    : recallDisabledReason || 'Recall is not available for this purchase order.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleRecallPO()}
+                disabled={!canRecallAction || recalling || isSubmitting}
+                style={{
+                  ...exportButtonStyle,
+                  backgroundColor: canRecallAction ? '#ef6c00' : '#9e9e9e',
+                  cursor: canRecallAction && !recalling ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {recalling ? 'Recalling…' : 'Recall / Reopen for Revision'}
+              </button>
+            </div>
+          )}
 
           {isExisting && (
             <ApprovalPanel
@@ -537,6 +669,9 @@ export function PurchaseOrderForm() {
               approvalStatus={state.approval_status}
               currentApprovalStep={state.current_approval_step}
               onStatusChange={handleApprovalChange}
+              allowRecall={canRecallAction}
+              recallDisabledReason={recallDisabledReason}
+              documentStatus={state.status}
             />
           )}
 
@@ -598,29 +733,78 @@ export function PurchaseOrderForm() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  title={
+                    canReceivePoGoods(state)
+                      ? 'Post a goods receipt for remaining quantity'
+                      : receiveGoodsBlockedReason(state) || undefined
+                  }
+                  style={{
+                    display: 'inline-block',
+                    cursor: canReceivePoGoods(state) && !receivingGoods ? 'pointer' : 'not-allowed',
+                  }}
+                >
                 <button
                   type="button"
-                  onClick={handleReceiveAllGoods}
-                  disabled={receivingGoods}
+                  onClick={() => {
+                    if (!canReceivePoGoods(state) || receivingGoods) return
+                    void handleReceiveAllGoods()
+                  }}
+                  disabled={receivingGoods || !canReceivePoGoods(state)}
+                  aria-disabled={receivingGoods || !canReceivePoGoods(state)}
+                  aria-label={
+                    canReceivePoGoods(state)
+                      ? 'Receive Goods'
+                      : `Receive Goods. ${receiveGoodsBlockedReason(state) || ''}`
+                  }
                   style={{
                     ...exportButtonStyle,
-                    backgroundColor: '#2e7d32',
-                    opacity: receivingGoods ? 0.75 : 1,
+                    backgroundColor: canReceivePoGoods(state) ? '#2e7d32' : '#9e9e9e',
+                    opacity: receivingGoods || !canReceivePoGoods(state) ? 0.75 : 1,
+                    cursor: canReceivePoGoods(state) && !receivingGoods ? 'pointer' : 'not-allowed',
+                    pointerEvents: canReceivePoGoods(state) ? 'auto' : 'none',
                   }}
                 >
                   {receivingGoods ? 'Receiving…' : 'Receive Goods'}
                 </button>
+                </span>
+                <span
+                  title={
+                    canCreatePoBill(state)
+                      ? 'Create a supplier invoice from unbilled receipts'
+                      : createBillBlockedReason(state) || undefined
+                  }
+                  style={{
+                    display: 'inline-block',
+                    cursor: canCreatePoBill(state) ? 'pointer' : 'not-allowed',
+                  }}
+                >
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    if (!canCreatePoBill(state)) return
                     navigate(
                       `/supplier-invoices/new?source_type=PURCHASE_ORDER&source_order_id=${encodeURIComponent(state.po_number)}`,
                     )
+                  }}
+                  disabled={!canCreatePoBill(state)}
+                  aria-disabled={!canCreatePoBill(state)}
+                  aria-label={
+                    canCreatePoBill(state)
+                      ? 'Create Bill / Supplier Invoice'
+                      : `Create Bill / Supplier Invoice. ${createBillBlockedReason(state) || ''}`
                   }
-                  style={{ ...exportButtonStyle, backgroundColor: '#6a1b9a' }}
+                  style={{
+                    ...exportButtonStyle,
+                    backgroundColor: canCreatePoBill(state) ? '#6a1b9a' : '#9e9e9e',
+                    opacity: canCreatePoBill(state) ? 1 : 0.75,
+                    cursor: canCreatePoBill(state) ? 'pointer' : 'not-allowed',
+                    pointerEvents: canCreatePoBill(state) ? 'auto' : 'none',
+                  }}
                 >
                   Create Bill / Supplier Invoice
                 </button>
+                </span>
               </div>
             </div>
           )}
@@ -631,7 +815,7 @@ export function PurchaseOrderForm() {
                 <POHeader
                   state={state}
                   setHeader={setHeader}
-                  isReadOnly={isReadOnly}
+                  isReadOnly={fieldsReadOnly}
                   suppliers={suppliers}
                   subcontractOrders={subcontractOrders}
                   errors={errors}
@@ -643,7 +827,7 @@ export function PurchaseOrderForm() {
                 <POSummaryCard
                   state={state}
                   updateSummary={updateSummary}
-                  isReadOnly={isReadOnly}
+                  isReadOnly={fieldsReadOnly}
                 />
               </div>
             </div>
@@ -657,7 +841,7 @@ export function PurchaseOrderForm() {
               deleteRow={deleteRow}
               addRow={addRow}
               clearAllRows={clearAllRows}
-              isReadOnly={isReadOnly}
+              isReadOnly={fieldsReadOnly}
               errors={errors}
               scoNumber={state.sco_number}
               supplierId={state.supplier_id}
@@ -665,11 +849,21 @@ export function PurchaseOrderForm() {
               onImportComponents={mergeImportedRows}
             />
 
+            {isExisting && (
+              <div style={notesCardStyle}>
+                <h3 style={receiptsHeadingStyle}>Goods Receipts</h3>
+                <p style={receiptsHintStyle}>
+                  Click a receipt ID to open posting status, received quantities, and the GRNI accounting trail.
+                </p>
+                <GoodsReceiptHistoryTable receipts={receipts} />
+              </div>
+            )}
+
             <div style={notesCardStyle}>
               <label style={notesLabelStyle} htmlFor="po_notes">
                 Order Notes & Internal Comments
               </label>
-              {isReadOnly ? (
+              {fieldsReadOnly ? (
                 <div style={readOnlyNotesValueStyle}>{state.notes || 'No notes provided.'}</div>
               ) : (
                 <textarea
@@ -789,6 +983,19 @@ const notesCardStyle: React.CSSProperties = {
   boxShadow: 'var(--shadow)',
 };
 
+const receiptsHeadingStyle: React.CSSProperties = {
+  margin: '0 0 4px',
+  fontSize: 16,
+  fontWeight: 700,
+  color: 'var(--text-h)',
+};
+
+const receiptsHintStyle: React.CSSProperties = {
+  margin: '0 0 12px',
+  fontSize: 13,
+  color: 'var(--text)',
+};
+
 const exportBarStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -802,6 +1009,13 @@ const exportBarStyle: React.CSSProperties = {
   background:
     'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
   boxShadow: 'var(--shadow)',
+};
+
+const recallBarStyle: React.CSSProperties = {
+  ...exportBarStyle,
+  border: '1px solid rgba(239, 108, 0, 0.35)',
+  background:
+    'linear-gradient(135deg, rgba(239, 108, 0, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
 };
 
 const exportButtonStyle: React.CSSProperties = {

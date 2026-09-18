@@ -11,6 +11,7 @@ FREIGHT_ROUTING = "ROUTING_ACCOUNT"
 PO_FREIGHT_TERMS = (FREIGHT_PREPAID, FREIGHT_THIRD_PARTY, FREIGHT_ROUTING)
 
 TWOPLACES = Decimal("0.01")
+FOURPLACES = Decimal("0.0001")
 ZERO = Decimal("0.00")
 
 
@@ -60,6 +61,67 @@ def remaining_to_buy(quantity_required: Any, quantity_already_ordered: Any) -> D
     return remaining.quantize(Decimal("0.0001"))
 
 
+def money4(value: Any) -> Decimal:
+    return _d(value).quantize(FOURPLACES)
+
+
+def is_allocated_expense_line(item: Any) -> bool:
+    """Duty/freight/MISC amount-only lines are charges to spread, not merchandise."""
+    from app.services.item_types import is_service_sku, is_stock_type
+
+    qty = _d(getattr(item, "quantity", 0))
+    if qty <= 0:
+        return True
+    if is_service_sku(getattr(item, "sku", None)):
+        return True
+    item_type = getattr(item, "item_type", None)
+    if item_type and not is_stock_type(item_type):
+        return True
+    return False
+
+
+def allocated_expense_pool(items: list[Any], shipping_fee: Any) -> Decimal:
+    charges = money(max(_d(shipping_fee), Decimal("0")))
+    for item in items:
+        if is_allocated_expense_line(item):
+            charges += money(getattr(item, "line_subtotal", 0))
+    return charges
+
+
+def apply_estimated_landed_unit_costs(po: Any) -> None:
+    """Annotate each line with estimated_landed_unit_cost. Does not change unit_price."""
+    items = list(getattr(po, "items", None) or [])
+    expenses = allocated_expense_pool(items, getattr(po, "shipping_fee", 0))
+    merchandise = [item for item in items if not is_allocated_expense_line(item)]
+
+    for item in items:
+        price = max(_d(getattr(item, "unit_price", 0)), Decimal("0"))
+        qty = _d(getattr(item, "quantity", 0))
+        if qty <= 0 or is_allocated_expense_line(item):
+            item.estimated_landed_unit_cost = money4(price) if price > 0 else ZERO
+            item.allocated_landed_expense = ZERO
+
+    if not merchandise:
+        return
+
+    merch_value = money(sum((_d(getattr(item, "line_subtotal", 0)) for item in merchandise), Decimal("0")))
+    remaining = expenses
+    last_index = len(merchandise) - 1
+    for index, item in enumerate(merchandise):
+        qty = _d(getattr(item, "quantity", 0))
+        price = max(_d(getattr(item, "unit_price", 0)), Decimal("0"))
+        if merch_value <= 0:
+            allocated = ZERO
+        elif index == last_index:
+            allocated = remaining
+        else:
+            allocated = money(expenses * _d(getattr(item, "line_subtotal", 0)) / merch_value)
+            remaining = money(remaining - allocated)
+        item.allocated_landed_expense = allocated
+        per_unit = (allocated / qty) if qty > 0 else ZERO
+        item.estimated_landed_unit_cost = money4(price + per_unit)
+
+
 def apply_line_totals(item: Any) -> None:
     qty = max(_d(getattr(item, "quantity", 0)), Decimal("0"))
     price = max(_d(getattr(item, "unit_price", 0)), Decimal("0"))
@@ -100,3 +162,4 @@ def apply_po_totals(po: Any) -> None:
         subtotal + total_tax + vendor_freight(shipping, getattr(po, "freight_terms", None)) - discount_amount
     )
     po.grand_total = grand if grand > 0 else ZERO
+    apply_estimated_landed_unit_costs(po)

@@ -23,7 +23,7 @@ committed yet).
 import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import or_
@@ -47,23 +47,73 @@ from app.models import (
     SupplierInvoiceDistribution,
 )
 from app.services.payment_terms import due_days_for, due_days_from_string
+from app.services.posting_rules import (
+    EVENT_AR_PAYMENT,
+    EVENT_GOODS_RECEIPT,
+    EVENT_SALES_CREDIT,
+    EVENT_SALES_INVOICE,
+    EVENT_SUPPLIER_INVOICE,
+    PARTY_ANY,
+    PARTY_RELATED,
+    PARTY_TRADE,
+    VARIANT_CREDIT_MEMO,
+    VARIANT_EXPENSE,
+    VARIANT_GRNI_CLEAR,
+    VARIANT_MATERIALS,
+    VARIANT_PPV_UNFAVORABLE,
+    VARIANT_REVENUE,
+    VARIANT_SETTLE,
+    VARIANT_SUBCONTRACT,
+    VARIANT_TAX,
+    catalog_account,
+    receipt_variant,
+    resolve_posting_pair,
+)
 
-# ------------------------------------------------------------------
-# Standard Chart of Accounts codes used by the finance automation.
-# These are auto-created on first use if they don't already exist,
-# since the seed data does not currently populate a chart of accounts.
-# ------------------------------------------------------------------
-CASH_ACCOUNT_CODE = "1000"
-CASH_ACCOUNT_NAME = "Cash"
+# Catalog fallbacks — live posting uses posting_rules rows when present.
+CASH_ACCOUNT_CODE, CASH_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_AR_PAYMENT, VARIANT_SETTLE, PARTY_ANY, "debit"
+)
+AR_ACCOUNT_CODE, AR_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SALES_INVOICE, VARIANT_REVENUE, PARTY_ANY, "debit"
+)
+AP_ACCOUNT_CODE, AP_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SUPPLIER_INVOICE, VARIANT_GRNI_CLEAR, PARTY_TRADE, "credit"
+)
+RELATED_AP_ACCOUNT_CODE, RELATED_AP_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SUPPLIER_INVOICE, VARIANT_GRNI_CLEAR, PARTY_RELATED, "credit"
+)
+REVENUE_ACCOUNT_CODE, REVENUE_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SALES_INVOICE, VARIANT_REVENUE, PARTY_ANY, "credit"
+)
+INVENTORY_ACCOUNT_CODE, INVENTORY_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_GOODS_RECEIPT, VARIANT_MATERIALS, PARTY_TRADE, "debit"
+)
+PROCESSING_FEES_ACCOUNT_CODE, PROCESSING_FEES_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_GOODS_RECEIPT, VARIANT_SUBCONTRACT, PARTY_TRADE, "debit"
+)
+PURCHASE_EXPENSE_ACCOUNT_CODE, PURCHASE_EXPENSE_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_GOODS_RECEIPT, VARIANT_EXPENSE, PARTY_TRADE, "debit"
+)
+GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_GOODS_RECEIPT, VARIANT_MATERIALS, PARTY_TRADE, "credit"
+)
+GRNI_RELATED_ACCOUNT_CODE, GRNI_RELATED_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_GOODS_RECEIPT, VARIANT_MATERIALS, PARTY_RELATED, "credit"
+)
+PPV_ACCOUNT_CODE, PPV_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SUPPLIER_INVOICE, VARIANT_PPV_UNFAVORABLE, PARTY_TRADE, "debit"
+)
+TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SUPPLIER_INVOICE, VARIANT_TAX, PARTY_TRADE, "debit"
+)
+TAX_PAYABLE_ACCOUNT_CODE, TAX_PAYABLE_ACCOUNT_NAME, _ = catalog_account(
+    EVENT_SALES_INVOICE, VARIANT_TAX, PARTY_ANY, "credit"
+)
 
-AR_ACCOUNT_CODE = "1100"
-AR_ACCOUNT_NAME = "Accounts Receivable"
-
-AP_ACCOUNT_CODE = "2000"
-AP_ACCOUNT_NAME = "Accounts Payable"
-
-REVENUE_ACCOUNT_CODE = "4000"
-REVENUE_ACCOUNT_NAME = "Sales Revenue"
+# Historical placeholder codes — still used when settling older journals.
+_LEGACY_AP_CODES = frozenset({"2000", "2170", "2171", "2172", "2180", "2181", "2182"})
+_LEGACY_AR_CODES = frozenset({"1100", "1170", "1172", "1180", "1181"})
 
 _MONEY = Decimal("0.01")
 
@@ -82,6 +132,114 @@ def get_or_create_account(
     db.add(account)
     db.flush()
     return account
+
+
+def is_related_party_supplier(supplier: Supplier | None) -> bool:
+    """TIPTOP pmc903=Y is stored as related_party=Y in supplier notes."""
+    if supplier is None:
+        return False
+    notes = (getattr(supplier, "notes", None) or "").lower().replace(" ", "")
+    return "related_party=y" in notes
+
+
+def ap_account_spec(supplier: Supplier | None = None) -> tuple[str, str, str]:
+    party = PARTY_RELATED if is_related_party_supplier(supplier) else PARTY_TRADE
+    return catalog_account(EVENT_SUPPLIER_INVOICE, VARIANT_GRNI_CLEAR, party, "credit")
+
+
+def receipt_debit_spec(source_type: str | None, item=None) -> tuple[str, str, str]:
+    return catalog_account(
+        EVENT_GOODS_RECEIPT, receipt_variant(source_type, item), PARTY_TRADE, "debit"
+    )
+
+
+def grni_account_spec(supplier: Supplier | None = None) -> tuple[str, str, str]:
+    party = PARTY_RELATED if is_related_party_supplier(supplier) else PARTY_TRADE
+    return catalog_account(EVENT_GOODS_RECEIPT, VARIANT_MATERIALS, party, "credit")
+
+
+def resolve_ap_account(db: Session, supplier: Supplier | None = None) -> ChartOfAccount:
+    """Trade/related AP from the posting rule, or the vendor's mapped AP account."""
+    if supplier is not None:
+        mapped_id = getattr(supplier, "ap_account_id", None)
+        if mapped_id:
+            mapped = getattr(supplier, "ap_account", None) or db.get(ChartOfAccount, mapped_id)
+            if mapped is not None:
+                return mapped
+    _debit, credit = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_GRNI_CLEAR, supplier
+    )
+    return credit
+
+
+def receipt_debit_account(
+    db: Session,
+    *,
+    source_type: str | None,
+    item=None,
+    supplier: Supplier | None = None,
+) -> ChartOfAccount:
+    """Debit side of a goods-receipt GRNI accrual."""
+    debit, _credit = resolve_posting_pair(
+        db, EVENT_GOODS_RECEIPT, receipt_variant(source_type, item), supplier
+    )
+    return debit
+
+
+def resolve_grni_account(db: Session, supplier: Supplier | None = None) -> ChartOfAccount:
+    _debit, credit = resolve_posting_pair(
+        db, EVENT_GOODS_RECEIPT, VARIANT_MATERIALS, supplier
+    )
+    return credit
+
+
+def _journal_side_account(
+    db: Session,
+    description_contains: str,
+    *,
+    credit: bool,
+    codes: frozenset[str],
+) -> ChartOfAccount | None:
+    entries = (
+        db.query(JournalEntry)
+        .options(selectinload(JournalEntry.postings).joinedload(LedgerPosting.account))
+        .filter(JournalEntry.description.contains(description_contains))
+        .order_by(JournalEntry.created_at.desc())
+        .all()
+    )
+    for entry in entries:
+        for posting in entry.postings or []:
+            amount = posting.credit if credit else posting.debit
+            if Decimal(str(amount or 0)) <= 0:
+                continue
+            account = posting.account
+            if account is not None and account.account_code in codes:
+                return account
+    return None
+
+
+def resolve_ap_account_for_settlement(
+    db: Session,
+    *,
+    document_number: str,
+    supplier: Supplier | None = None,
+) -> ChartOfAccount:
+    posted = _journal_side_account(
+        db, document_number, credit=True, codes=_LEGACY_AP_CODES
+    )
+    if posted is not None:
+        return posted
+    return resolve_ap_account(db, supplier)
+
+
+def resolve_ar_account_for_settlement(db: Session, invoice_id: str) -> ChartOfAccount:
+    posted = _journal_side_account(
+        db, invoice_id, credit=False, codes=_LEGACY_AR_CODES
+    )
+    if posted is not None:
+        return posted
+    ar_account, _revenue = resolve_posting_pair(db, EVENT_SALES_INVOICE, VARIANT_REVENUE, None)
+    return ar_account
 
 
 def _parse_payment_terms_days(payment_terms: str | None) -> int:
@@ -179,13 +337,21 @@ def _post_balanced_journal_entry(
     debit_account: ChartOfAccount,
     credit_account: ChartOfAccount,
     amount: Decimal,
+    *,
+    reference: str | None = None,
+    posted_by_user_id: UUID | None = None,
+    posting_date: date | None = None,
 ) -> JournalEntry:
-    period = datetime.utcnow().strftime("%Y-%m")
+    today = posting_date or datetime.utcnow().date()
+    period = today.strftime("%Y-%m")
     entry = JournalEntry(
         description=description,
         period=period,
+        posting_date=today,
         posting_status="Posted",
         approval_status="APPROVED",
+        reference=(reference.strip() if reference else None) or None,
+        posted_by_user_id=posted_by_user_id,
     )
     db.add(entry)
     db.flush()
@@ -212,6 +378,7 @@ DEFAULT_BANK_ACCOUNT_ID = "BANK-OPERATING"
 _INSTRUMENT_START = 1042
 CASH_PAYMENT_METHODS = {"CHECK", "WIRE", "ACH", "CARD"}
 INSTRUMENT_PREFIX = {"CHECK": "CHK", "WIRE": "WIRE", "ACH": "ACH", "CARD": "CC"}
+BANK_ACCOUNT_TYPES = frozenset({"CHECKING", "SAVINGS", "MONEY_MARKET", "OTHER"})
 
 
 def mask_account_number(account_number: str | None) -> str | None:
@@ -267,7 +434,18 @@ def bank_account_display(account: BankAccount | None) -> str | None:
     return f"{name} ({masked})" if masked else name
 
 
+def gl_account_display(account: ChartOfAccount | None) -> str | None:
+    if account is None:
+        return None
+    code = (account.account_code or "").strip()
+    name = (account.account_name or "").strip()
+    if code and name:
+        return f"{code} — {name}"
+    return code or name or None
+
+
 def serialize_bank_account(account: BankAccount) -> dict:
+    gl = getattr(account, "gl_account", None)
     return {
         "bank_account_id": account.bank_account_id,
         "bank_name": account.bank_name,
@@ -275,6 +453,12 @@ def serialize_bank_account(account: BankAccount) -> dict:
         "account_number": account.account_number,
         "account_number_masked": mask_account_number(account.account_number),
         "routing_number": account.routing_number,
+        "account_type": (getattr(account, "account_type", None) or "CHECKING").upper(),
+        "currency": (getattr(account, "currency", None) or "USD").upper(),
+        "gl_account_id": getattr(account, "gl_account_id", None),
+        "gl_account_code": gl.account_code if gl is not None else None,
+        "gl_account_name": gl.account_name if gl is not None else None,
+        "gl_account_display": gl_account_display(gl),
         "display_name": bank_account_display(account),
         "is_default": bool(account.is_default),
         "is_active": bool(account.is_active),
@@ -287,6 +471,73 @@ def _bank_account_id_from_name(account_name: str) -> str:
     return f"BANK-{slug}"[:50]
 
 
+def normalize_routing_or_swift(value: str | None) -> str | None:
+    """Accept a 9-digit ABA routing number or an 8–11 character SWIFT/BIC."""
+    raw = (value or "").strip().upper().replace(" ", "")
+    if not raw:
+        return None
+    if raw.isdigit() and len(raw) == 9:
+        return raw
+    if 8 <= len(raw) <= 11 and raw.isalnum():
+        return raw
+    raise HTTPException(
+        status_code=400,
+        detail="Routing number must be 9 digits, or SWIFT/BIC must be 8–11 alphanumeric characters",
+    )
+
+
+def normalize_bank_account_type(value: str | None) -> str:
+    account_type = (value or "CHECKING").strip().upper().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "CHECKING": "CHECKING",
+        "CHECK": "CHECKING",
+        "SAVINGS": "SAVINGS",
+        "SAVING": "SAVINGS",
+        "MONEY_MARKET": "MONEY_MARKET",
+        "MONEYMARKET": "MONEY_MARKET",
+        "MM": "MONEY_MARKET",
+        "OTHER": "OTHER",
+    }
+    normalized = aliases.get(account_type)
+    if normalized is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Account type must be Checking, Savings, Money Market, or Other",
+        )
+    return normalized
+
+
+def normalize_currency(value: str | None) -> str:
+    code = (value or "USD").strip().upper()
+    if len(code) != 3 or not code.isalpha():
+        raise HTTPException(status_code=400, detail="Currency must be a 3-letter ISO code")
+    return code
+
+
+def require_gl_account(db: Session, gl_account_id) -> ChartOfAccount:
+    if gl_account_id is None:
+        raise HTTPException(status_code=400, detail="Mapped G/L Account is required")
+    account = db.get(ChartOfAccount, gl_account_id)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Mapped G/L Account was not found")
+    return account
+
+
+def resolve_bank_cash_gl(db: Session, bank_account: BankAccount | None) -> ChartOfAccount:
+    """Cash/bank G/L used for payment posting and bank reconciliation."""
+    if bank_account is not None:
+        gl = getattr(bank_account, "gl_account", None)
+        if gl is not None:
+            return gl
+        gl_id = getattr(bank_account, "gl_account_id", None)
+        if gl_id is not None:
+            gl = db.get(ChartOfAccount, gl_id)
+            if gl is not None:
+                return gl
+    cash, _ar = resolve_posting_pair(db, EVENT_AR_PAYMENT, VARIANT_SETTLE, None)
+    return cash
+
+
 def create_bank_account(
     db: Session,
     *,
@@ -294,14 +545,16 @@ def create_bank_account(
     account_name: str,
     account_number: str,
     routing_number: str | None = None,
+    account_type: str | None = "CHECKING",
+    currency: str | None = "USD",
+    gl_account_id=None,
     is_default: bool = False,
+    is_active: bool = True,
 ) -> BankAccount:
     account_id = _bank_account_id_from_name(account_name)
     if db.get(BankAccount, account_id):
         account_id = f"{account_id[:40]}-{uuid4().hex[:6].upper()}"
-    routing = (routing_number or "").strip() or None
-    if routing and (not routing.isdigit() or len(routing) != 9):
-        raise HTTPException(status_code=400, detail="Routing number must be 9 digits")
+    gl = require_gl_account(db, gl_account_id)
     if is_default:
         db.query(BankAccount).filter(BankAccount.is_default.is_(True)).update({"is_default": False})
     account = BankAccount(
@@ -309,11 +562,56 @@ def create_bank_account(
         bank_name=bank_name.strip(),
         account_name=account_name.strip(),
         account_number=account_number.strip(),
-        routing_number=routing,
-        is_default=is_default,
-        is_active=True,
+        routing_number=normalize_routing_or_swift(routing_number),
+        account_type=normalize_bank_account_type(account_type),
+        currency=normalize_currency(currency),
+        gl_account_id=gl.id,
+        is_default=bool(is_default),
+        is_active=bool(is_active),
     )
     db.add(account)
+    db.flush()
+    return account
+
+
+def update_bank_account(db: Session, bank_account_id: str, updates: dict) -> BankAccount:
+    account = db.get(BankAccount, bank_account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+    payload = dict(updates or {})
+    if "routing_number" in payload:
+        payload["routing_number"] = normalize_routing_or_swift(payload.get("routing_number"))
+    if "account_type" in payload and payload["account_type"] is not None:
+        payload["account_type"] = normalize_bank_account_type(payload["account_type"])
+    if "currency" in payload and payload["currency"] is not None:
+        payload["currency"] = normalize_currency(payload["currency"])
+    if "gl_account_id" in payload:
+        gl = require_gl_account(db, payload.get("gl_account_id"))
+        payload["gl_account_id"] = gl.id
+    for field in (
+        "bank_name",
+        "account_name",
+        "account_number",
+        "routing_number",
+        "account_type",
+        "currency",
+        "gl_account_id",
+        "is_default",
+        "is_active",
+    ):
+        if field not in payload:
+            continue
+        value = payload[field]
+        if field in {"bank_name", "account_name", "account_number"} and isinstance(value, str):
+            value = value.strip()
+        setattr(account, field, value)
+    if account.is_default:
+        db.query(BankAccount).filter(
+            BankAccount.is_default.is_(True),
+            BankAccount.bank_account_id != account.bank_account_id,
+        ).update({"is_default": False})
+    if not account.is_active:
+        account.is_default = False
     db.flush()
     return account
 
@@ -329,12 +627,16 @@ def ensure_default_bank_account(db: Session) -> BankAccount:
     )
     if default:
         return default
+    cash, _ar = resolve_posting_pair(db, EVENT_AR_PAYMENT, VARIANT_SETTLE, None)
     account = BankAccount(
         bank_account_id=DEFAULT_BANK_ACCOUNT_ID,
         bank_name="Amerant Bank",
         account_name="Operating",
         account_number="0000008420",
         routing_number="067000123",
+        account_type="CHECKING",
+        currency="USD",
+        gl_account_id=cash.id,
         is_default=True,
         is_active=True,
     )
@@ -478,6 +780,7 @@ def serialize_cash_transaction(db: Session, txn: CashTransaction) -> dict:
         "account_number": account.account_number if account else None,
         "account_number_masked": mask_account_number(account.account_number) if account else None,
         "routing_number": account.routing_number if account else None,
+        "gl_account_id": getattr(account, "gl_account_id", None) if account else None,
         "payment_method": getattr(txn, "payment_method", None) or "CHECK",
         "instrument_ref_no": getattr(txn, "instrument_ref_no", None),
         "instrument_display_number": instrument_display_number(getattr(txn, "instrument_ref_no", None)),
@@ -509,16 +812,25 @@ def receive_payment(
     if invoice.status == "Paid":
         raise HTTPException(status_code=400, detail="Invoice is already fully paid")
 
-    pay_amount = amount if amount is not None else invoice.amount
-
-    cash_account = get_or_create_account(db, CASH_ACCOUNT_CODE, CASH_ACCOUNT_NAME, "Asset")
-    ar_account = get_or_create_account(db, AR_ACCOUNT_CODE, AR_ACCOUNT_NAME, "Asset")
-
     if getattr(invoice, "approval_status", None) not in (None, "APPROVED"):
         raise HTTPException(
             status_code=400,
             detail=f"AR invoice must be APPROVED before payment (current: {invoice.approval_status})",
         )
+
+    pay_amount = amount if amount is not None else invoice.amount
+
+    ledger_fields = _cash_ledger_fields(
+        db,
+        txn_type="Check Deposit",
+        reference_id=invoice.invoice_id,
+        bank_account_id=bank_account_id,
+        payment_method=payment_method,
+        instrument_ref_no=instrument_ref_no,
+    )
+    bank = db.get(BankAccount, ledger_fields["bank_account_id"])
+    cash_account = resolve_bank_cash_gl(db, bank)
+    ar_account = resolve_ar_account_for_settlement(db, invoice.invoice_id)
 
     transaction = CashTransaction(
         transaction_id=f"CASH-{uuid4().hex[:10].upper()}",
@@ -527,14 +839,7 @@ def receive_payment(
         amount=pay_amount,
         approval_status="APPROVED",
         **_transaction_date_kwargs(payment_date),
-        **_cash_ledger_fields(
-            db,
-            txn_type="Check Deposit",
-            reference_id=invoice.invoice_id,
-            bank_account_id=bank_account_id,
-            payment_method=payment_method,
-            instrument_ref_no=instrument_ref_no,
-        ),
+        **ledger_fields,
     )
     db.add(transaction)
 
@@ -579,8 +884,21 @@ def make_payment(
 
     pay_amount = amount if amount is not None else bill.amount
 
-    cash_account = get_or_create_account(db, CASH_ACCOUNT_CODE, CASH_ACCOUNT_NAME, "Asset")
-    ap_account = get_or_create_account(db, AP_ACCOUNT_CODE, AP_ACCOUNT_NAME, "Liability")
+    ledger_fields = _cash_ledger_fields(
+        db,
+        txn_type="Check Issue",
+        reference_id=bill.bill_id,
+        bank_account_id=bank_account_id,
+        payment_method=payment_method,
+        instrument_ref_no=instrument_ref_no,
+    )
+    bank = db.get(BankAccount, ledger_fields["bank_account_id"])
+    cash_account = resolve_bank_cash_gl(db, bank)
+    ap_account = resolve_ap_account_for_settlement(
+        db,
+        document_number=bill.bill_id,
+        supplier=bill.vendor or db.get(Supplier, bill.vendor_id),
+    )
 
     transaction = CashTransaction(
         transaction_id=f"CASH-{uuid4().hex[:10].upper()}",
@@ -589,14 +907,7 @@ def make_payment(
         amount=pay_amount,
         approval_status="APPROVED",
         **_transaction_date_kwargs(payment_date),
-        **_cash_ledger_fields(
-            db,
-            txn_type="Check Issue",
-            reference_id=bill.bill_id,
-            bank_account_id=bank_account_id,
-            payment_method=payment_method,
-            instrument_ref_no=instrument_ref_no,
-        ),
+        **ledger_fields,
     )
     db.add(transaction)
 
@@ -898,8 +1209,10 @@ def create_ar_credit_memo(db: Session, invoice: ARInvoice) -> dict:
     if credit_amount <= 0:
         raise HTTPException(status_code=400, detail="Nothing remaining to credit on this invoice")
 
-    revenue = get_or_create_account(db, REVENUE_ACCOUNT_CODE, REVENUE_ACCOUNT_NAME, "Revenue")
-    ar_account = get_or_create_account(db, AR_ACCOUNT_CODE, AR_ACCOUNT_NAME, "Asset")
+    revenue, rule_ar = resolve_posting_pair(
+        db, EVENT_SALES_CREDIT, VARIANT_CREDIT_MEMO, None
+    )
+    ar_account = resolve_ar_account_for_settlement(db, invoice.invoice_id) or rule_ar
     _post_balanced_journal_entry(
         db,
         description=f"Credit memo {invoice.invoice_id}",

@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { subcontractOrderService } from '../api/services'
 import type { SubcontractOrder } from '../types'
 import { useMemo, useState } from 'react'
@@ -16,6 +16,7 @@ import ListFilterBar, {
   useListFilterParams,
   type FilterField,
 } from './ListFilterBar'
+import { salesOrderDetailPath } from '../utils/salesOrders'
 
 const SCO_FILTERS: FilterField[] = [
   {
@@ -67,6 +68,7 @@ export function SubcontractOrderList() {
   // on the Edit Product page for outside-processed products.
   const [searchParams, setSearchParams] = useSearchParams()
   const itemIdFilter = searchParams.get('itemId') || ''
+  const salesOrderIdFilter = searchParams.get('sales_order_id') || ''
   const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
     useListFilterParams(SCO_FILTERS)
 
@@ -83,6 +85,7 @@ export function SubcontractOrderList() {
   const scos = useMemo(() => {
     return allScos.filter((sco) => {
       if (itemIdFilter && sco.item_id !== itemIdFilter) return false
+      if (salesOrderIdFilter && sco.sales_order_id !== salesOrderIdFilter) return false
       if (values.view === 'active') {
         const s = (sco.status || '').toUpperCase()
         if (['COMPLETED', 'CANCELLED'].includes(s)) return false
@@ -99,7 +102,7 @@ export function SubcontractOrderList() {
       }
       return true
     })
-  }, [allScos, itemIdFilter, values.view, values.status, values.approval])
+  }, [allScos, itemIdFilter, salesOrderIdFilter, values.view, values.status, values.approval])
 
   const pageRows = scos.slice(skip, skip + limit)
 
@@ -113,6 +116,7 @@ export function SubcontractOrderList() {
   const handleClearFilter = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('itemId')
+    next.delete('sales_order_id')
     setSearchParams(next)
   }
 
@@ -158,6 +162,14 @@ export function SubcontractOrderList() {
           {itemIdFilter && (
             <div style={filterBadgeRowStyle}>
               <span style={filterBadgeStyle}>Filtered by Product: {itemIdFilter}</span>
+              <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
+                Clear filter
+              </button>
+            </div>
+          )}
+          {salesOrderIdFilter && (
+            <div style={filterBadgeRowStyle}>
+              <span style={filterBadgeStyle}>Filtered by Sales Order: {salesOrderIdFilter}</span>
               <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
                 Clear filter
               </button>
@@ -212,7 +224,15 @@ export function SubcontractOrderList() {
                       <tr key={sco.sco_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{sco.sco_number}</td>
                         <td style={directoryTdStyle}>{sco.supplier_id}</td>
-                        <td style={directoryTdStyle}>{sco.sales_order_id || '—'}</td>
+                        <td style={directoryTdStyle}>
+                          {sco.sales_order_id ? (
+                            <Link to={salesOrderDetailPath(sco.sales_order_id)} style={soLinkStyle}>
+                              {sco.sales_order_id}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                         <td style={directoryTdStyle}>
                           {sco.item_id}
                           {(sco.line_count || sco.lines?.length || 0) > 1
@@ -401,6 +421,12 @@ const directoryTdStyle: React.CSSProperties = {
   padding: '12px 10px',
   color: 'var(--text)',
   verticalAlign: 'middle',
+}
+
+const soLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  textDecoration: 'none',
+  fontWeight: 600,
 }
 
 const directoryActionButtonStyle: React.CSSProperties = {

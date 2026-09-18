@@ -9,19 +9,24 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
     APBill,
     ChartOfAccount,
     Department,
+    FinishedGoodsReceipt,
     GoodsReceipt,
     GoodsReceiptLine,
     Item,
+    JournalEntry,
+    LedgerPosting,
     PurchaseOrder,
     PurchaseOrderItem,
+    StockMovement,
     SubcontractOrder,
+    SubcontractOrderItem,
     Supplier,
     SupplierInvoice,
     SupplierInvoiceDistribution,
@@ -31,31 +36,292 @@ from app.models import (
 from app.services import finance, inventory
 from app.services.po_totals import invoice_freight_default
 from app.services.finance import (
-    AP_ACCOUNT_CODE,
-    AP_ACCOUNT_NAME,
-    get_or_create_account,
+    resolve_ap_account,
+)
+from app.services.posting_rules import (
+    EVENT_GOODS_RECEIPT,
+    EVENT_SUPPLIER_INVOICE,
+    VARIANT_EXPENSE,
+    VARIANT_GRNI_CLEAR,
+    VARIANT_LANDED_COST,
+    VARIANT_PPV_FAVORABLE,
+    VARIANT_PPV_UNFAVORABLE,
+    VARIANT_TAX,
+    receipt_variant,
+    resolve_posting_pair,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 from app.services.item_types import (
-    DEFAULT_EXPENSE_ACCOUNT_CODE,
-    DEFAULT_EXPENSE_ACCOUNT_NAME,
     catalog_item,
     is_stock_tracked,
     skip_inventory_movement,
 )
 
-INVENTORY_ACCOUNT_CODE = "1300"
-INVENTORY_ACCOUNT_NAME = "Inventory Asset"
-GRNI_ACCOUNT_CODE = "2105"
-GRNI_ACCOUNT_NAME = "Accrued Liabilities - GRNI"
-PPV_ACCOUNT_CODE = "5100"
-PPV_ACCOUNT_NAME = "Purchase Price Variance"
-TAX_EXPENSE_ACCOUNT_CODE = "5200"
-TAX_EXPENSE_ACCOUNT_NAME = "Freight & Tax Expense"
-
 PO_MATCHED_SOURCES = {"PURCHASE_ORDER", "SUBCONTRACT_ORDER"}
 INVOICE_TYPES = {"PO_MATCHED", "LANDED_COST", "EXPENSE"}
 NON_PO_TYPES = {"LANDED_COST", "EXPENSE"}
+RECALLABLE_APPROVAL_STATUSES = frozenset({"APPROVED", "PENDING_APPROVAL", "SUBMITTED"})
+RECALLABLE_PO_STATUSES = frozenset({"Submitted", "Approved"})
+PURCHASE_ORDER_LOCKED_EDIT_DETAIL = (
+    "Approved purchase orders cannot be modified directly. "
+    "Use Recall / Reopen for Revision."
+)
+_PO_IN_APPROVAL_EDIT_DETAIL = (
+    "This purchase order is in approval. "
+    "Use Recall / Reopen for Revision to edit."
+)
+_PO_RECEIPTS_EDIT_DETAIL = (
+    "Posted goods receipts exist for this purchase order. "
+    "Header and line items cannot be edited."
+)
+_PO_INVOICES_EDIT_DETAIL = (
+    "Supplier invoices exist for this purchase order. "
+    "Header and line items cannot be edited."
+)
+_PO_VOID_EDIT_DETAIL = "Voided purchase orders cannot be edited."
+ALL_PO_ITEMS_RECEIVED_MESSAGE = (
+    "All items on this purchase order have been fully received"
+)
+PO_FULLY_INVOICED_MESSAGE = "This purchase order is fully invoiced"
+ALL_RECEIVED_QTY_BILLED_MESSAGE = (
+    "All received quantities have already been billed"
+)
+RECEIVE_GOODS_BEFORE_BILL_MESSAGE = (
+    "Receive goods before creating a supplier invoice"
+)
+RECEIPT_STATUS_LABELS = {
+    "DRAFT": "Draft",
+    "POSTED": "Posted",
+    "CANCELLED": "Voided",
+}
+
+
+def receipt_status_label(status: str | None) -> str:
+    key = (status or "POSTED").upper()
+    return RECEIPT_STATUS_LABELS.get(key, status or "Posted")
+
+
+_RECEIPT_LOAD = (
+    selectinload(GoodsReceipt.lines).selectinload(GoodsReceiptLine.item),
+    joinedload(GoodsReceipt.vendor),
+)
+
+
+def _receipt_query(db: Session):
+    return db.query(GoodsReceipt).options(*_RECEIPT_LOAD)
+
+
+def assert_po_approved_for_p2p(po: PurchaseOrder, *, action: str) -> None:
+    current = (getattr(po, "approval_status", None) or "DRAFT").upper()
+    if current != "APPROVED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Purchase order must be APPROVED to {action} (current: {current})",
+        )
+
+
+def po_downstream_flags(db: Session, po_number: str) -> tuple[bool, bool]:
+    has_receipts = (
+        db.query(GoodsReceipt.id)
+        .filter(
+            GoodsReceipt.source_type == "PURCHASE_ORDER",
+            GoodsReceipt.source_order_id == po_number,
+            GoodsReceipt.status == "POSTED",
+        )
+        .first()
+        is not None
+    )
+    has_invoices = (
+        db.query(SupplierInvoice.id)
+        .filter(
+            SupplierInvoice.source_type == "PURCHASE_ORDER",
+            SupplierInvoice.source_order_id == po_number,
+            SupplierInvoice.status != "CANCELLED",
+        )
+        .first()
+        is not None
+    )
+    return has_receipts, has_invoices
+
+
+def _normalize_po_approval(value: str | None) -> str:
+    return (value or "DRAFT").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def purchase_order_lock_reason(po: PurchaseOrder) -> str | None:
+    if (getattr(po, "status", None) or "") == "Void":
+        return _PO_VOID_EDIT_DETAIL
+    if getattr(po, "has_posted_receipts", False):
+        return _PO_RECEIPTS_EDIT_DETAIL
+    if getattr(po, "has_supplier_invoices", False):
+        return _PO_INVOICES_EDIT_DETAIL
+    approval = _normalize_po_approval(getattr(po, "approval_status", None))
+    status = getattr(po, "status", None) or ""
+    if approval in RECALLABLE_APPROVAL_STATUSES or status in RECALLABLE_PO_STATUSES:
+        if approval in {"PENDING_APPROVAL", "SUBMITTED"} or status == "Submitted":
+            return _PO_IN_APPROVAL_EDIT_DETAIL
+        return PURCHASE_ORDER_LOCKED_EDIT_DETAIL
+    return None
+
+
+def purchase_order_is_editable(po: PurchaseOrder) -> bool:
+    return purchase_order_lock_reason(po) is None
+
+
+def assert_purchase_order_editable(po: PurchaseOrder) -> None:
+    reason = purchase_order_lock_reason(po)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+
+def recall_status_blocker(po: PurchaseOrder) -> str | None:
+    if (getattr(po, "status", None) or "") == "Void":
+        return "Cannot recall a voided purchase order"
+    approval = (getattr(po, "approval_status", None) or "DRAFT").upper().replace(" ", "_")
+    status = getattr(po, "status", None) or ""
+    if approval in RECALLABLE_APPROVAL_STATUSES or status in RECALLABLE_PO_STATUSES:
+        return None
+    return f"Cannot recall from approval status {approval}"
+
+
+def remaining_to_receive(
+    ordered: Decimal,
+    already_received: Decimal,
+    *,
+    amount_only: bool,
+) -> Decimal:
+    if amount_only and ordered <= 0:
+        return Decimal("0") if already_received > 0 else Decimal("1")
+    leftover = ordered - already_received
+    return leftover if leftover > 0 else Decimal("0")
+
+
+def remaining_to_bill(
+    received: Decimal,
+    billed: Decimal,
+    *,
+    ordered: Decimal,
+    billed_amount: Decimal,
+    line_amount: Decimal,
+    amount_only: bool,
+) -> Decimal:
+    if amount_only and ordered <= 0:
+        leftover = line_amount - billed_amount
+        return leftover if leftover > 0 else Decimal("0")
+    leftover = received - billed
+    return leftover if leftover > 0 else Decimal("0")
+
+
+def attach_po_p2p_progress(db: Session, po: PurchaseOrder) -> PurchaseOrder:
+    received = _received_qty_by_item(db, "PURCHASE_ORDER", po.po_number)
+    billed = _billed_qty_by_item(db, "PURCHASE_ORDER", po.po_number)
+    billed_amt = _billed_amount_by_item(db, "PURCHASE_ORDER", po.po_number)
+    remaining_recv = Decimal("0")
+    remaining_bill = Decimal("0")
+    for line in po.items or []:
+        catalog = catalog_item(db, line.sku)
+        amount_only = skip_inventory_movement(catalog) and _d(line.quantity) <= 0
+        already_recv = received.get(line.sku, Decimal("0"))
+        already_billed = billed.get(line.sku, Decimal("0"))
+        recv_left = remaining_to_receive(_d(line.quantity), already_recv, amount_only=amount_only)
+        bill_left = remaining_to_bill(
+            already_recv,
+            already_billed,
+            ordered=_d(line.quantity),
+            billed_amount=billed_amt.get(line.sku, Decimal("0")),
+            line_amount=_d(getattr(line, "line_subtotal", 0)),
+            amount_only=amount_only,
+        )
+        line.quantity_received = already_recv
+        line.quantity_remaining_to_receive = recv_left
+        line.quantity_billed = already_billed
+        line.quantity_remaining_to_bill = bill_left
+        remaining_recv += recv_left
+        remaining_bill += bill_left
+
+    po.can_receive_goods = remaining_recv > 0
+    po.receive_blocked_reason = None if po.can_receive_goods else ALL_PO_ITEMS_RECEIVED_MESSAGE
+    po.can_create_bill = remaining_bill > 0
+    if po.can_create_bill:
+        po.bill_blocked_reason = None
+    elif remaining_recv > 0:
+        po.bill_blocked_reason = ALL_RECEIVED_QTY_BILLED_MESSAGE
+    elif getattr(po, "has_supplier_invoices", False) or (po.billing_status or "").upper() == "FULLY_BILLED":
+        po.bill_blocked_reason = PO_FULLY_INVOICED_MESSAGE
+    else:
+        po.bill_blocked_reason = RECEIVE_GOODS_BEFORE_BILL_MESSAGE
+    return po
+
+
+def apply_po_recall_flags(
+    po: PurchaseOrder,
+    has_receipts: bool,
+    has_invoices: bool,
+) -> PurchaseOrder:
+    status_reason = recall_status_blocker(po)
+    blocked = status_reason
+    if not blocked and has_receipts:
+        blocked = "Cannot recall: posted goods receipts exist for this purchase order"
+    elif not blocked and has_invoices:
+        blocked = "Cannot recall: supplier invoices exist for this purchase order"
+    po.has_posted_receipts = has_receipts
+    po.has_supplier_invoices = has_invoices
+    po.can_recall = blocked is None
+    po.recall_blocked_reason = None if po.can_recall else blocked
+    return po
+
+
+def attach_po_recall_flags(db: Session, po: PurchaseOrder | None) -> PurchaseOrder | None:
+    if po is None:
+        return None
+    has_receipts, has_invoices = po_downstream_flags(db, po.po_number)
+    apply_po_recall_flags(po, has_receipts, has_invoices)
+    return attach_po_p2p_progress(db, po)
+
+
+def attach_po_recall_flags_many(db: Session, rows: list[PurchaseOrder]) -> list[PurchaseOrder]:
+    if not rows:
+        return rows
+    numbers = [po.po_number for po in rows]
+    receipt_ids = {
+        row[0]
+        for row in db.query(GoodsReceipt.source_order_id)
+        .filter(
+            GoodsReceipt.source_type == "PURCHASE_ORDER",
+            GoodsReceipt.source_order_id.in_(numbers),
+            GoodsReceipt.status == "POSTED",
+        )
+        .distinct()
+        .all()
+    }
+    invoice_ids = {
+        row[0]
+        for row in db.query(SupplierInvoice.source_order_id)
+        .filter(
+            SupplierInvoice.source_type == "PURCHASE_ORDER",
+            SupplierInvoice.source_order_id.in_(numbers),
+            SupplierInvoice.status != "CANCELLED",
+        )
+        .distinct()
+        .all()
+    }
+    for po in rows:
+        apply_po_recall_flags(
+            po,
+            po.po_number in receipt_ids,
+            po.po_number in invoice_ids,
+        )
+    return rows
+
+
+def recall_blockers(db: Session, po: PurchaseOrder) -> str | None:
+    return apply_po_recall_flags(po, *po_downstream_flags(db, po.po_number)).recall_blocked_reason
+
+
+def assert_can_recall_purchase_order(db: Session, po: PurchaseOrder) -> None:
+    reason = recall_blockers(db, po)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
 
 
 def resolve_invoice_type(
@@ -143,31 +409,431 @@ def _d(value) -> Decimal:
     return Decimal(str(value or 0))
 
 
-def serialize_goods_receipt(row: GoodsReceipt) -> dict:
-    return {
+def serialize_goods_receipt(
+    row: GoodsReceipt,
+    db: Session | None = None,
+    *,
+    detail: bool = False,
+) -> dict:
+    vendor = getattr(row, "vendor", None)
+    vendor_name = getattr(vendor, "company_name", None) if vendor is not None else None
+    lines_payload = [
+        {
+            "id": line.id,
+            "receipt_id": line.receipt_id,
+            "source_line_id": line.source_line_id,
+            "item_id": line.item_id,
+            "description": line.description,
+            "item_description": None,
+            "quantity_ordered": None,
+            "quantity_received": line.quantity_received,
+            "unit_cost": line.unit_cost,
+            "line_amount": line.line_amount,
+            "uom": None,
+            "lot_number": None,
+            "serial_number": None,
+        }
+        for line in (row.lines or [])
+    ]
+    total_amount = sum((_d(line.line_amount) for line in (row.lines or [])), Decimal("0"))
+    payload = {
         "id": row.id,
         "receipt_number": row.receipt_number,
         "source_type": row.source_type,
         "source_order_id": row.source_order_id,
         "vendor_id": row.vendor_id,
+        "vendor_name": vendor_name,
         "receipt_date": row.receipt_date,
         "status": row.status,
+        "status_label": receipt_status_label(row.status),
         "notes": row.notes,
         "created_at": row.created_at,
-        "lines": [
-            {
-                "id": line.id,
-                "receipt_id": line.receipt_id,
-                "source_line_id": line.source_line_id,
-                "item_id": line.item_id,
-                "description": line.description,
-                "quantity_received": line.quantity_received,
-                "unit_cost": line.unit_cost,
-                "line_amount": line.line_amount,
-            }
-            for line in (row.lines or [])
-        ],
+        "warehouse_id": None,
+        "warehouse_code": None,
+        "warehouse_name": None,
+        "bin_id": None,
+        "bin_code": None,
+        "received_by": None,
+        "operational_receipt_id": None,
+        "total_amount": total_amount,
+        "lines": lines_payload,
+        "journals": [],
+        "related_invoices": [],
     }
+    if detail and db is not None:
+        _enrich_goods_receipt_detail(db, row, payload)
+    return payload
+
+
+def _line_item_description(line: GoodsReceiptLine) -> str | None:
+    catalog = getattr(line, "item", None)
+    catalog_desc = (getattr(catalog, "description", None) or "").strip() or None
+    stored = (line.description or "").strip() or None
+    if catalog_desc:
+        return catalog_desc
+    if stored and stored != line.item_id:
+        return stored
+    return stored or catalog_desc
+
+
+def _ordered_qty_by_source_line(db: Session, receipt: GoodsReceipt) -> dict[int, Decimal]:
+    line_ids = [
+        int(line.source_line_id)
+        for line in (receipt.lines or [])
+        if line.source_line_id is not None
+    ]
+    if not line_ids:
+        return {}
+    source_type = (receipt.source_type or "").upper()
+    if source_type == "PURCHASE_ORDER":
+        rows = (
+            db.query(PurchaseOrderItem.item_id, PurchaseOrderItem.quantity)
+            .filter(PurchaseOrderItem.item_id.in_(line_ids))
+            .all()
+        )
+        return {int(item_id): _d(qty) for item_id, qty in rows}
+    rows = (
+        db.query(SubcontractOrderItem.sco_line_id, SubcontractOrderItem.quantity_ordered)
+        .filter(SubcontractOrderItem.sco_line_id.in_(line_ids))
+        .all()
+    )
+    return {int(sco_line_id): _d(qty) for sco_line_id, qty in rows}
+
+
+def _fallback_sco_ordered_qty(db: Session, receipt: GoodsReceipt) -> Decimal | None:
+    if (receipt.source_type or "").upper() != "SUBCONTRACT_ORDER":
+        return None
+    sco = db.get(SubcontractOrder, receipt.source_order_id)
+    if sco is None:
+        return None
+    return _d(sco.quantity_ordered)
+
+
+def _serialize_receipt_journal(entry: JournalEntry, *, purpose: str) -> dict:
+    user = getattr(entry, "user", None)
+    posted_by_name = None
+    if user is not None:
+        posted_by_name = (user.full_name or "").strip() or (user.email or "").strip() or None
+    postings = []
+    for posting in entry.postings or []:
+        account = getattr(posting, "account", None)
+        postings.append(
+            {
+                "id": posting.id,
+                "account_id": posting.account_id,
+                "account_code": getattr(account, "account_code", None),
+                "account_name": getattr(account, "account_name", None),
+                "description": posting.description,
+                "debit": posting.debit,
+                "credit": posting.credit,
+                "currency": posting.currency,
+            }
+        )
+    return {
+        "id": entry.id,
+        "created_at": entry.created_at,
+        "description": entry.description,
+        "posted_by_user_id": entry.posted_by_user_id,
+        "posted_by_name": posted_by_name,
+        "period": entry.period,
+        "posting_date": entry.posting_date,
+        "reference": entry.reference,
+        "posting_status": entry.posting_status,
+        "approval_status": entry.approval_status,
+        "purpose": purpose,
+        "postings": postings,
+    }
+
+
+def _journal_purpose(entry: JournalEntry, receipt_number: str) -> str:
+    text = f"{entry.description or ''} {entry.reference or ''}".upper()
+    if "GRNI CLEAR" in text:
+        return "GRNI_CLEAR"
+    if receipt_number and receipt_number.upper() in text:
+        return "GRNI_ACCRUAL"
+    if "GOODS RECEIPT" in text:
+        return "GRNI_ACCRUAL"
+    return "OTHER"
+
+
+def _load_receipt_journals(db: Session, receipt: GoodsReceipt) -> list[JournalEntry]:
+    number = receipt.receipt_number
+    query = (
+        db.query(JournalEntry)
+        .options(
+            selectinload(JournalEntry.postings).selectinload(LedgerPosting.account),
+            joinedload(JournalEntry.user),
+        )
+        .filter(
+            or_(
+                JournalEntry.reference == number,
+                JournalEntry.description.ilike(f"%{number}%"),
+            )
+        )
+        .order_by(JournalEntry.created_at.asc())
+    )
+    return query.all()
+
+
+def _related_invoices_for_receipt(db: Session, receipt: GoodsReceipt) -> list[dict]:
+    line_ids = [line.id for line in (receipt.lines or []) if line.id is not None]
+    invoice_ids: set[int] = set()
+    if line_ids:
+        invoice_ids.update(
+            inv_id
+            for (inv_id,) in db.query(SupplierInvoiceLine.invoice_id)
+            .filter(SupplierInvoiceLine.goods_receipt_line_id.in_(line_ids))
+            .all()
+            if inv_id is not None
+        )
+        invoice_ids.update(
+            inv_id
+            for (inv_id,) in db.query(SupplierInvoiceDistribution.invoice_id)
+            .filter(
+                or_(
+                    SupplierInvoiceDistribution.goods_receipt_id == receipt.id,
+                    SupplierInvoiceDistribution.goods_receipt_line_id.in_(line_ids),
+                )
+            )
+            .all()
+            if inv_id is not None
+        )
+    if receipt.source_order_id:
+        invoice_ids.update(
+            inv_id
+            for (inv_id,) in db.query(SupplierInvoice.id)
+            .filter(
+                SupplierInvoice.source_type == receipt.source_type,
+                SupplierInvoice.source_order_id == receipt.source_order_id,
+                SupplierInvoice.status != "CANCELLED",
+            )
+            .all()
+            if inv_id is not None
+        )
+    if not invoice_ids:
+        return []
+    rows = (
+        db.query(SupplierInvoice)
+        .options(
+            selectinload(SupplierInvoice.lines),
+            selectinload(SupplierInvoice.distributions),
+        )
+        .filter(SupplierInvoice.id.in_(invoice_ids))
+        .order_by(SupplierInvoice.id.asc())
+        .all()
+    )
+    payload = []
+    for invoice in rows:
+        linked_line = any(
+            line.goods_receipt_line_id in line_ids for line in (invoice.lines or []) if line.goods_receipt_line_id
+        )
+        linked_dist = any(
+            (dist.goods_receipt_id == receipt.id)
+            or (dist.goods_receipt_line_id in line_ids if dist.goods_receipt_line_id else False)
+            for dist in (invoice.distributions or [])
+        )
+        payload.append(
+            {
+                "id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "ap_bill_id": invoice.ap_bill_id,
+                "status": invoice.status,
+                "invoice_date": invoice.invoice_date,
+                "total_amount": invoice.total_amount,
+                "link_type": "RECEIPT_MATCH" if (linked_line or linked_dist) else "SOURCE_ORDER",
+            }
+        )
+    return payload
+
+
+def _load_clearing_journals(db: Session, invoices: list[dict]) -> list[JournalEntry]:
+    numbers = [row["invoice_number"] for row in invoices if row.get("invoice_number")]
+    if not numbers:
+        return []
+    filters = [
+        JournalEntry.description.ilike(f"%{number}%")
+        for number in numbers
+    ]
+    return (
+        db.query(JournalEntry)
+        .options(
+            selectinload(JournalEntry.postings).selectinload(LedgerPosting.account),
+            joinedload(JournalEntry.user),
+        )
+        .filter(or_(*filters))
+        .filter(JournalEntry.description.ilike("%GRNI%"))
+        .order_by(JournalEntry.created_at.asc())
+        .all()
+    )
+
+
+def _operational_receipt_id(db: Session, receipt: GoodsReceipt) -> str | None:
+    if (receipt.source_type or "").upper() != "SUBCONTRACT_ORDER":
+        return None
+    exact = db.get(FinishedGoodsReceipt, receipt.receipt_number)
+    if exact is not None and exact.sco_number == receipt.source_order_id:
+        return exact.receipt_id
+    fgr_rows = (
+        db.query(FinishedGoodsReceipt)
+        .filter(FinishedGoodsReceipt.sco_number == receipt.source_order_id)
+        .order_by(FinishedGoodsReceipt.created_at.asc())
+        .all()
+    )
+    qty_targets = {_d(line.quantity_received) for line in (receipt.lines or [])}
+    for fgr in fgr_rows:
+        if fgr.receipt_date == receipt.receipt_date and _d(fgr.quantity_received) in qty_targets:
+            return fgr.receipt_id
+    if len(fgr_rows) == 1:
+        return fgr_rows[0].receipt_id
+    return None
+
+
+def _warehouse_from_movements(db: Session, receipt: GoodsReceipt, operational_id: str | None) -> dict:
+    refs = {receipt.receipt_number}
+    if operational_id:
+        refs.add(operational_id)
+    movement = (
+        db.query(StockMovement)
+        .options(joinedload(StockMovement.warehouse), joinedload(StockMovement.bin_location))
+        .filter(
+            StockMovement.movement_type == "Receipt",
+            StockMovement.reference.in_(list(refs)),
+        )
+        .order_by(StockMovement.created_at.asc())
+        .first()
+    )
+    if movement is None:
+        return {}
+    warehouse = getattr(movement, "warehouse", None)
+    bin_location = getattr(movement, "bin_location", None)
+    return {
+        "warehouse_id": movement.warehouse_id,
+        "warehouse_code": getattr(warehouse, "code", None),
+        "warehouse_name": getattr(warehouse, "name", None),
+        "bin_id": movement.bin_id,
+        "bin_code": getattr(bin_location, "bin_code", None) or getattr(bin_location, "code", None),
+    }
+
+
+def _enrich_goods_receipt_detail(db: Session, receipt: GoodsReceipt, payload: dict) -> None:
+    ordered = _ordered_qty_by_source_line(db, receipt)
+    sco_fallback = _fallback_sco_ordered_qty(db, receipt)
+    for line, raw in zip(receipt.lines or [], payload["lines"]):
+        catalog = getattr(line, "item", None)
+        po_uom = None
+        if (receipt.source_type or "").upper() == "PURCHASE_ORDER" and line.source_line_id is not None:
+            po_line = db.get(PurchaseOrderItem, int(line.source_line_id))
+            po_uom = getattr(po_line, "uom", None) if po_line is not None else None
+        raw["item_description"] = _line_item_description(line)
+        raw["uom"] = po_uom or getattr(catalog, "uom", None) or "Each"
+        if line.source_line_id is not None and int(line.source_line_id) in ordered:
+            raw["quantity_ordered"] = ordered[int(line.source_line_id)]
+        elif sco_fallback is not None:
+            raw["quantity_ordered"] = sco_fallback
+        raw["lot_number"] = None
+        raw["serial_number"] = None
+
+    operational_id = _operational_receipt_id(db, receipt)
+    payload["operational_receipt_id"] = operational_id
+    payload.update(_warehouse_from_movements(db, receipt, operational_id))
+
+    invoices = _related_invoices_for_receipt(db, receipt)
+    payload["related_invoices"] = invoices
+
+    journals_by_id: dict[str, dict] = {}
+    for entry in _load_receipt_journals(db, receipt):
+        journals_by_id[str(entry.id)] = _serialize_receipt_journal(
+            entry, purpose=_journal_purpose(entry, receipt.receipt_number)
+        )
+    for entry in _load_clearing_journals(db, invoices):
+        journals_by_id.setdefault(
+            str(entry.id),
+            _serialize_receipt_journal(entry, purpose=_journal_purpose(entry, receipt.receipt_number)),
+        )
+    payload["journals"] = list(journals_by_id.values())
+
+    received_by = next(
+        (row["posted_by_name"] for row in payload["journals"] if row.get("posted_by_name")),
+        None,
+    )
+    payload["received_by"] = received_by
+
+
+def _goods_receipt_for_finished_goods(db: Session, fgr: FinishedGoodsReceipt) -> GoodsReceipt | None:
+    rows = (
+        _receipt_query(db)
+        .filter(
+            GoodsReceipt.source_type == "SUBCONTRACT_ORDER",
+            GoodsReceipt.source_order_id == fgr.sco_number,
+        )
+        .order_by(GoodsReceipt.id.asc())
+        .all()
+    )
+    if not rows:
+        return None
+    by_number = next((row for row in rows if row.receipt_number == fgr.receipt_id), None)
+    if by_number is not None:
+        return by_number
+    qty = _d(fgr.quantity_received)
+    dated = [row for row in rows if row.receipt_date == fgr.receipt_date]
+    candidates = dated or rows
+    qty_matches = []
+    for row in candidates:
+        if any(_d(line.quantity_received) == qty for line in (row.lines or [])):
+            qty_matches.append(row)
+    if len(qty_matches) == 1:
+        return qty_matches[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    if qty_matches:
+        return qty_matches[-1]
+    return candidates[-1] if candidates else None
+
+
+def resolve_goods_receipt(db: Session, receipt_key: str) -> GoodsReceipt | None:
+    key = (receipt_key or "").strip()
+    if not key:
+        return None
+    row = _receipt_query(db).filter(GoodsReceipt.receipt_number == key).first()
+    if row is not None:
+        return row
+    if key.isdigit():
+        row = _receipt_query(db).filter(GoodsReceipt.id == int(key)).first()
+        if row is not None:
+            return row
+    fgr = db.get(FinishedGoodsReceipt, key)
+    if fgr is not None:
+        return _goods_receipt_for_finished_goods(db, fgr)
+    return None
+
+
+def get_goods_receipt(db: Session, receipt_key: str) -> dict:
+    row = resolve_goods_receipt(db, receipt_key)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Goods receipt not found")
+    return serialize_goods_receipt(row, db, detail=True)
+
+
+def list_goods_receipts(
+    db: Session,
+    *,
+    vendor_id: str | None = None,
+    source_type: str | None = None,
+    source_order_id: str | None = None,
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[dict]:
+    q = _receipt_query(db).order_by(GoodsReceipt.id.desc())
+    if vendor_id:
+        q = q.filter(GoodsReceipt.vendor_id == vendor_id)
+    if source_type:
+        q = q.filter(GoodsReceipt.source_type == source_type.upper())
+    if source_order_id:
+        q = q.filter(GoodsReceipt.source_order_id == source_order_id)
+    if status:
+        q = q.filter(GoodsReceipt.status == status.upper())
+    return [serialize_goods_receipt(r) for r in q.offset(skip).limit(limit).all()]
 
 
 def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
@@ -388,6 +1054,7 @@ def receive_purchase_order(
     lines: list[dict],
     receipt_date: date | None = None,
     notes: str | None = None,
+    received_by_user_id: UUID | None = None,
 ) -> dict:
     po = (
         db.query(PurchaseOrder)
@@ -397,30 +1064,23 @@ def receive_purchase_order(
     )
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    if (po.approval_status or "").upper() != "APPROVED" and (po.status or "") != "Approved":
-        raise HTTPException(status_code=400, detail="Purchase order must be APPROVED to receive")
+    assert_po_approved_for_p2p(po, action="receive")
     if not lines:
         raise HTTPException(status_code=400, detail="At least one receipt line is required")
 
     so_lines = {int(li.item_id): li for li in (po.items or [])}
     already = _received_qty_by_item(db, "PURCHASE_ORDER", po_number)
 
-    inventory_lines: list[dict] = []
+    receipt_lines: list[dict] = []
     for raw in lines:
         line_id = int(raw["source_line_id"])
         po_line = so_lines.get(line_id)
         if not po_line:
             raise HTTPException(status_code=400, detail=f"PO line {line_id} not found")
-        catalog = catalog_item(db, po_line.sku)
-        if skip_inventory_movement(catalog):
-            continue
-        inventory_lines.append(raw)
+        receipt_lines.append(raw)
 
-    if not inventory_lines:
-        raise HTTPException(
-            status_code=400,
-            detail="No inventory lines to receive — service and non-inventory items skip goods receipt",
-        )
+    if not receipt_lines:
+        raise HTTPException(status_code=400, detail="At least one receipt line is required")
 
     receipt = GoodsReceipt(
         receipt_number=_next_number(db, GoodsReceipt, "receipt_number", "GR"),
@@ -434,41 +1094,69 @@ def receive_purchase_order(
     db.add(receipt)
     db.flush()
 
-    inventory_account = get_or_create_account(
-        db, INVENTORY_ACCOUNT_CODE, INVENTORY_ACCOUNT_NAME, "Asset"
-    )
-    grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
-    total_accrual = Decimal("0")
+    vendor = db.get(Supplier, po.supplier_id)
+    totals_by_pair: dict[str, tuple[ChartOfAccount, ChartOfAccount, Decimal]] = {}
 
-    for raw in inventory_lines:
+    for raw in receipt_lines:
         line_id = int(raw["source_line_id"])
-        qty = _d(raw["quantity_received"])
+        qty = _d(raw.get("quantity_received"))
         po_line = so_lines.get(line_id)
         if not po_line:
             raise HTTPException(status_code=400, detail=f"PO line {line_id} not found")
-        remaining = _d(po_line.quantity) - already.get(po_line.sku, Decimal("0"))
-        if qty <= 0:
-            raise HTTPException(status_code=400, detail="quantity_received must be positive")
-        if qty > remaining:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Quantity {qty} exceeds remaining receivable {remaining} for {po_line.sku}",
-            )
+        catalog = catalog_item(db, po_line.sku)
+        expense_line = skip_inventory_movement(catalog)
+        po_qty = _d(po_line.quantity)
+        already_qty = already.get(po_line.sku, Decimal("0"))
         unit_cost = _d(raw.get("unit_cost", po_line.unit_price))
+        if expense_line and po_qty <= 0:
+            if already_qty > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Expense line {po_line.sku} has already been received",
+                )
+            if qty <= 0:
+                qty = Decimal("1")
+            if unit_cost <= 0:
+                unit_cost = _d(getattr(po_line, "line_subtotal", 0) or po_line.unit_price)
+        else:
+            remaining = po_qty - already_qty
+            if qty <= 0:
+                raise HTTPException(status_code=400, detail="quantity_received must be positive")
+            if qty > remaining:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Quantity {qty} exceeds remaining receivable {remaining} for {po_line.sku}",
+                )
         line_amount = (unit_cost * qty).quantize(Decimal("0.01"))
-        total_accrual += line_amount
+        already[po_line.sku] = already_qty + qty
+        debit_account, grni_account = resolve_posting_pair(
+            db,
+            EVENT_GOODS_RECEIPT,
+            receipt_variant("PURCHASE_ORDER", catalog),
+            vendor,
+        )
+        pair_key = f"{debit_account.id}:{grni_account.id}"
+        running = totals_by_pair.get(pair_key, (debit_account, grni_account, Decimal("0")))[2]
+        totals_by_pair[pair_key] = (debit_account, grni_account, running + line_amount)
+        line_description = (po_line.description or "").strip() or None
+        if not line_description:
+            catalog_row = db.get(Item, po_line.sku)
+            line_description = (
+                (getattr(catalog_row, "description", None) or "").strip() or po_line.sku
+            )
         db.add(
             GoodsReceiptLine(
                 receipt_id=receipt.id,
                 source_line_id=line_id,
                 item_id=po_line.sku,
-                description=po_line.sku,
+                description=line_description,
                 quantity_received=qty,
                 unit_cost=unit_cost,
                 line_amount=line_amount,
             )
         )
-        # Inventory qty is integer in stock tables — round down for fractional only if needed
+        if expense_line:
+            continue
         qty_int = int(qty) if qty == qty.to_integral_value() else max(1, int(qty))
         if qty == qty.to_integral_value():
             inventory.receive_stock(
@@ -479,28 +1167,27 @@ def receive_purchase_order(
                 notes=f"PO receipt {po.po_number}",
             )
         else:
-            # Still bump catalog on_hand when stock location missing fractional support
             item = db.get(Item, po_line.sku)
             if item:
                 item.on_hand_quantity = int(_d(item.on_hand_quantity) + qty)
 
     db.flush()
-    if total_accrual > 0:
+    for debit_account, grni_account, total_accrual in totals_by_pair.values():
+        if total_accrual <= 0:
+            continue
         finance._post_balanced_journal_entry(
             db,
             description=f"Goods receipt {receipt.receipt_number} for PO {po.po_number}",
-            debit_account=inventory_account,
+            debit_account=debit_account,
             credit_account=grni_account,
             amount=total_accrual,
+            reference=receipt.receipt_number,
+            posted_by_user_id=received_by_user_id,
+            posting_date=receipt.receipt_date,
         )
 
-    receipt = (
-        db.query(GoodsReceipt)
-        .options(joinedload(GoodsReceipt.lines))
-        .filter(GoodsReceipt.id == receipt.id)
-        .first()
-    )
-    return serialize_goods_receipt(receipt)
+    receipt = _receipt_query(db).filter(GoodsReceipt.id == receipt.id).first()
+    return serialize_goods_receipt(receipt, db, detail=True)
 
 
 def accrue_subcontract_receipt(
@@ -514,6 +1201,7 @@ def accrue_subcontract_receipt(
     external_receipt_id: str | None = None,
     item_id: str | None = None,
     source_line_id: int | None = None,
+    received_by_user_id: UUID | None = None,
 ) -> dict:
     """Post GRNI accrual when finished goods are received on a subcontract order."""
     fg_item_id = item_id or sco.item_id
@@ -530,9 +1218,18 @@ def accrue_subcontract_receipt(
         if mapping and mapping.unit_cost is not None:
             cost = _d(mapping.unit_cost)
 
+    preferred = (external_receipt_id or "").strip() or None
+    receipt_number = preferred
+    if receipt_number:
+        exists = (
+            db.query(GoodsReceipt.id)
+            .filter(GoodsReceipt.receipt_number == receipt_number)
+            .first()
+        )
+        if exists is not None:
+            receipt_number = None
     receipt = GoodsReceipt(
-        receipt_number=external_receipt_id
-        or _next_number(db, GoodsReceipt, "receipt_number", "GR"),
+        receipt_number=receipt_number or _next_number(db, GoodsReceipt, "receipt_number", "GR"),
         source_type="SUBCONTRACT_ORDER",
         source_order_id=sco.sco_number,
         vendor_id=sco.supplier_id,
@@ -543,13 +1240,18 @@ def accrue_subcontract_receipt(
     db.add(receipt)
     db.flush()
 
+    catalog_row = db.get(Item, fg_item_id)
+    line_description = (
+        (getattr(catalog_row, "description", None) or "").strip()
+        or f"Subcontract FG {fg_item_id}"
+    )
     line_amount = (cost * Decimal(quantity_received)).quantize(Decimal("0.01"))
     db.add(
         GoodsReceiptLine(
             receipt_id=receipt.id,
             source_line_id=source_line_id,
             item_id=fg_item_id,
-            description=f"Subcontract FG {fg_item_id}",
+            description=line_description,
             quantity_received=Decimal(quantity_received),
             unit_cost=cost,
             line_amount=line_amount,
@@ -558,25 +1260,26 @@ def accrue_subcontract_receipt(
     db.flush()
 
     if line_amount > 0:
-        inventory_account = get_or_create_account(
-            db, INVENTORY_ACCOUNT_CODE, INVENTORY_ACCOUNT_NAME, "Asset"
+        vendor = db.get(Supplier, sco.supplier_id)
+        debit_account, grni_account = resolve_posting_pair(
+            db,
+            EVENT_GOODS_RECEIPT,
+            receipt_variant("SUBCONTRACT_ORDER", catalog_row),
+            vendor,
         )
-        grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
         finance._post_balanced_journal_entry(
             db,
             description=f"Goods receipt {receipt.receipt_number} for SCO {sco.sco_number}",
-            debit_account=inventory_account,
+            debit_account=debit_account,
             credit_account=grni_account,
             amount=line_amount,
+            reference=receipt.receipt_number,
+            posted_by_user_id=received_by_user_id,
+            posting_date=receipt.receipt_date,
         )
 
-    receipt = (
-        db.query(GoodsReceipt)
-        .options(joinedload(GoodsReceipt.lines))
-        .filter(GoodsReceipt.id == receipt.id)
-        .first()
-    )
-    return serialize_goods_receipt(receipt)
+    receipt = _receipt_query(db).filter(GoodsReceipt.id == receipt.id).first()
+    return serialize_goods_receipt(receipt, db, detail=True)
 
 
 def list_supplier_invoices(
@@ -634,15 +1337,13 @@ def list_posted_goods_receipts(
     skip: int = 0,
     limit: int = 100,
 ) -> list[dict]:
-    q = (
-        db.query(GoodsReceipt)
-        .options(selectinload(GoodsReceipt.lines))
-        .filter(GoodsReceipt.status == "POSTED")
-        .order_by(GoodsReceipt.id.desc())
+    return list_goods_receipts(
+        db,
+        vendor_id=vendor_id,
+        status="POSTED",
+        skip=skip,
+        limit=limit,
     )
-    if vendor_id:
-        q = q.filter(GoodsReceipt.vendor_id == vendor_id)
-    return [serialize_goods_receipt(r) for r in q.offset(skip).limit(limit).all()]
 
 
 def list_departments(db: Session) -> list[dict]:
@@ -711,8 +1412,7 @@ def create_supplier_invoice(
         )
         if not po:
             raise HTTPException(status_code=404, detail="Purchase order not found")
-        if (po.approval_status or "").upper() != "APPROVED" and (po.status or "") != "Approved":
-            raise HTTPException(status_code=400, detail="Purchase order must be APPROVED")
+        assert_po_approved_for_p2p(po, action="create a supplier invoice")
         vendor_id = po.supplier_id
         fallback = po
         received = _received_qty_by_item(db, source_type, source_order_id)
@@ -1059,7 +1759,7 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
         return serialize_supplier_invoice(invoice)
 
     invoice_kind = getattr(invoice, "invoice_type", None) or "PO_MATCHED"
-    ap_account = get_or_create_account(db, AP_ACCOUNT_CODE, AP_ACCOUNT_NAME, "Liability")
+    ap_account = resolve_ap_account(db, invoice.vendor)
     total = _d(invoice.total_amount)
     if total <= 0:
         raise HTTPException(status_code=400, detail="Invoice total must be positive")
@@ -1101,11 +1801,11 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
 
 
 def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
-    inventory_account = get_or_create_account(
-        db, INVENTORY_ACCOUNT_CODE, INVENTORY_ACCOUNT_NAME, "Asset"
+    inventory_account, _ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_LANDED_COST, invoice.vendor
     )
-    tax_exp = get_or_create_account(
-        db, TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, "Expense"
+    tax_exp, _tax_ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_TAX, invoice.vendor
     )
     dists = list(invoice.distributions or [])
     if not dists:
@@ -1135,10 +1835,21 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
 
 
 def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
-    grni_account = get_or_create_account(db, GRNI_ACCOUNT_CODE, GRNI_ACCOUNT_NAME, "Liability")
-    ppv_account = get_or_create_account(db, PPV_ACCOUNT_CODE, PPV_ACCOUNT_NAME, "Expense")
-    tax_exp = get_or_create_account(
-        db, TAX_EXPENSE_ACCOUNT_CODE, TAX_EXPENSE_ACCOUNT_NAME, "Expense"
+    vendor = invoice.vendor
+    grni_account, _clear_ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_GRNI_CLEAR, vendor
+    )
+    ppv_account, _ppv_ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_PPV_UNFAVORABLE, vendor
+    )
+    fav_grni, fav_ppv = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_PPV_FAVORABLE, vendor
+    )
+    tax_exp, _tax_ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_TAX, vendor
+    )
+    expense_account, _exp_ap = resolve_posting_pair(
+        db, EVENT_SUPPLIER_INVOICE, VARIANT_EXPENSE, vendor
     )
     accrued = (
         _accrued_amount_for_order(db, invoice.source_type, invoice.source_order_id)
@@ -1154,8 +1865,11 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             non_stock += _d(line.line_subtotal)
     stock_goods = max(invoice_goods - non_stock, Decimal("0"))
 
-    clear_amount = min(accrued, stock_goods)
-    variance = stock_goods - clear_amount
+    clear_amount = min(accrued, invoice_goods)
+    stock_clear = min(accrued, stock_goods)
+    variance = stock_goods - stock_clear
+    accrued_expense = max(accrued - stock_clear, Decimal("0"))
+    non_stock_unaccrued = max(non_stock - accrued_expense, Decimal("0"))
 
     if clear_amount > 0:
         finance._post_balanced_journal_entry(
@@ -1177,20 +1891,17 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
         finance._post_balanced_journal_entry(
             db,
             description=f"Supplier invoice {invoice.invoice_number} PPV favor",
-            debit_account=grni_account,
-            credit_account=ppv_account,
+            debit_account=fav_grni,
+            credit_account=fav_ppv,
             amount=abs(variance),
         )
-    if non_stock > 0:
-        expense_account = get_or_create_account(
-            db, DEFAULT_EXPENSE_ACCOUNT_CODE, DEFAULT_EXPENSE_ACCOUNT_NAME, "Expense"
-        )
+    if non_stock_unaccrued > 0:
         finance._post_balanced_journal_entry(
             db,
             description=f"Supplier invoice {invoice.invoice_number} non-inventory expense",
             debit_account=expense_account,
             credit_account=ap_account,
-            amount=non_stock.quantize(Decimal("0.01")),
+            amount=non_stock_unaccrued.quantize(Decimal("0.01")),
         )
     if tax + freight > 0:
         finance._post_balanced_journal_entry(

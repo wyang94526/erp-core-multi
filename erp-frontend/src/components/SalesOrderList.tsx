@@ -18,6 +18,11 @@ import {
   invoiceStatusLabel,
   salesOrderInvoiceStatus,
 } from '../utils/soBilling'
+import {
+  isSalesOrderEditable,
+  salesOrderEditPath,
+  SALES_ORDER_LOCKED_EDIT_MESSAGE,
+} from '../utils/salesOrders'
 
 type DateFilter = 'all' | 'this_month' | 'last_quarter' | 'ytd'
 type ViewFilter = 'all' | 'open'
@@ -67,6 +72,21 @@ export function SalesOrderList() {
   const viewFilter = (searchParams.get('view') as ViewFilter) || 'all'
   const fromDashboard = searchParams.get('from') === 'dashboard'
   const metric = (searchParams.get('metric') || '') as MetricDrillKey | ''
+  const [lockWarning, setLockWarning] = useState<string | null>(null)
+
+  const requestEdit = (order: SalesOrder) => {
+    if (isSalesOrderEditable(order)) {
+      navigate(salesOrderEditPath(order.sales_order_id))
+      return
+    }
+    setLockWarning(SALES_ORDER_LOCKED_EDIT_MESSAGE)
+  }
+
+  useEffect(() => {
+    if (!lockWarning) return
+    const timer = window.setTimeout(() => setLockWarning(null), 8000)
+    return () => window.clearTimeout(timer)
+  }, [lockWarning])
 
   const {
     data: salesOrders = [],
@@ -180,6 +200,11 @@ export function SalesOrderList() {
 
   return (
     <div style={containerStyle}>
+      {lockWarning && (
+        <div style={lockWarningStyle} role="alert">
+          {lockWarning}
+        </div>
+      )}
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Sales Orders</h2>
@@ -439,12 +464,23 @@ export function SalesOrderList() {
                             View / Approve
                           </button>
                           <button
-                            onClick={() => navigate(`/orders/${order.sales_order_id}/edit`)}
+                            type="button"
+                            onClick={() => requestEdit(order)}
+                            aria-disabled={!isSalesOrderEditable(order)}
+                            title={
+                              isSalesOrderEditable(order)
+                                ? 'Edit this sales order'
+                                : SALES_ORDER_LOCKED_EDIT_MESSAGE
+                            }
                             style={{
                               ...directoryActionButtonStyle,
-                              backgroundColor: '#fff3e0',
-                              color: '#e65100',
-                              border: '1px solid #ffe0b2',
+                              backgroundColor: isSalesOrderEditable(order) ? '#fff3e0' : '#eceff1',
+                              color: isSalesOrderEditable(order) ? '#e65100' : '#90a4ae',
+                              border: isSalesOrderEditable(order)
+                                ? '1px solid #ffe0b2'
+                                : '1px solid #cfd8dc',
+                              cursor: isSalesOrderEditable(order) ? 'pointer' : 'not-allowed',
+                              opacity: isSalesOrderEditable(order) ? 1 : 0.7,
                             }}
                           >
                             Edit
@@ -762,6 +798,20 @@ const directoryEmptyTdWrapperStyle: React.CSSProperties = {
   textAlign: 'center',
   color: '#666',
   fontStyle: 'italic',
+}
+
+const lockWarningStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 12,
+  zIndex: 20,
+  marginBottom: 16,
+  backgroundColor: '#fff8e1',
+  color: '#e65100',
+  border: '1px solid #ffe082',
+  borderRadius: 6,
+  padding: '12px 16px',
+  fontSize: 14,
+  fontWeight: 600,
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

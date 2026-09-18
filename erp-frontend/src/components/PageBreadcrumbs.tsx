@@ -23,8 +23,8 @@ function helpCrumbs(pathname: string): BreadcrumbCrumb[] | null {
 }
 
 export default function PageBreadcrumbs() {
-  const { pathname } = useLocation()
-  const crumbs = helpCrumbs(pathname) ?? getBreadcrumbs(pathname)
+  const { pathname, hash } = useLocation()
+  const crumbs = helpCrumbs(pathname) ?? getBreadcrumbs(pathname, hash)
 
   if (crumbs.length < 2) return null
 

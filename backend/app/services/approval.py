@@ -7,7 +7,7 @@ from typing import Any, Callable
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.deps.auth import (
     user_can_pass_step,
@@ -225,7 +225,12 @@ def _load_document(db: Session, canonical: str, document_id: str) -> Any:
             lookup_id = UUID(document_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid document id") from exc
-    doc = db.query(model).filter(getattr(model, id_attr) == lookup_id).first()
+    query = db.query(model)
+    if canonical == "JOURNAL_ENTRY":
+        query = query.options(selectinload(JournalEntry.postings))
+    if canonical == "SUBCONTRACT_ORDER":
+        query = query.options(selectinload(SubcontractOrder.components))
+    doc = query.filter(getattr(model, id_attr) == lookup_id).first()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
@@ -268,6 +273,18 @@ def _assert_permission(user: User, code: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Missing permission '{code}'",
         )
+
+
+def _assert_any_permission(user: User, codes: list[str]) -> None:
+    if user_is_admin(user):
+        return
+    owned = user_permission_codes(user)
+    if any(code in owned for code in codes):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Missing permission '{codes[0]}'",
+    )
 
 
 def _record_audit(
@@ -349,6 +366,10 @@ def submit_document(
     _assert_permission(user, SUBMIT_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
+    if canonical == "SUBCONTRACT_ORDER":
+        from app.services.subcontract import assert_sco_kit_fully_issued
+
+        assert_sco_kit_fully_issued(doc)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current not in {"DRAFT", "REJECTED"}:
         raise HTTPException(
@@ -421,6 +442,10 @@ def approve_document(
     _assert_permission(user, APPROVE_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
+    if canonical == "SUBCONTRACT_ORDER":
+        from app.services.subcontract import assert_sco_kit_fully_issued
+
+        assert_sco_kit_fully_issued(doc)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current != "PENDING_APPROVAL":
         raise HTTPException(
@@ -664,4 +689,45 @@ def amend_subcontract_order(
         document_id,
         doc,
         message=f"Reopened as Draft for cost sheet amendment {next_rev}",
+    )
+
+
+def recall_purchase_order(
+    db: Session,
+    document_id: str,
+    user: User,
+    comments: str | None = None,
+) -> dict[str, Any]:
+    """Return a submitted or approved PO to Draft without PATCH status conflicts."""
+    from app.services.p2p import assert_can_recall_purchase_order
+
+    canonical = "PURCHASE_ORDER"
+    _assert_any_permission(
+        user,
+        [SUBMIT_PERMISSION[canonical], APPROVE_PERMISSION[canonical]],
+    )
+    doc = _load_document(db, canonical, document_id)
+    assert_can_recall_purchase_order(db, doc)
+
+    doc.approval_status = "DRAFT"
+    doc.current_approval_step = None
+    if getattr(doc, "status", None) != "Void":
+        doc.status = "Draft"
+
+    note = (comments or "").strip() or "Recalled for revision"
+    _record_audit(
+        db,
+        document_type=LEGACY_MODULES[canonical],
+        document_id=document_id,
+        action="RECALLED",
+        user=user,
+        comments=note,
+    )
+    db.commit()
+    db.refresh(doc)
+    return _doc_snapshot(
+        canonical,
+        document_id,
+        doc,
+        message="Recalled to Draft for revision",
     )

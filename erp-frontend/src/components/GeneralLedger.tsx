@@ -1,9 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { journalEntryService } from '../api/services'
 import type { JournalEntry } from '../types'
 import { ApprovalPanel } from './ApprovalPanel'
+import { JournalEntryViewModal } from './JournalEntryViewModal'
+import { useAuth } from '../context/AuthContext'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import {
+  isJournalDraft,
+  JOURNAL_CREATE_PATH,
+  journalEditPath,
+  MONTH_END_CLOSE_PATH,
+  shortJournalId,
+} from '../utils/journalEntries'
 
 interface FlatPostingRow {
   entryId: string
@@ -19,15 +29,15 @@ interface FlatPostingRow {
   approvalStatus: string
 }
 
-function shortId(id: string) {
-  return id.split('-')[0].toUpperCase()
-}
-
 function GeneralLedger() {
+  const navigate = useNavigate()
+  const { hasPermission } = useAuth()
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
+  const canCreate = hasPermission('journal:create')
 
   const loadEntries = async () => {
     setLoading(true)
@@ -45,10 +55,6 @@ function GeneralLedger() {
   useEffect(() => {
     loadEntries()
   }, [])
-
-  const handleRunMonthEndClose = () => {
-    alert('Month-End Close process initiated.')
-  }
 
   const formatCurrency = (amount: number) =>
     amount === 0
@@ -68,9 +74,9 @@ function GeneralLedger() {
           const accountName = posting.account_name || '—'
           return {
             entryId: entry.id,
-            date: entry.created_at,
-            journalId: shortId(entry.id),
-            description: entry.description,
+            date: entry.posting_date || entry.created_at,
+            journalId: shortJournalId(entry.id),
+            description: posting.description || entry.description,
             accountCode,
             accountName,
             accountLabel: `${accountCode} ${accountName}`.trim(),
@@ -93,13 +99,15 @@ function GeneralLedger() {
       created_at: 'date',
       id: 'string',
       description: 'string',
+      reference: 'string',
       period: 'string',
       posting_status: 'string',
       approval_status: 'string',
     },
     getValue: (entry, key) => {
-      if (key === 'id') return shortId(entry.id)
+      if (key === 'id') return shortJournalId(entry.id)
       if (key === 'approval_status') return entry.approval_status || 'DRAFT'
+      if (key === 'created_at') return entry.posting_date || entry.created_at
       return (entry as unknown as Record<string, unknown>)[key]
     },
   })
@@ -130,9 +138,16 @@ function GeneralLedger() {
           <h1 style={pageTitleStyle}>General Ledger</h1>
           <p style={pageSubStyle}>Double-entry journal postings and period close</p>
         </div>
-        <button style={primaryButtonStyle} onClick={handleRunMonthEndClose}>
-          Run Month-End Close
-        </button>
+        <div style={headerActionsStyle}>
+          {canCreate && (
+            <button style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
+              + Manual Journal Entry
+            </button>
+          )}
+          <button style={secondaryButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
+            Run Month-End Close
+          </button>
+        </div>
       </div>
 
       <div style={dashboardSectionStyle}>
@@ -167,6 +182,12 @@ function GeneralLedger() {
                     onRequestSort={requestEntrySort}
                   />
                   <SortableTh
+                    label="Reference"
+                    columnKey="reference"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
                     label="Period"
                     columnKey="period"
                     sortConfig={entrySortConfig}
@@ -190,19 +211,40 @@ function GeneralLedger() {
               <tbody>
                 {sortedEntries.map((entry) => (
                   <tr key={entry.id} style={directoryTbodyRowStyle}>
-                    <td style={directoryTdStyle}>{formatDate(entry.created_at)}</td>
-                    <td style={directoryTdStyle}>{shortId(entry.id)}</td>
+                    <td style={directoryTdStyle}>
+                      {formatDate(entry.posting_date || entry.created_at)}
+                    </td>
+                    <td style={directoryTdStyle}>{shortJournalId(entry.id)}</td>
                     <td style={directoryTdStyle}>{entry.description}</td>
+                    <td style={directoryTdStyle}>{entry.reference || '—'}</td>
                     <td style={directoryTdStyle}>{entry.period || '—'}</td>
                     <td style={directoryTdStyle}>{entry.posting_status || '—'}</td>
                     <td style={directoryTdStyle}>{entry.approval_status || 'DRAFT'}</td>
                     <td style={directoryTdStyle}>
-                      <button
-                        style={approvalButtonStyle}
-                        onClick={() => setSelectedId(entry.id)}
-                      >
-                        Approval
-                      </button>
+                      <div style={actionRowStyle}>
+                        {canCreate && isJournalDraft(entry) ? (
+                          <button
+                            style={editButtonStyle}
+                            onClick={() => navigate(journalEditPath(entry.id))}
+                          >
+                            Edit
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            style={viewButtonStyle}
+                            onClick={() => setViewingEntry(entry)}
+                          >
+                            View
+                          </button>
+                        )}
+                        <button
+                          style={approvalButtonStyle}
+                          onClick={() => setSelectedId(entry.id)}
+                        >
+                          Approval
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -211,12 +253,17 @@ function GeneralLedger() {
           </div>
         )}
 
+        <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
+
         {selectedId && (
           <ApprovalPanel
             module="journal-entries"
             documentId={selectedId}
             approvalStatus={
               entries.find((e) => e.id === selectedId)?.approval_status
+            }
+            currentApprovalStep={
+              entries.find((e) => e.id === selectedId)?.current_approval_step
             }
             onStatusChange={loadEntries}
           />
@@ -339,6 +386,13 @@ const pageHeaderStyle: React.CSSProperties = {
   gap: '12px',
 }
 
+const headerActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  flexWrap: 'wrap',
+}
+
 const pageTitleStyle: React.CSSProperties = {
   margin: 0,
   fontSize: '28px',
@@ -365,6 +419,13 @@ const primaryButtonStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
+const secondaryButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  backgroundColor: '#fff',
+  color: '#1565c0',
+  border: '1px solid #90caf9',
+}
+
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: '#fff',
   border: '1px solid #ddd',
@@ -389,6 +450,26 @@ const approvalButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   fontSize: '12px',
   fontFamily: 'inherit',
+}
+
+const editButtonStyle: React.CSSProperties = {
+  ...approvalButtonStyle,
+  backgroundColor: '#fff8e1',
+  color: '#ef6c00',
+  border: '1px solid #ffe082',
+}
+
+const viewButtonStyle: React.CSSProperties = {
+  ...approvalButtonStyle,
+  backgroundColor: '#e8f5e9',
+  color: '#2e7d32',
+  border: '1px solid #c8e6c9',
+}
+
+const actionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '6px',
+  flexWrap: 'wrap',
 }
 
 const directoryTableStyle: React.CSSProperties = {

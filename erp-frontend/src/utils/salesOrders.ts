@@ -1,0 +1,34 @@
+import type { SalesOrder } from '../types'
+
+export const SALES_ORDER_LOCKED_EDIT_MESSAGE =
+  'Approved or Invoiced orders cannot be modified. Please create a credit memo or change order instead.'
+
+export const PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE =
+  'Parent Sales Order must be fully approved before creating a subcontract order.'
+
+const EDITABLE_APPROVAL = new Set(['DRAFT', 'REJECTED'])
+const LOCKED_STATUS = new Set(['SHIPPED', 'INVOICED', 'FULFILLED'])
+
+function normalizeFlag(value: string | null | undefined): string {
+  return (value || '').trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
+export function isSalesOrderEditable(
+  order: Pick<SalesOrder, 'status' | 'approval_status'> & {
+    invoice_status?: SalesOrder['invoice_status']
+  },
+): boolean {
+  const approval = normalizeFlag(order.approval_status || 'DRAFT')
+  const status = normalizeFlag(order.status)
+  const invoiceStatus = normalizeFlag(order.invoice_status)
+  if (LOCKED_STATUS.has(status) || invoiceStatus === 'FULLY_BILLED') return false
+  return EDITABLE_APPROVAL.has(approval)
+}
+
+export function salesOrderDetailPath(orderId: string): string {
+  return `/orders/${orderId}`
+}
+
+export function salesOrderEditPath(orderId: string): string {
+  return `/orders/${orderId}/edit`
+}

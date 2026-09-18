@@ -2,37 +2,79 @@ import React from 'react';
 
 interface POActionToolbarProps {
   isReadOnly: boolean;
+  editLocked?: boolean;
+  editLockedReason?: string | null;
   onToggleMode: () => void;
   onSaveDraft: () => void;
   onSubmit: () => void;
   onReset: () => void;
   isSubmitting: boolean;
   hasValidationError: boolean;
+  canRecall?: boolean;
+  recallDisabledReason?: string | null;
+  onRecall?: () => void;
+  isRecalling?: boolean;
+  showRecall?: boolean;
 }
 
 export function POActionToolbar({
   isReadOnly,
+  editLocked = false,
+  editLockedReason = null,
   onToggleMode,
   onSaveDraft,
   onSubmit,
   onReset,
   isSubmitting,
   hasValidationError,
+  canRecall = false,
+  recallDisabledReason = null,
+  onRecall,
+  isRecalling = false,
+  showRecall = false,
 }: POActionToolbarProps) {
+  const workflowLocked = showRecall;
   return (
     <div style={toolbarStyle} role="toolbar" aria-label="Purchase Order actions">
       <div style={leftGroupStyle}>
         {/* Toggle Mode Button */}
+        <span
+          title={
+            editLocked
+              ? editLockedReason || 'This purchase order cannot be edited inline'
+              : isReadOnly
+                ? 'Switch to edit mode'
+                : 'View read-only mode'
+          }
+          style={{ display: 'inline-block', cursor: editLocked ? 'not-allowed' : 'pointer' }}
+        >
         <button
           type="button"
-          onClick={onToggleMode}
+          onClick={() => {
+            if (editLocked) return
+            onToggleMode()
+          }}
+          disabled={editLocked}
+          aria-pressed={!isReadOnly && !editLocked}
+          aria-disabled={editLocked}
+          aria-label={
+            editLocked
+              ? `Switch to Edit Mode. ${editLockedReason || 'This purchase order cannot be edited inline'}`
+              : isReadOnly
+                ? 'Switch to Edit Mode'
+                : 'View Read-Only Mode'
+          }
           style={{
             ...buttonBaseStyle,
-            backgroundColor: isReadOnly ? '#aa3bff' : '#f5f5f5',
-            color: isReadOnly ? 'white' : '#333',
-            border: isReadOnly ? 'none' : '1px solid #ccc',
+            backgroundColor: editLocked ? '#90a4ae' : isReadOnly ? '#aa3bff' : '#f5f5f5',
+            color: editLocked || isReadOnly ? 'white' : '#333',
+            border: editLocked || isReadOnly ? 'none' : '1px solid #ccc',
+            cursor: editLocked ? 'not-allowed' : 'pointer',
+            opacity: editLocked ? 0.75 : 1,
+            pointerEvents: editLocked ? 'none' : 'auto',
           }}
           onMouseEnter={(e) => {
+            if (editLocked) return
             if (isReadOnly) {
               e.currentTarget.style.backgroundColor = '#932adc';
             } else {
@@ -40,20 +82,54 @@ export function POActionToolbar({
             }
           }}
           onMouseLeave={(e) => {
+            if (editLocked) {
+              e.currentTarget.style.backgroundColor = '#90a4ae';
+              return
+            }
             if (isReadOnly) {
               e.currentTarget.style.backgroundColor = '#aa3bff';
             } else {
               e.currentTarget.style.backgroundColor = '#f5f5f5';
             }
           }}
-          aria-pressed={!isReadOnly}
         >
-          {isReadOnly ? '✍️ Switch to Edit Mode' : '👁️ View Read-Only Mode'}
+          {isReadOnly || editLocked ? '✍️ Switch to Edit Mode' : '👁️ View Read-Only Mode'}
         </button>
+        </span>
       </div>
 
       <div style={rightGroupStyle}>
-        {!isReadOnly && (
+        {showRecall && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            <button
+              type="button"
+              onClick={onRecall}
+              disabled={!canRecall || isRecalling || isSubmitting}
+              title={
+                canRecall
+                  ? 'Return this purchase order to Draft for revision'
+                  : recallDisabledReason || 'Recall is not available'
+              }
+              style={{
+                ...buttonBaseStyle,
+                backgroundColor: canRecall ? '#ef6c00' : '#bdbdbd',
+                color: 'white',
+                border: 'none',
+                cursor: canRecall && !isRecalling ? 'pointer' : 'not-allowed',
+                opacity: canRecall ? 1 : 0.9,
+              }}
+            >
+              {isRecalling ? 'Recalling…' : 'Recall / Reopen for Revision'}
+            </button>
+            {!canRecall && recallDisabledReason ? (
+              <span style={{ fontSize: 12, color: '#c62828', maxWidth: 360, textAlign: 'right' }}>
+                {recallDisabledReason}
+              </span>
+            ) : null}
+          </div>
+        )}
+
+        {!isReadOnly && !workflowLocked && (
           <>
             {/* Reset Form Button */}
             <button

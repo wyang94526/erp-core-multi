@@ -9,6 +9,7 @@ import {
   Warehouse,
   Landmark,
   Boxes,
+  FileBarChart,
 } from 'lucide-react'
 import type { CurrentUser } from '../types'
 import type { DashboardAggregates, DashboardRole, DashboardUrgentSummary, QuickAction } from '../types/dashboard'
@@ -100,6 +101,7 @@ export function getQuickActions(view: DashboardRole): QuickAction[] {
         { id: 'ar', label: 'AR Aging & Collections', to: '/accounts-receivable', icon: Landmark },
         { id: 'ap', label: 'AP Aging & Payments', to: '/accounts-payable', icon: ClipboardList },
         { id: 'cash', label: 'Cash Management', to: '/cash-management', icon: Landmark },
+        { id: 'reports', label: 'Financial Reports', to: '/financial-reports', icon: FileBarChart },
         { id: 'sales-invoices', label: 'Sales Invoices', to: '/sales-invoices', icon: ClipboardList },
         { id: 'supplier-invoices', label: 'Supplier Invoices', to: '/supplier-invoices', icon: ClipboardList },
       ]

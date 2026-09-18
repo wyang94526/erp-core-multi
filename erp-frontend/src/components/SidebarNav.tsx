@@ -1,22 +1,86 @@
 import { useEffect, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
+import {
+  BookOpen,
+  CalendarCheck,
+  Clock,
+  CreditCard,
+  DollarSign,
+  FileSpreadsheet,
+  Layers,
+  LineChart,
+  List,
+  Package,
+  Percent,
+  PieChart,
+  Scale,
+  ShieldCheck,
+  TrendingUp,
+  type LucideIcon,
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { isUnassignedUser } from '../config/dashboardRoles'
 import {
   NAV_CATEGORIES,
+  collectActiveGroupIds,
   findActiveCategoryId,
-  findActiveGroupId,
   flattenNavLinks,
+  isNavGroupActive,
+  isNavGroupDestinationActive,
   isNavLinkActive,
+  splitNavTo,
   type NavCategory,
   type NavEntry,
   type NavGroup,
+  type NavGroupItem,
   type NavLinkItem,
 } from '../config/sidebarNav'
 
 type SidebarNavProps = {
   collapsed: boolean
   onNavigate?: () => void
+}
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  scale: Scale,
+  layers: Layers,
+  'pie-chart': PieChart,
+  'file-spreadsheet': FileSpreadsheet,
+  'trending-up': TrendingUp,
+  'dollar-sign': DollarSign,
+  clock: Clock,
+  'credit-card': CreditCard,
+  list: List,
+  package: Package,
+  'line-chart': LineChart,
+  percent: Percent,
+  'shield-check': ShieldCheck,
+  'book-open': BookOpen,
+  'calendar-check': CalendarCheck,
+}
+
+function NavIcon({ name, size }: { name?: string; size: number }) {
+  if (!name) return null
+  const Icon = NAV_ICONS[name]
+  if (!Icon) return null
+  return <Icon className="app-nav-icon" size={size} strokeWidth={2} aria-hidden />
+}
+
+function filterGroupItems(
+  items: NavGroupItem[],
+  opts: { loading: boolean; hasPermission: (code: string) => boolean },
+): NavGroupItem[] {
+  const { loading, hasPermission } = opts
+  const result: NavGroupItem[] = []
+  for (const item of items) {
+    if (item.kind === 'link') {
+      if (!item.permission || loading || hasPermission(item.permission)) result.push(item)
+      continue
+    }
+    const nested = filterGroupItems(item.items, opts)
+    if (nested.length > 0) result.push({ ...item, items: nested })
+  }
+  return result
 }
 
 function filterEntries(
@@ -40,9 +104,7 @@ function filterEntries(
       continue
     }
 
-    const items = entry.items.filter(
-      (item) => !item.permission || loading || hasPermission(item.permission),
-    )
+    const items = filterGroupItems(entry.items, { loading, hasPermission })
     if (items.length > 0) {
       result.push({ ...entry, items })
     }
@@ -54,27 +116,57 @@ function filterEntries(
 function NavLinkRow({
   item,
   pathname,
+  hash,
   nested,
+  depth = 1,
   onNavigate,
 }: {
   item: NavLinkItem
   pathname: string
+  hash: string
   nested?: boolean
+  depth?: number
   onNavigate?: () => void
 }) {
-  const active = isNavLinkActive(pathname, item)
+  const active = isNavLinkActive(pathname, item, hash)
+  const { hash: itemHash } = splitNavTo(item.to)
+  const depthClass = nested ? ` nested depth-${depth}` : ''
+  const iconClass = item.icon ? ' has-icon' : ''
+  const className = `app-nav-link${depthClass}${iconClass}${active ? ' active' : ''}`
+  const icon = <NavIcon name={item.icon} size={depth >= 2 ? 14 : 15} />
+  const handleClick = () => {
+    onNavigate?.()
+    if (itemHash && (hash === itemHash || window.location.hash === itemHash)) {
+      document.getElementById(itemHash.slice(1))?.scrollIntoView({
+        behavior: 'smooth',
+        block: itemHash.slice(1).startsWith('report-card-') ? 'center' : 'start',
+      })
+    }
+  }
+
   return (
     <li>
-      <NavLink
-        to={item.to}
-        end={item.end}
-        className={({ isActive }) =>
-          `app-nav-link${nested ? ' nested' : ''}${isActive || active ? ' active' : ''}`
-        }
-        onClick={onNavigate}
-      >
-        {item.label}
-      </NavLink>
+      {itemHash ? (
+        <Link
+          to={item.to}
+          className={className}
+          aria-current={active ? 'page' : undefined}
+          onClick={handleClick}
+        >
+          {icon}
+          <span className="app-nav-label">{item.label}</span>
+        </Link>
+      ) : (
+        <Link
+          to={item.to}
+          className={className}
+          aria-current={active ? 'page' : undefined}
+          onClick={onNavigate}
+        >
+          {icon}
+          <span className="app-nav-label">{item.label}</span>
+        </Link>
+      )}
     </li>
   )
 }
@@ -82,45 +174,117 @@ function NavLinkRow({
 function NavGroupBlock({
   group,
   pathname,
+  hash,
   open,
   onToggle,
+  openGroups,
+  onToggleGroup,
   onNavigate,
+  depth = 0,
 }: {
   group: NavGroup
   pathname: string
+  hash: string
   open: boolean
   onToggle: () => void
+  openGroups: Record<string, boolean>
+  onToggleGroup: (id: string, accordionSiblings?: string[]) => void
   onNavigate?: () => void
+  depth?: number
 }) {
-  const hasActiveChild = group.items.some((item) => isNavLinkActive(pathname, item))
+  const hasActiveChild = isNavGroupActive(pathname, group, hash)
+  const destActive = isNavGroupDestinationActive(pathname, group, hash)
+  const nestedGroups = group.items.filter((item): item is NavGroup => item.kind === 'group')
+  const nestedSiblingIds = nestedGroups.map((item) => item.id)
+  const { hash: destHash } = splitNavTo(group.to || '')
+
+  const handleDestinationClick = () => {
+    onNavigate?.()
+    if (!open) onToggle()
+    if (destHash && (hash === destHash || window.location.hash === destHash)) {
+      document.getElementById(destHash.slice(1))?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+  }
+
+  const iconSize = depth >= 1 ? 14 : 15
+  const icon = <NavIcon name={group.icon} size={iconSize} />
 
   return (
-    <li className="app-nav-subgroup">
-      <button
-        type="button"
-        className={`app-nav-subgroup-header${hasActiveChild ? ' active' : ''}`}
-        onClick={(e) => {
-          onToggle()
-          ;(e.currentTarget as HTMLButtonElement).blur()
-        }}
-        aria-expanded={open}
-      >
-        <span>{group.label}</span>
-        <span className="app-nav-chevron" aria-hidden>
-          {open ? '▾' : '▸'}
-        </span>
-      </button>
+    <li className={`app-nav-subgroup depth-${depth}`}>
+      {group.to ? (
+        <div className={`app-nav-subgroup-header-row${hasActiveChild ? ' active' : ''}`}>
+          <Link
+            to={group.to}
+            className={`app-nav-subgroup-link${group.icon ? ' has-icon' : ''}${destActive ? ' current' : ''}`}
+            aria-current={destActive ? 'page' : undefined}
+            onClick={handleDestinationClick}
+          >
+            {icon}
+            <span className="app-nav-label">{group.label}</span>
+          </Link>
+          <button
+            type="button"
+            className="app-nav-subgroup-toggle"
+            aria-label={open ? `Collapse ${group.label}` : `Expand ${group.label}`}
+            aria-expanded={open}
+            onClick={(e) => {
+              onToggle()
+              ;(e.currentTarget as HTMLButtonElement).blur()
+            }}
+          >
+            <span className="app-nav-chevron" aria-hidden>
+              {open ? '▾' : '▸'}
+            </span>
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={`app-nav-subgroup-header${group.icon ? ' has-icon' : ''}${hasActiveChild ? ' active' : ''}`}
+          onClick={(e) => {
+            onToggle()
+            ;(e.currentTarget as HTMLButtonElement).blur()
+          }}
+          aria-expanded={open}
+        >
+          {icon}
+          <span className="app-nav-label">{group.label}</span>
+          <span className="app-nav-chevron" aria-hidden>
+            {open ? '▾' : '▸'}
+          </span>
+        </button>
+      )}
       {open && (
         <ul className="app-nav-subgroup-items">
-          {group.items.map((item) => (
-            <NavLinkRow
-              key={item.to}
-              item={item}
-              pathname={pathname}
-              nested
-              onNavigate={onNavigate}
-            />
-          ))}
+          {group.items.map((item) =>
+            item.kind === 'group' ? (
+              <NavGroupBlock
+                key={item.id}
+                group={item}
+                pathname={pathname}
+                hash={hash}
+                open={Boolean(openGroups[item.id])}
+                onToggle={() => onToggleGroup(item.id, nestedSiblingIds)}
+                openGroups={openGroups}
+                onToggleGroup={onToggleGroup}
+                onNavigate={onNavigate}
+                depth={depth + 1}
+              />
+            ) : (
+              <NavLinkRow
+                key={item.to}
+                item={item}
+                pathname={pathname}
+                hash={hash}
+                nested
+                depth={depth + 1}
+                onNavigate={onNavigate}
+              />
+            ),
+          )}
         </ul>
       )}
     </li>
@@ -131,7 +295,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const location = useLocation()
   const { user, hasPermission, hasAnyRole, loading } = useAuth()
   const homeLabel = isUnassignedUser(user) ? 'Welcome' : 'Dashboard'
-  const activeCategoryId = findActiveCategoryId(location.pathname)
+  const activeCategoryId = findActiveCategoryId(location.pathname, location.hash)
 
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -144,14 +308,17 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
-    for (const category of NAV_CATEGORIES) {
-      const activeGroup = findActiveGroupId(location.pathname, category)
-      for (const entry of category.entries) {
-        if (entry.kind === 'group') {
-          initial[entry.id] = entry.id === activeGroup
-        }
+    const activeIds = new Set(
+      collectActiveGroupIds(location.pathname, location.hash, NAV_CATEGORIES.flatMap((c) => c.entries)),
+    )
+    const visit = (items: NavEntry[] | NavGroupItem[]) => {
+      for (const item of items) {
+        if (item.kind !== 'group') continue
+        initial[item.id] = activeIds.has(item.id)
+        visit(item.items)
       }
     }
+    for (const category of NAV_CATEGORIES) visit(category.entries)
     return initial
   })
 
@@ -169,17 +336,20 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
 
     const category = NAV_CATEGORIES.find((c) => c.id === activeCategoryId)
     if (!category) return
-    const activeGroupId = findActiveGroupId(location.pathname, category)
+    const activeIds = new Set(collectActiveGroupIds(location.pathname, location.hash, category.entries))
     setOpenGroups((prev) => {
       const next = { ...prev }
-      for (const entry of category.entries) {
-        if (entry.kind === 'group') {
-          next[entry.id] = entry.id === activeGroupId
+      const visit = (items: NavEntry[] | NavGroupItem[]) => {
+        for (const item of items) {
+          if (item.kind !== 'group') continue
+          next[item.id] = activeIds.has(item.id)
+          visit(item.items)
         }
       }
+      visit(category.entries)
       return next
     })
-  }, [activeCategoryId, location.pathname])
+  }, [activeCategoryId, location.pathname, location.hash])
 
   const toggleCategory = (id: string) => {
     setOpenCategories((prev) => {
@@ -193,8 +363,17 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
     })
   }
 
-  const toggleGroup = (id: string) => {
-    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }))
+  const toggleGroup = (id: string, accordionSiblings?: string[]) => {
+    setOpenGroups((prev) => {
+      const willOpen = !prev[id]
+      const next = { ...prev, [id]: willOpen }
+      if (willOpen && accordionSiblings?.length) {
+        for (const sibling of accordionSiblings) {
+          if (sibling !== id) next[sibling] = false
+        }
+      }
+      return next
+    })
   }
 
   const visibleCategories: Array<NavCategory & { entries: NavEntry[] }> = NAV_CATEGORIES.filter(
@@ -244,6 +423,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
                           key={entry.to}
                           item={entry}
                           pathname={location.pathname}
+                          hash={location.hash}
                           onNavigate={onNavigate}
                         />
                       ) : (
@@ -251,8 +431,11 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
                           key={entry.id}
                           group={entry}
                           pathname={location.pathname}
+                          hash={location.hash}
                           open={Boolean(openGroups[entry.id])}
                           onToggle={() => toggleGroup(entry.id)}
+                          openGroups={openGroups}
+                          onToggleGroup={toggleGroup}
                           onNavigate={onNavigate}
                         />
                       ),

@@ -5,19 +5,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, SubcontractOrderComponent, Supplier
+from app.deps.auth import get_current_user
+from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, SubcontractOrderComponent, Supplier, User
 from app.schemas import (
     GoodsReceiptCreate,
     GoodsReceiptRead,
     PurchaseOrderCreate,
     PurchaseOrderRead,
+    PurchaseOrderRecallRequest,
     PurchaseOrderUpdate,
 )
-from app.services import p2p
+from app.services import approval, p2p
 from app.services.document_sequences import DOC_PURCHASE_ORDER, generate_document_number
-from app.services.po_totals import apply_po_totals, requires_carrier_account
+from app.services.po_totals import apply_estimated_landed_unit_costs, apply_po_totals, requires_carrier_account
 from app.services.payment_terms import apply_payment_term_fields
 from app.services.item_types import catalog_item, validate_line_quantity
+from app.services.po_sco_demand import assert_sco_component_qty_within_demand
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
@@ -126,12 +129,32 @@ def _validate_freight(freight_terms: str | None, carrier_account: str | None, st
 
 
 def _load_po(db: Session, po_number: str) -> PurchaseOrder | None:
-    return (
+    po = (
         db.query(PurchaseOrder)
         .options(selectinload(PurchaseOrder.items))
         .filter(PurchaseOrder.po_number == po_number)
         .first()
     )
+    if po:
+        apply_estimated_landed_unit_costs(po)
+    return p2p.attach_po_recall_flags(db, po)
+
+
+def _guard_locked_po_status(po: PurchaseOrder, data: dict) -> None:
+    """Keep PATCH from flipping Draft/Submitted/Approved independently of the workflow."""
+    incoming = data.get("status")
+    if incoming is None or incoming == po.status:
+        return
+    approval = (po.approval_status or "DRAFT").upper()
+    if incoming == "Void":
+        return
+    if approval in p2p.RECALLABLE_APPROVAL_STATUSES and incoming == "Draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Use Recall / Reopen for Revision to return this purchase order to Draft",
+        )
+    if approval in p2p.RECALLABLE_APPROVAL_STATUSES:
+        data.pop("status", None)
 
 
 @router.get("", response_model=list[PurchaseOrderRead])
@@ -144,12 +167,16 @@ def list_purchase_orders(
     query = db.query(PurchaseOrder).options(selectinload(PurchaseOrder.items))
     if sco_number and sco_number.strip():
         query = query.filter(PurchaseOrder.sco_number == sco_number.strip())
-    return (
+    rows = (
         query.order_by(PurchaseOrder.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    rows = p2p.attach_po_recall_flags_many(db, rows)
+    for po in rows:
+        apply_estimated_landed_unit_costs(po)
+    return rows
 
 
 @router.post("", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
@@ -159,6 +186,7 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
 
     _validate_po_links(db, payload.po_type, payload.sco_number, payload.items)
     _validate_po_quantities(db, payload.items)
+    assert_sco_component_qty_within_demand(db, payload.sco_number, payload.items)
     _validate_freight(payload.freight_terms, payload.carrier_account, payload.status)
 
     data = payload.model_dump(exclude={"items"})
@@ -216,6 +244,8 @@ def update_purchase_order(
     po = db.get(PurchaseOrder, po_number)
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+    p2p.attach_po_recall_flags(db, po)
+    p2p.assert_purchase_order_editable(po)
 
     data = payload.model_dump(exclude_unset=True, exclude={"items"})
 
@@ -235,11 +265,15 @@ def update_purchase_order(
     _validate_po_links(db, po_type, sco_number, payload.items)
     if payload.items is not None:
         _validate_po_quantities(db, payload.items)
+        assert_sco_component_qty_within_demand(
+            db, sco_number, payload.items, exclude_po_number=po_number
+        )
     _validate_freight(
         data.get("freight_terms", po.freight_terms),
         data.get("carrier_account", po.carrier_account),
         data.get("status", po.status),
     )
+    _guard_locked_po_status(po, data)
 
     for key, value in data.items():
         setattr(po, key, value)
@@ -277,9 +311,31 @@ def update_purchase_order(
     return _load_po(db, po.po_number)
 
 
+@router.post("/{po_number}/recall", response_model=PurchaseOrderRead)
+def recall_purchase_order(
+    po_number: str,
+    payload: PurchaseOrderRecallRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PurchaseOrder:
+    approval.recall_purchase_order(
+        db,
+        po_number,
+        user,
+        comments=payload.comments if payload else None,
+    )
+    po = _load_po(db, po_number)
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return po
+
+
 @router.post("/{po_number}/receive", response_model=GoodsReceiptRead, status_code=status.HTTP_201_CREATED)
 def receive_purchase_order_goods(
-    po_number: str, payload: GoodsReceiptCreate, db: Session = Depends(get_db)
+    po_number: str,
+    payload: GoodsReceiptCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Record PO goods receipt: inventory + GRNI accrual (Dr Inventory / Cr GRNI)."""
     result = p2p.receive_purchase_order(
@@ -288,6 +344,7 @@ def receive_purchase_order_goods(
         lines=[line.model_dump() for line in payload.lines],
         receipt_date=payload.receipt_date,
         notes=payload.notes,
+        received_by_user_id=user.id,
     )
     db.commit()
     return result

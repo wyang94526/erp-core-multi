@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { approvalService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
-import type { ApprovalHistory, ApprovalStatus } from '../types'
+import { isRecallablePurchaseOrder } from '../utils/poWorkflow'
 import ApprovalActionModal from './ApprovalActionModal'
 
 const MODULE_SUBMIT: Record<string, string> = {
@@ -34,6 +34,11 @@ type ApprovalPanelProps = {
   approvalStatus?: ApprovalStatus | string | null
   currentApprovalStep?: number | null
   onStatusChange?: () => void
+  allowRecall?: boolean
+  recallDisabledReason?: string | null
+  documentStatus?: string | null
+  actionDisabled?: boolean
+  actionDisabledReason?: string | null
 }
 
 export function ApprovalPanel({
@@ -42,6 +47,11 @@ export function ApprovalPanel({
   approvalStatus,
   currentApprovalStep,
   onStatusChange,
+  allowRecall = false,
+  recallDisabledReason = null,
+  documentStatus = null,
+  actionDisabled = false,
+  actionDisabledReason = null,
 }: ApprovalPanelProps) {
   const { hasPermission } = useAuth()
   const [history, setHistory] = useState<ApprovalHistory[]>([])
@@ -75,8 +85,15 @@ export function ApprovalPanel({
     hasPermission(MODULE_SUBMIT[module] || '')
   const canApprove =
     status === 'PENDING_APPROVAL' && hasPermission(MODULE_APPROVE[module] || '')
+  const canRecall =
+    module === 'purchase-orders' && isRecallablePurchaseOrder(documentStatus, status)
+  const recallEnabled = canRecall && allowRecall
 
   const runSubmit = async () => {
+    if (actionDisabled) {
+      setError(actionDisabledReason || 'This document cannot be submitted yet')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -92,6 +109,11 @@ export function ApprovalPanel({
 
   const runModalAction = async (comments: string) => {
     if (!modal) return
+    if (modal === 'approve' && actionDisabled) {
+      setError(actionDisabledReason || 'This document cannot be approved yet')
+      setModal(null)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -105,6 +127,27 @@ export function ApprovalPanel({
       onStatusChange?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : `${modal} failed`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const runRecall = async () => {
+    if (
+      !window.confirm(
+        'Recall this purchase order to Draft for revision? Receive Goods and Create Bill stay blocked until it is approved again.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await approvalService.recall(module, documentId)
+      await load()
+      onStatusChange?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'recall failed')
     } finally {
       setBusy(false)
     }
@@ -126,28 +169,65 @@ export function ApprovalPanel({
         </div>
       </div>
 
-      {(canSubmit || canApprove) && (
+      {(canSubmit || canApprove || canRecall) && (
         <div style={buttonRowStyle}>
           {canSubmit && (
+            <span
+              title={actionDisabled ? actionDisabledReason || undefined : 'Submit for approval'}
+              style={{ display: 'inline-block', cursor: actionDisabled || busy ? 'not-allowed' : 'pointer' }}
+            >
             <button
               type="button"
-              disabled={busy}
-              style={{ ...btnStyle, backgroundColor: '#1976d2' }}
+              disabled={busy || actionDisabled}
+              aria-disabled={busy || actionDisabled}
+              aria-label={
+                actionDisabled
+                  ? `Submit for Approval. ${actionDisabledReason || ''}`
+                  : 'Submit for Approval'
+              }
+              style={{
+                ...btnStyle,
+                backgroundColor: actionDisabled ? '#9e9e9e' : '#1976d2',
+                cursor: actionDisabled || busy ? 'not-allowed' : 'pointer',
+                opacity: actionDisabled ? 0.75 : 1,
+                pointerEvents: actionDisabled ? 'none' : 'auto',
+              }}
               onClick={runSubmit}
             >
               Submit for Approval
             </button>
+            </span>
           )}
           {canApprove && (
             <>
+              <span
+                title={actionDisabled ? actionDisabledReason || undefined : 'Approve this document'}
+                style={{ display: 'inline-block', cursor: actionDisabled || busy ? 'not-allowed' : 'pointer' }}
+              >
               <button
                 type="button"
-                disabled={busy}
-                style={{ ...btnStyle, backgroundColor: '#2e7d32' }}
-                onClick={() => setModal('approve')}
+                disabled={busy || actionDisabled}
+                aria-disabled={busy || actionDisabled}
+                aria-label={
+                  actionDisabled
+                    ? `Approve. ${actionDisabledReason || ''}`
+                    : 'Approve'
+                }
+                style={{
+                  ...btnStyle,
+                  backgroundColor: actionDisabled ? '#9e9e9e' : '#2e7d32',
+                  cursor: actionDisabled || busy ? 'not-allowed' : 'pointer',
+                  opacity: actionDisabled ? 0.75 : 1,
+                  pointerEvents: actionDisabled ? 'none' : 'auto',
+                }}
+                onClick={() => {
+                  if (actionDisabled) return
+                  setModal('approve')
+                }}
               >
                 Approve
               </button>
+              </span>
               <button
                 type="button"
                 disabled={busy}
@@ -158,7 +238,37 @@ export function ApprovalPanel({
               </button>
             </>
           )}
+          {canRecall && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                type="button"
+                disabled={busy || !recallEnabled}
+                title={
+                  recallEnabled
+                    ? 'Return this purchase order to Draft for revision'
+                    : recallDisabledReason || 'Recall is not available'
+                }
+                style={{
+                  ...btnStyle,
+                  backgroundColor: recallEnabled ? '#ef6c00' : '#bdbdbd',
+                  cursor: recallEnabled && !busy ? 'pointer' : 'not-allowed',
+                }}
+                onClick={() => void runRecall()}
+              >
+                Recall / Reopen for Revision
+              </button>
+              {!recallEnabled && recallDisabledReason ? (
+                <span style={{ fontSize: 12, color: '#c62828' }}>{recallDisabledReason}</span>
+              ) : null}
+            </div>
+          )}
         </div>
+      )}
+
+      {actionDisabled && actionDisabledReason && (canSubmit || canApprove) && (
+        <p style={errorStyle} role="alert">
+          {actionDisabledReason}
+        </p>
       )}
 
       {error && <p style={errorStyle}>{error}</p>}

@@ -221,11 +221,43 @@ class ChartOfAccountRead(ORMModel):
     created_at: datetime
 
 
+class PostingRuleUpdate(BaseModel):
+    debit_account_id: UUID | None = None
+    credit_account_id: UUID | None = None
+    is_active: bool | None = None
+
+
+class PostingRuleRead(ORMModel):
+    id: UUID
+    rule_code: str
+    event_code: str
+    event_label: str
+    variant: str
+    variant_label: str
+    party_scope: str
+    party_label: str
+    name: str
+    debit_account_id: UUID
+    debit_account_code: str | None = None
+    debit_account_name: str | None = None
+    debit_account_type: str | None = None
+    credit_account_id: UUID
+    credit_account_code: str | None = None
+    credit_account_name: str | None = None
+    credit_account_type: str | None = None
+    default_debit_account_code: str | None = None
+    default_credit_account_code: str | None = None
+    is_system: bool = True
+    is_active: bool = True
+    sort_order: int = 0
+
+
 class LedgerPostingLineCreate(BaseModel):
     account_id: UUID
     debit: Decimal = Field(default=Decimal("0.0000"), ge=0, decimal_places=4)
     credit: Decimal = Field(default=Decimal("0.0000"), ge=0, decimal_places=4)
     currency: str = Field(default="USD", min_length=3, max_length=3)
+    description: str | None = Field(default=None, max_length=500)
 
 class LedgerPostingRead(ORMModel):
     id: UUID
@@ -234,6 +266,7 @@ class LedgerPostingRead(ORMModel):
     debit: Decimal
     credit: Decimal
     currency: str
+    description: str | None = None
     account_code: str | None = None
     account_name: str | None = None
 
@@ -253,22 +286,30 @@ class LedgerPostingCreate(BaseModel):
     debit: Decimal = Field(default=Decimal("0.0000"), ge=0, decimal_places=4)
     credit: Decimal = Field(default=Decimal("0.0000"), ge=0, decimal_places=4)
     currency: str = Field(default="USD", min_length=3, max_length=3)
+    description: str | None = Field(default=None, max_length=500)
 
 class LedgerPostingUpdate(BaseModel):
     account_id: UUID | None = None
     debit: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     credit: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
+    description: str | None = Field(default=None, max_length=500)
 
 class JournalEntryCreate(BaseModel):
     description: str = Field(min_length=1)
+    posting_date: date | None = None
+    period: str | None = Field(default=None, max_length=7)
+    reference: str | None = Field(default=None, max_length=100)
     posted_by_user_id: UUID | None = None
     postings: list[LedgerPostingLineCreate] = Field(min_length=2)
 
 class JournalEntryUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1)
+    posting_date: date | None = None
+    period: str | None = Field(default=None, max_length=7)
+    reference: str | None = Field(default=None, max_length=100)
     posted_by_user_id: UUID | None = None
-    # Usually, we don't update postings directly through the entry to maintain audit trails
+    postings: list[LedgerPostingLineCreate] | None = None
 
 class JournalEntryRead(ORMModel):
     id: UUID
@@ -276,10 +317,18 @@ class JournalEntryRead(ORMModel):
     description: str
     posted_by_user_id: UUID | None
     period: str | None = None
+    posting_date: date | None = None
+    reference: str | None = None
     posting_status: str | None = None
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
     postings: list[LedgerPostingRead]
+
+
+class MonthEndClosePreview(ORMModel):
+    period: str
+    ready: list[JournalEntryRead]
+    held: list[JournalEntryRead]
 
 
 
@@ -1476,7 +1525,11 @@ class SubcontractOrderCreate(BaseModel):
     item_id: str | None = Field(default=None, max_length=50)
     quantity_ordered: int | None = Field(default=None, gt=0)
     unit_price: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=4)
-    sales_order_id: str | None = Field(default=None, max_length=50)
+    sales_order_id: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Parent Sales Order ID when this SCO is created from an SO.",
+    )
     order_date: date | None = None
     expected_return_date: date | None = None
     notes: str | None = None
@@ -1512,7 +1565,10 @@ class SubcontractOrderUpdate(BaseModel):
 class SubcontractOrderRead(ORMModel):
     sco_number: str
     supplier_id: str
-    sales_order_id: str | None = None
+    sales_order_id: str | None = Field(
+        default=None,
+        description="Parent Sales Order ID this subcontract order was created from.",
+    )
     item_id: str
     bom_header_id: int | None = None
     bom_version_no: int | None = None
@@ -1560,6 +1616,16 @@ class SalesOrderSubcontractLineRead(BaseModel):
     active_bom_version_no: int | None = None
     bom_status: str | None = None
     is_subcontract_assembly: bool = False
+
+
+class SalesOrderSubcontractAvailabilityRead(BaseModel):
+    sales_order_id: str
+    status: str | None = None
+    approval_status: str | None = None
+    can_create: bool
+    remaining_total: int = 0
+    message: str | None = None
+    lines: list[SalesOrderSubcontractLineRead] = []
 
 
 class PreviewComponentLine(BaseModel):
@@ -1684,6 +1750,12 @@ class PurchaseOrderItemRead(ORMModel):
     line_subtotal: Decimal
     line_tax: Decimal
     line_total: Decimal
+    estimated_landed_unit_cost: Decimal = Decimal("0.0000")
+    allocated_landed_expense: Decimal = Decimal("0.00")
+    quantity_received: Decimal = Decimal("0")
+    quantity_remaining_to_receive: Decimal = Decimal("0")
+    quantity_billed: Decimal = Decimal("0")
+    quantity_remaining_to_bill: Decimal = Decimal("0")
 
 
 class PurchaseOrderDeliveryScheduleCreate(BaseModel):
@@ -1825,6 +1897,18 @@ class PurchaseOrderRead(ORMModel):
     notes: str | None
     created_at: datetime | None
     items: list[PurchaseOrderItemRead] = []
+    can_recall: bool = False
+    has_posted_receipts: bool = False
+    has_supplier_invoices: bool = False
+    recall_blocked_reason: str | None = None
+    can_receive_goods: bool = False
+    receive_blocked_reason: str | None = None
+    can_create_bill: bool = False
+    bill_blocked_reason: str | None = None
+
+
+class PurchaseOrderRecallRequest(BaseModel):
+    comments: str | None = Field(default=None, max_length=2000)
 
 
 class EligibleMaterialPoScoRead(BaseModel):
@@ -1990,6 +2074,12 @@ class BankAccountRead(ORMModel):
     account_number: str
     account_number_masked: str | None = None
     routing_number: str | None = None
+    account_type: str = "CHECKING"
+    currency: str = "USD"
+    gl_account_id: UUID
+    gl_account_code: str | None = None
+    gl_account_name: str | None = None
+    gl_account_display: str | None = None
     display_name: str | None = None
     is_default: bool = False
     is_active: bool = True
@@ -1999,8 +2089,24 @@ class BankAccountCreate(BaseModel):
     bank_name: str = Field(min_length=1, max_length=150)
     account_name: str = Field(min_length=1, max_length=100)
     account_number: str = Field(min_length=4, max_length=34)
-    routing_number: str | None = Field(default=None, max_length=9)
+    routing_number: str | None = Field(default=None, max_length=34)
+    account_type: str = Field(default="CHECKING", max_length=20)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    gl_account_id: UUID
     is_default: bool = False
+    is_active: bool = True
+
+
+class BankAccountUpdate(BaseModel):
+    bank_name: str | None = Field(default=None, min_length=1, max_length=150)
+    account_name: str | None = Field(default=None, min_length=1, max_length=100)
+    account_number: str | None = Field(default=None, min_length=4, max_length=34)
+    routing_number: str | None = Field(default=None, max_length=34)
+    account_type: str | None = Field(default=None, max_length=20)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    gl_account_id: UUID | None = None
+    is_default: bool | None = None
+    is_active: bool | None = None
 
 
 class CashTransactionRead(ORMModel):
@@ -2017,6 +2123,7 @@ class CashTransactionRead(ORMModel):
     account_number: str | None = None
     account_number_masked: str | None = None
     routing_number: str | None = None
+    gl_account_id: UUID | None = None
     payment_method: str = "CHECK"
     instrument_ref_no: str | None = None
     instrument_display_number: str | None = None
@@ -2049,7 +2156,10 @@ class NextInstrumentRead(BaseModel):
 ApprovalStatus = Literal[
     'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'
 ]
-ApprovalAction = Literal['SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'SUBMIT', 'APPROVE', 'DECLINE']
+ApprovalAction = Literal[
+    'SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED',
+    'SUBMIT', 'APPROVE', 'DECLINE',
+]
 
 
 class ApprovalActionRequest(BaseModel):
@@ -2560,9 +2670,50 @@ class GoodsReceiptLineRead(BaseModel):
     source_line_id: int | None = None
     item_id: str
     description: str | None = None
+    item_description: str | None = None
+    quantity_ordered: Decimal | None = None
     quantity_received: Decimal
     unit_cost: Decimal
     line_amount: Decimal
+    uom: str | None = None
+    lot_number: str | None = None
+    serial_number: str | None = None
+
+
+class GoodsReceiptJournalPostingRead(BaseModel):
+    id: UUID | None = None
+    account_id: UUID | None = None
+    account_code: str | None = None
+    account_name: str | None = None
+    description: str | None = None
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    currency: str | None = "USD"
+
+
+class GoodsReceiptJournalRead(BaseModel):
+    id: UUID
+    created_at: datetime | None = None
+    description: str
+    posted_by_user_id: UUID | None = None
+    posted_by_name: str | None = None
+    period: str | None = None
+    posting_date: date | None = None
+    reference: str | None = None
+    posting_status: str | None = None
+    approval_status: str | None = None
+    purpose: str | None = None
+    postings: list[GoodsReceiptJournalPostingRead] = Field(default_factory=list)
+
+
+class GoodsReceiptInvoiceRead(BaseModel):
+    id: int
+    invoice_number: str
+    ap_bill_id: str | None = None
+    status: str
+    invoice_date: date | None = None
+    total_amount: Decimal | None = None
+    link_type: str | None = None
 
 
 class GoodsReceiptRead(BaseModel):
@@ -2571,11 +2722,23 @@ class GoodsReceiptRead(BaseModel):
     source_type: str
     source_order_id: str
     vendor_id: str
+    vendor_name: str | None = None
     receipt_date: date
     status: str
+    status_label: str | None = None
     notes: str | None = None
     created_at: datetime | None = None
+    warehouse_id: str | None = None
+    warehouse_code: str | None = None
+    warehouse_name: str | None = None
+    bin_id: str | None = None
+    bin_code: str | None = None
+    received_by: str | None = None
+    operational_receipt_id: str | None = None
+    total_amount: Decimal | None = None
     lines: list[GoodsReceiptLineRead] = Field(default_factory=list)
+    journals: list[GoodsReceiptJournalRead] = Field(default_factory=list)
+    related_invoices: list[GoodsReceiptInvoiceRead] = Field(default_factory=list)
 
 
 class DepartmentRead(BaseModel):
@@ -2692,3 +2855,41 @@ class DocumentAttachmentRead(ORMModel):
     uploaded_by_user_id: str | None = None
     uploaded_by_name: str | None = None
     uploaded_at: datetime
+
+
+class FinancialReportColumn(BaseModel):
+    key: str
+    label: str
+    align: Literal["left", "right", "center"] = "left"
+    format: Literal["text", "number", "percent", "date"] = "text"
+
+
+class FinancialReportRow(BaseModel):
+    id: str | None = None
+    cells: dict[str, Any] = Field(default_factory=dict)
+    indent: int = 0
+    emphasis: Literal["normal", "section", "total", "net", "negative"] = "normal"
+    link: str | None = None
+
+
+class FinancialReportCatalogItem(BaseModel):
+    id: str
+    title: str
+    category: str
+    category_label: str
+    description: str
+    parameters: list[str] = Field(default_factory=list)
+    default_action: str = "Generate Report"
+
+
+class FinancialReportRead(BaseModel):
+    report_type: str
+    title: str
+    subtitle: str | None = None
+    generated_at: datetime | str
+    currency: str = "USD"
+    filters: dict[str, Any] = Field(default_factory=dict)
+    columns: list[FinancialReportColumn] = Field(default_factory=list)
+    rows: list[FinancialReportRow] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)

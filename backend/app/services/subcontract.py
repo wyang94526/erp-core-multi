@@ -34,6 +34,51 @@ CANCELLED_SCO = "CANCELLED"
 CLOSED_SCO_STATUSES = {"COMPLETED", "CANCELLED"}
 AMENDABLE_APPROVAL = "APPROVED"
 OPS_ALLOWED_WHILE_AMENDING = {"DRAFT", "REJECTED", "PENDING_APPROVAL"}
+ISSUE_ALLOWED_APPROVAL = frozenset({AMENDABLE_APPROVAL, *OPS_ALLOWED_WHILE_AMENDING})
+SCO_KIT_MUST_BE_ISSUED_DETAIL = (
+    "Cannot approve Subcontract Order: All required kit components must be "
+    "fully issued to the subcontractor first."
+)
+SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL = (
+    "Finished goods cannot be received until the Subcontract Order receives "
+    "full management approval."
+)
+PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL = (
+    "Parent Sales Order must be fully approved before creating a subcontract order."
+)
+
+
+def fully_fulfilled_sco_message(sales_order_id: str) -> str:
+    return (
+        f"Sales Order {sales_order_id} is fully fulfilled. "
+        "Subcontract orders cannot be created for completed orders."
+    )
+
+
+def so_is_approved_for_sco(approval_status: str | None) -> bool:
+    return (approval_status or "DRAFT").upper() == AMENDABLE_APPROVAL
+
+
+def subcontract_create_gate(
+    *,
+    sales_order_id: str,
+    status: str | None,
+    remaining_total: int,
+    selectable_line_count: int,
+    approval_status: str | None = None,
+) -> tuple[bool, str | None]:
+    """Whether a new SCO can be created from this sales order."""
+    if not so_is_approved_for_sco(approval_status):
+        return False, PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL
+    eligible = so_is_eligible_status(status)
+    if remaining_total <= 0 or not eligible:
+        return False, fully_fulfilled_sco_message(sales_order_id)
+    if selectable_line_count <= 0:
+        return False, (
+            f"Sales Order {sales_order_id} has remaining quantity but no Material BOM "
+            "on open lines."
+        )
+    return True, None
 
 DEFAULT_COST_COMPONENTS = [
     {
@@ -184,19 +229,59 @@ def assert_can_amend_cost_sheet(sco) -> None:
 
 
 def assert_sco_fulfillment_allowed(sco, action_label: str = "this action") -> None:
-    """Allow kit issue after the first approval, including during a cost-sheet amendment."""
+    """Allow kit issue in Draft and after approval, including during a cost-sheet amendment."""
+    status = (getattr(sco, "status", None) or "").upper()
+    if status in CLOSED_SCO_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot {action_label} on a {status.lower()} subcontract order",
+        )
     approval = (getattr(sco, "approval_status", None) or "").upper()
-    if approval == AMENDABLE_APPROVAL:
-        return
-    if previously_approved(sco) and approval in OPS_ALLOWED_WHILE_AMENDING:
+    if approval in ISSUE_ALLOWED_APPROVAL:
         return
     raise HTTPException(
         status_code=400,
         detail=(
-            f"Subcontract order must be APPROVED before {action_label} "
+            f"Subcontract order must be open before {action_label} "
             f"(current: {approval or None})"
         ),
     )
+
+
+def assert_sco_receive_allowed(sco) -> None:
+    """Finished goods may be received only after the SCO is fully approved."""
+    status = (getattr(sco, "status", None) or "").upper()
+    if status in CLOSED_SCO_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot receive goods on a {status.lower()} order",
+        )
+    approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
+    if approval != AMENDABLE_APPROVAL:
+        raise HTTPException(
+            status_code=400,
+            detail=SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL,
+        )
+
+
+def sco_kit_remaining(component) -> Decimal:
+    required = Decimal(str(getattr(component, "quantity_required", 0) or 0))
+    issued = Decimal(str(getattr(component, "quantity_issued", 0) or 0))
+    leftover = required - issued
+    return leftover if leftover > 0 else Decimal("0")
+
+
+def sco_unissued_components(sco) -> list:
+    return [row for row in (getattr(sco, "components", None) or []) if sco_kit_remaining(row) > 0]
+
+
+def sco_kit_is_fully_issued(sco) -> bool:
+    return not sco_unissued_components(sco)
+
+
+def assert_sco_kit_fully_issued(sco) -> None:
+    if not sco_kit_is_fully_issued(sco):
+        raise HTTPException(status_code=400, detail=SCO_KIT_MUST_BE_ISSUED_DETAIL)
 
 
 def apply_line_charge_sheet(
@@ -259,9 +344,12 @@ def remaining_qty_for_so_line(
     return max(int(so_item.quantity_ordered) - allocated, 0)
 
 
+def so_is_eligible_status(status: str | None) -> bool:
+    return (status or "").upper() not in CLOSED_SO_STATUSES
+
+
 def so_is_eligible(order: SalesOrder) -> bool:
-    status = (order.status or "").upper()
-    return status not in CLOSED_SO_STATUSES
+    return so_is_eligible_status(getattr(order, "status", None))
 
 
 def assert_so_line_allocatable(
@@ -299,6 +387,11 @@ def assert_so_line_allocatable(
             status_code=400,
             detail=f"Sales order {sales_order_id} is {order.status} and cannot be subcontracted",
         )
+    if not so_is_approved_for_sco(getattr(order, "approval_status", None)):
+        raise HTTPException(
+            status_code=400,
+            detail=PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
+        )
     remaining = remaining_qty_for_so_line(db, so_item, exclude_sco_number)
     if quantity > remaining:
         raise HTTPException(
@@ -334,6 +427,14 @@ def list_eligible_sales_orders(
     orders = query.offset(skip).limit(limit).all()
     result = []
     for order in orders:
+        open_line_count = 0
+        for item in order.items or []:
+            if remaining_qty_for_so_line(db, item) > 0:
+                open_line_count += 1
+        if open_line_count <= 0:
+            continue
+        if not so_is_approved_for_sco(getattr(order, "approval_status", None)):
+            continue
         result.append(
             {
                 "sales_order_id": order.sales_order_id,
@@ -343,13 +444,17 @@ def list_eligible_sales_orders(
                 "order_date": order.order_date,
                 "status": order.status,
                 "approval_status": order.approval_status,
-                "open_line_count": len(order.items or []),
+                "open_line_count": open_line_count,
             }
         )
     return result
 
 
 def sales_order_lines_for_subcontract(db: Session, sales_order_id: str) -> list[dict]:
+    return sales_order_subcontract_availability(db, sales_order_id)["lines"]
+
+
+def sales_order_subcontract_availability(db: Session, sales_order_id: str) -> dict:
     order = (
         db.query(SalesOrder)
         .options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.item))
@@ -358,11 +463,6 @@ def sales_order_lines_for_subcontract(db: Session, sales_order_id: str) -> list[
     )
     if order is None:
         raise HTTPException(status_code=404, detail="Sales order not found")
-    if not so_is_eligible(order):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Sales order {sales_order_id} is {order.status} and cannot be subcontracted",
-        )
 
     rows = []
     for line in sorted(order.items or [], key=lambda item: item.line_number):
@@ -377,7 +477,7 @@ def sales_order_lines_for_subcontract(db: Session, sales_order_id: str) -> list[
                 "item_id": line.item_id,
                 "item_description": catalog.description if catalog else None,
                 "customer_part_number": line.customer_part_number,
-                "quantity_ordered": line.quantity_ordered,
+                "quantity_ordered": int(line.quantity_ordered or 0),
                 "quantity_subcontracted": allocated_qty_for_so_line(db, line.so_item_id),
                 "quantity_remaining": remaining,
                 "has_active_bom": bool(header and material_lines),
@@ -391,4 +491,25 @@ def sales_order_lines_for_subcontract(db: Session, sales_order_id: str) -> list[
                 else False,
             }
         )
-    return rows
+    remaining_total = sum(int(row["quantity_remaining"]) for row in rows)
+    selectable_line_count = sum(
+        1
+        for row in rows
+        if int(row["quantity_remaining"]) > 0 and row["has_active_bom"]
+    )
+    can_create, message = subcontract_create_gate(
+        sales_order_id=order.sales_order_id,
+        status=order.status,
+        remaining_total=remaining_total,
+        selectable_line_count=selectable_line_count,
+        approval_status=order.approval_status,
+    )
+    return {
+        "sales_order_id": order.sales_order_id,
+        "status": order.status,
+        "approval_status": order.approval_status,
+        "can_create": can_create,
+        "remaining_total": remaining_total,
+        "message": message,
+        "lines": rows,
+    }

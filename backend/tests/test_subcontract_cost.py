@@ -5,11 +5,14 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.subcontract import (
+    SCO_KIT_MUST_BE_ISSUED_DETAIL,
     assert_can_amend_cost_sheet,
     assert_sco_fulfillment_allowed,
+    assert_sco_kit_fully_issued,
     compute_charge_sheet,
     compute_cost_per_unit,
     previously_approved,
+    sco_kit_is_fully_issued,
 )
 
 
@@ -48,12 +51,41 @@ def test_amend_allowed_only_when_approved_and_open():
 
 def test_fulfillment_continues_during_cost_sheet_amendment():
     assert not previously_approved(SimpleNamespace(amendment_number=0))
-    draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0)
-    with pytest.raises(HTTPException):
-        assert_sco_fulfillment_allowed(draft, "issuing materials")
-    amending = SimpleNamespace(approval_status="DRAFT", amendment_number=1)
+    draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0, status="PLANNED")
+    assert_sco_fulfillment_allowed(draft, "issuing materials")
+    amending = SimpleNamespace(approval_status="DRAFT", amendment_number=1, status="PLANNED")
     assert_sco_fulfillment_allowed(amending, "issuing materials")
     assert_sco_fulfillment_allowed(
-        SimpleNamespace(approval_status="APPROVED", amendment_number=0),
+        SimpleNamespace(approval_status="APPROVED", amendment_number=0, status="PLANNED"),
         "issuing materials",
     )
+    with pytest.raises(HTTPException) as closed:
+        assert_sco_fulfillment_allowed(
+            SimpleNamespace(approval_status="DRAFT", status="COMPLETED"),
+            "issuing materials",
+        )
+    assert closed.value.status_code == 400
+
+
+def test_kit_must_be_fully_issued_before_approval():
+    open_kit = SimpleNamespace(
+        components=[
+            SimpleNamespace(quantity_required=Decimal("10"), quantity_issued=Decimal("4")),
+            SimpleNamespace(quantity_required=Decimal("2"), quantity_issued=Decimal("2")),
+        ]
+    )
+    assert sco_kit_is_fully_issued(open_kit) is False
+    with pytest.raises(HTTPException) as blocked:
+        assert_sco_kit_fully_issued(open_kit)
+    assert blocked.value.status_code == 400
+    assert blocked.value.detail == SCO_KIT_MUST_BE_ISSUED_DETAIL
+
+    complete = SimpleNamespace(
+        components=[
+            SimpleNamespace(quantity_required=Decimal("10"), quantity_issued=Decimal("10")),
+            SimpleNamespace(quantity_required=Decimal("2"), quantity_issued=Decimal("3")),
+        ]
+    )
+    assert sco_kit_is_fully_issued(complete)
+    assert_sco_kit_fully_issued(complete)
+    assert sco_kit_is_fully_issued(SimpleNamespace(components=[]))

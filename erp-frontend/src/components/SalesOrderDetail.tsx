@@ -5,7 +5,7 @@
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { FileDown, Loader2 } from 'lucide-react'
 import {
   customerService,
@@ -13,6 +13,7 @@ import {
   itemService,
   locationService,
   salesOrderService,
+  subcontractOrderService,
 } from '../api/services'
 import { generateSalesOrderPdf } from '../utils/generateSalesOrderPdf'
 import {
@@ -21,6 +22,13 @@ import {
   isFullyInvoiced,
   salesOrderInvoiceStatus,
 } from '../utils/soBilling'
+import {
+  isSalesOrderEditable,
+  salesOrderEditPath,
+  PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE,
+  SALES_ORDER_LOCKED_EDIT_MESSAGE,
+} from '../utils/salesOrders'
+import { isSalesOrderFullyFulfilled } from '../utils/fulfillmentQty'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 
@@ -30,6 +38,7 @@ export function SalesOrderDetail() {
   const queryClient = useQueryClient()
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [lockWarning, setLockWarning] = useState<string | null>(null)
 
   if (!id) {
     return (
@@ -55,6 +64,18 @@ export function SalesOrderDetail() {
   const { data: fulfillments = [] } = useQuery({
     queryKey: ['fulfillments'],
     queryFn: () => fulfillmentService.list(0, 200),
+  })
+
+  const { data: relatedScos = [] } = useQuery({
+    queryKey: ['subcontractOrders', 'bySalesOrder', id],
+    queryFn: () => subcontractOrderService.listSubcontractOrders(0, 200, id),
+    enabled: Boolean(id),
+  })
+
+  const { data: scoAvailability } = useQuery({
+    queryKey: ['scoSalesOrderLines', id],
+    queryFn: () => subcontractOrderService.listSalesOrderLines(id!),
+    enabled: Boolean(id),
   })
 
   if (isLoading) {
@@ -96,13 +117,49 @@ export function SalesOrderDetail() {
 
   const statusColors = getStatusColors(order.status)
   const isApproved = (order.approval_status || '').toUpperCase() === 'APPROVED'
+  const orderStatus = (order.status || '').toUpperCase()
+  const orderCancelled = orderStatus === 'CANCELLED'
   const orderFulfillments = fulfillments.filter((f) => f.sales_order_id === order.sales_order_id)
   const hasShippedFulfillment = orderFulfillments.some((f) => f.status === 'SHIPPED')
-  const canFulfillItems = isApproved && order.status !== 'CANCELLED'
   const fullyInvoiced = isFullyInvoiced(order)
+  const fullyFulfilled = isSalesOrderFullyFulfilled(order, fulfillments)
   const billingStatus = salesOrderInvoiceStatus(order)
   const billingColors = invoiceStatusColors(billingStatus)
   const canCreateInvoice = isApproved && hasShippedFulfillment && !fullyInvoiced
+  const canEditOrder = isSalesOrderEditable(order)
+
+  const fulfillBlockedReason = !isApproved
+    ? 'Order must be approved before fulfillment'
+    : orderCancelled
+      ? 'Cancelled orders cannot be fulfilled'
+      : fullyFulfilled
+        ? 'All items have been fulfilled'
+        : fullyInvoiced
+          ? 'This Sales Order has already been fully billed.'
+          : null
+  const canFulfillItems = !fulfillBlockedReason
+
+  const scoBlockedReason = !isApproved
+    ? PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE
+    : scoAvailability && !scoAvailability.can_create
+    ? scoAvailability.message ||
+      'All subcontract quantities are already covered by existing subcontract orders.'
+    : !scoAvailability && (fullyFulfilled || fullyInvoiced || orderCancelled)
+      ? fullyFulfilled
+        ? 'All items have been fulfilled'
+        : fullyInvoiced
+          ? 'This Sales Order has already been fully billed.'
+          : 'Cancelled orders cannot be subcontracted'
+      : null
+  const canCreateSubcontract = !scoBlockedReason
+
+  const requestEdit = () => {
+    if (canEditOrder) {
+      navigate(salesOrderEditPath(id!))
+      return
+    }
+    setLockWarning(SALES_ORDER_LOCKED_EDIT_MESSAGE)
+  }
 
   const handlePrintPdf = async () => {
     setExportError(null)
@@ -164,6 +221,12 @@ export function SalesOrderDetail() {
           queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
         }}
       />
+
+      {lockWarning && (
+        <div style={lockWarningStyle} role="alert">
+          {lockWarning}
+        </div>
+      )}
 
       {isApproved && (
         <div style={exportBarStyle}>
@@ -387,32 +450,135 @@ export function SalesOrderDetail() {
         )}
       </div>
 
+      <div style={cardStyle}>
+        <h3 style={sectionHeadingStyle}>Subcontract Orders</h3>
+        {relatedScos.length === 0 ? (
+          <p style={{ color: 'var(--text)', fontStyle: 'italic', margin: 0 }}>
+            No subcontract orders are linked to this sales order.
+          </p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={theadRowStyle}>
+                  <th style={thStyle}>SCO #</th>
+                  <th style={thStyle}>Supplier</th>
+                  <th style={thStyle}>Item</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={thStyle}>Approval</th>
+                  <th style={thStyle}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {relatedScos.map((sco) => {
+                  const scoColors = getScoStatusColors(sco.status)
+                  return (
+                    <tr key={sco.sco_number} style={tbodyRowStyle}>
+                      <td style={tdStyle}>
+                        <Link
+                          to={`/subcontract-orders/${encodeURIComponent(sco.sco_number)}`}
+                          style={documentLinkStyle}
+                        >
+                          {sco.sco_number}
+                        </Link>
+                      </td>
+                      <td style={tdStyle}>{sco.supplier_id}</td>
+                      <td style={tdStyle}>
+                        {sco.item_id}
+                        {(sco.line_count || sco.lines?.length || 0) > 1
+                          ? ` +${(sco.line_count || sco.lines?.length || 1) - 1}`
+                          : ''}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{sco.quantity_ordered}</td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 12,
+                            fontSize: 11,
+                            fontWeight: 'bold',
+                            backgroundColor: scoColors.bg,
+                            color: scoColors.text,
+                          }}
+                        >
+                          {sco.status}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>{(sco.approval_status || 'DRAFT').replace(/_/g, ' ')}</td>
+                      <td style={tdStyle}>
+                        <Link
+                          to={`/subcontract-orders/${encodeURIComponent(sco.sco_number)}`}
+                          style={documentLinkStyle}
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <DocumentAttachmentsPanel documentType="SALES_ORDER" documentId={order.sales_order_id} />
 
       {/* Action Buttons */}
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={() =>
-            navigate(`/subcontract-orders/new?sales_order_id=${encodeURIComponent(order.sales_order_id)}`)
+        <span
+          title={
+            canCreateSubcontract
+              ? 'Create a subcontract order from this sales order'
+              : scoBlockedReason || undefined
           }
-          style={{ ...primaryButtonStyle, backgroundColor: '#6a1b9a' }}
+          style={{
+            display: 'inline-block',
+            cursor: canCreateSubcontract ? 'pointer' : 'not-allowed',
+          }}
         >
-          Create Subcontract Order
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!canCreateSubcontract) return
+              navigate(`/subcontract-orders/new?sales_order_id=${encodeURIComponent(order.sales_order_id)}`)
+            }}
+            disabled={!canCreateSubcontract}
+            aria-disabled={!canCreateSubcontract}
+            aria-label={
+              canCreateSubcontract
+                ? 'Create Subcontract Order'
+                : `Create Subcontract Order. ${scoBlockedReason || ''}`
+            }
+            style={{
+              ...primaryButtonStyle,
+              backgroundColor: canCreateSubcontract ? '#6a1b9a' : '#9e9e9e',
+              cursor: canCreateSubcontract ? 'pointer' : 'not-allowed',
+              opacity: canCreateSubcontract ? 1 : 0.75,
+              pointerEvents: canCreateSubcontract ? 'auto' : 'none',
+            }}
+          >
+            Create Subcontract Order
+          </button>
+        </span>
         <button
           type="button"
-          onClick={() => navigate(`/sales-orders/${id}/fulfill`)}
+          onClick={() => {
+            if (!canFulfillItems) return
+            navigate(`/sales-orders/${id}/fulfill`)
+          }}
           style={{
             ...primaryButtonStyle,
             backgroundColor: canFulfillItems ? '#2e7d32' : '#9e9e9e',
             cursor: canFulfillItems ? 'pointer' : 'not-allowed',
+            opacity: canFulfillItems ? 1 : 0.75,
           }}
           disabled={!canFulfillItems}
           title={
             canFulfillItems
               ? 'Create an item fulfillment for this order'
-              : 'Order must be approved before fulfillment'
+              : fulfillBlockedReason || undefined
           }
         >
           Fulfill Items
@@ -424,6 +590,7 @@ export function SalesOrderDetail() {
             ...primaryButtonStyle,
             backgroundColor: canCreateInvoice ? '#6a1b9a' : '#9e9e9e',
             cursor: canCreateInvoice ? 'pointer' : 'not-allowed',
+            opacity: canCreateInvoice ? 1 : 0.75,
           }}
           disabled={!canCreateInvoice}
           title={
@@ -437,10 +604,22 @@ export function SalesOrderDetail() {
           Create Invoice
         </button>
         <button
-          onClick={() => navigate(`/orders/${id}/edit`)}
-          style={primaryButtonStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
+          type="button"
+          onClick={requestEdit}
+          aria-disabled={!canEditOrder}
+          title={canEditOrder ? 'Edit this sales order' : SALES_ORDER_LOCKED_EDIT_MESSAGE}
+          style={{
+            ...primaryButtonStyle,
+            backgroundColor: canEditOrder ? '#1976d2' : '#90a4ae',
+            cursor: canEditOrder ? 'pointer' : 'not-allowed',
+            opacity: canEditOrder ? 1 : 0.75,
+          }}
+          onMouseEnter={(e) => {
+            if (canEditOrder) e.currentTarget.style.backgroundColor = '#1565c0'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = canEditOrder ? '#1976d2' : '#90a4ae'
+          }}
         >
           Edit Order
         </button>
@@ -493,6 +672,18 @@ function getStatusColors(status: string): { bg: string; text: string } {
     INVOICED: { bg: '#e3f2fd', text: '#1565c0' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },
+    CANCELLED: { bg: '#ffebee', text: '#c62828' },
+  }
+  return statusColors[status] || { bg: '#f5f5f5', text: '#616161' }
+}
+
+function getScoStatusColors(status: string): { bg: string; text: string } {
+  const statusColors: Record<string, { bg: string; text: string }> = {
+    PLANNED: { bg: '#fffde7', text: '#f9a825' },
+    PARTIALLY_ISSUED: { bg: '#fff3e0', text: '#e65100' },
+    MATERIALS_ISSUED: { bg: '#e3f2fd', text: '#1565c0' },
+    PARTIALLY_RECEIVED: { bg: '#ede7f6', text: '#5e35b1' },
+    COMPLETED: { bg: '#e8f5e9', text: '#2e7d32' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
   }
   return statusColors[status] || { bg: '#f5f5f5', text: '#616161' }
@@ -595,6 +786,12 @@ const tdStyle: React.CSSProperties = {
   verticalAlign: 'middle',
 }
 
+const documentLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  textDecoration: 'none',
+  fontWeight: 600,
+}
+
 const primaryButtonStyle: React.CSSProperties = {
   padding: '10px 18px',
   backgroundColor: '#1976d2',
@@ -623,6 +820,17 @@ const secondaryButtonStyle: React.CSSProperties = {
 const emptyStateWrapperStyle: React.CSSProperties = {
   padding: '30px',
   textAlign: 'center',
+}
+
+const lockWarningStyle: React.CSSProperties = {
+  marginBottom: 16,
+  backgroundColor: '#fff8e1',
+  color: '#e65100',
+  border: '1px solid #ffe082',
+  borderRadius: 6,
+  padding: '12px 16px',
+  fontSize: 14,
+  fontWeight: 600,
 }
 
 const exportBarStyle: React.CSSProperties = {

@@ -20,21 +20,42 @@ from app.models import (
 )
 from app.services.document_sequences import DOC_INVOICE, generate_document_number
 from app.services import finance, inventory
-from app.services.finance import (
-    AR_ACCOUNT_CODE,
-    AR_ACCOUNT_NAME,
-    get_or_create_account,
+from app.services.posting_rules import (
+    EVENT_SALES_INVOICE,
+    VARIANT_REVENUE,
+    VARIANT_TAX,
+    resolve_posting_pair,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 from app.services.item_types import catalog_item, skip_inventory_movement
 
-REVENUE_ACCOUNT_CODE = "4000"
-REVENUE_ACCOUNT_NAME = "Sales Revenue"
-TAX_PAYABLE_ACCOUNT_CODE = "2100"
-TAX_PAYABLE_ACCOUNT_NAME = "Sales Tax Payable"
-
 ACTIVE_SALES_INVOICE_STATUSES = ("DRAFT", "APPROVED", "PAID")
 _MONEY = Decimal("0.01")
+SALES_ORDER_LOCKED_EDIT_DETAIL = (
+    "Approved or Invoiced orders cannot be modified. "
+    "Please create a credit memo or change order instead."
+)
+_COMMITTED_FULFILLMENT_STATUSES = frozenset({"PICKED", "PACKED", "SHIPPED"})
+_EDITABLE_APPROVAL = frozenset({"DRAFT", "REJECTED"})
+_LOCKED_STATUS = frozenset({"SHIPPED", "INVOICED", "FULFILLED"})
+
+
+def _normalize_so_flag(value: str | None) -> str:
+    return (value or "").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def sales_order_is_editable(order: SalesOrder) -> bool:
+    approval = _normalize_so_flag(getattr(order, "approval_status", None) or "DRAFT")
+    status = _normalize_so_flag(getattr(order, "status", None))
+    invoice_status = _normalize_so_flag(getattr(order, "invoice_status", None))
+    if status in _LOCKED_STATUS or invoice_status == "FULLY_BILLED":
+        return False
+    return approval in _EDITABLE_APPROVAL
+
+
+def require_sales_order_editable(order: SalesOrder) -> None:
+    if not sales_order_is_editable(order):
+        raise HTTPException(status_code=409, detail=SALES_ORDER_LOCKED_EDIT_DETAIL)
 
 
 def _money(value: Decimal | int | float | str | None) -> Decimal:
@@ -190,21 +211,86 @@ def _load_sales_invoice(db: Session, invoice_id: int) -> SalesInvoice:
     return row
 
 
-def _fulfilled_qty_by_line(db: Session, sales_order_id: str) -> dict[int, int]:
-    rows = (
+def over_fulfillment_detail(item_id: str, ordered: int) -> str:
+    return (
+        f"Total fulfillment quantity cannot exceed the ordered quantity of {ordered} "
+        f"for item {item_id}."
+    )
+
+
+def assert_fulfillment_qty_within_ordered(
+    *,
+    item_id: str,
+    ordered: int,
+    already: int,
+    qty: int,
+) -> None:
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="quantity_fulfilled must be positive")
+    if already + qty > ordered:
+        raise HTTPException(
+            status_code=400,
+            detail=over_fulfillment_detail(item_id, ordered),
+        )
+
+
+def _fulfilled_qty_by_line(
+    db: Session,
+    sales_order_id: str,
+    *,
+    exclude_fulfillment_id: int | None = None,
+) -> dict[int, int]:
+    """Cumulative fulfilled qty per SO line, including draft fulfillments.
+
+    Drafts are counted so overlapping unsaved shipments cannot exceed the
+    ordered quantity when they are later picked or shipped.
+    """
+    query = (
         db.query(
             ItemFulfillmentLine.sales_order_line_id,
             func.coalesce(func.sum(ItemFulfillmentLine.quantity_fulfilled), 0),
         )
         .join(ItemFulfillment)
-        .filter(
-            ItemFulfillment.sales_order_id == sales_order_id,
-            ItemFulfillment.status != "DRAFT",
-        )
-        .group_by(ItemFulfillmentLine.sales_order_line_id)
-        .all()
+        .filter(ItemFulfillment.sales_order_id == sales_order_id)
     )
+    if exclude_fulfillment_id is not None:
+        query = query.filter(ItemFulfillment.id != exclude_fulfillment_id)
+    rows = query.group_by(ItemFulfillmentLine.sales_order_line_id).all()
     return {int(line_id): int(qty or 0) for line_id, qty in rows}
+
+
+def _assert_fulfillment_record_within_ordered(db: Session, fulfillment: ItemFulfillment) -> None:
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.items))
+        .filter(SalesOrder.sales_order_id == fulfillment.sales_order_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    so_lines = {int(li.so_item_id): li for li in (order.items or [])}
+    already = _fulfilled_qty_by_line(
+        db,
+        fulfillment.sales_order_id,
+        exclude_fulfillment_id=fulfillment.id,
+    )
+    pending: dict[int, int] = {}
+    for line in fulfillment.lines or []:
+        line_id = int(line.sales_order_line_id)
+        qty = int(line.quantity_fulfilled)
+        so_line = so_lines.get(line_id)
+        if not so_line:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Sales order line {line_id} not found on {fulfillment.sales_order_id}",
+            )
+        assert_fulfillment_qty_within_ordered(
+            item_id=so_line.item_id,
+            ordered=int(so_line.quantity_ordered),
+            already=already.get(line_id, 0) + pending.get(line_id, 0),
+            qty=qty,
+        )
+        pending[line_id] = pending.get(line_id, 0) + qty
 
 
 def serialize_fulfillment(row: ItemFulfillment) -> dict:
@@ -308,6 +394,7 @@ def create_fulfillment(
 
     so_lines = {int(li.so_item_id): li for li in (order.items or [])}
     already = _fulfilled_qty_by_line(db, sales_order_id)
+    pending: dict[int, int] = {}
 
     fulfillment = ItemFulfillment(
         fulfillment_number=_next_number(db, ItemFulfillment, "fulfillment_number", "FUL"),
@@ -329,14 +416,13 @@ def create_fulfillment(
                 status_code=400,
                 detail=f"Sales order line {line_id} not found on {sales_order_id}",
             )
-        remaining = int(so_line.quantity_ordered) - already.get(line_id, 0)
-        if qty <= 0:
-            raise HTTPException(status_code=400, detail="quantity_fulfilled must be positive")
-        if qty > remaining:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Quantity {qty} exceeds remaining {remaining} for line {line_id}",
-            )
+        assert_fulfillment_qty_within_ordered(
+            item_id=so_line.item_id,
+            ordered=int(so_line.quantity_ordered),
+            already=already.get(line_id, 0) + pending.get(line_id, 0),
+            qty=qty,
+        )
+        pending[line_id] = pending.get(line_id, 0) + qty
         db.add(
             ItemFulfillmentLine(
                 fulfillment_id=fulfillment.id,
@@ -378,6 +464,9 @@ def update_fulfillment_status(
     previous = fulfillment.status
     if previous == "SHIPPED" and status != "SHIPPED":
         raise HTTPException(status_code=400, detail="Shipped fulfillments cannot be reverted")
+
+    if status in _COMMITTED_FULFILLMENT_STATUSES:
+        _assert_fulfillment_record_within_ordered(db, fulfillment)
 
     if carrier is not None:
         fulfillment.carrier = carrier
@@ -625,12 +714,11 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
     if invoice.status == "PAID":
         raise HTTPException(status_code=400, detail="Invoice is already paid")
 
-    ar_account = get_or_create_account(db, AR_ACCOUNT_CODE, AR_ACCOUNT_NAME, "Asset")
-    revenue_account = get_or_create_account(
-        db, REVENUE_ACCOUNT_CODE, REVENUE_ACCOUNT_NAME, "Revenue"
+    ar_account, revenue_account = resolve_posting_pair(
+        db, EVENT_SALES_INVOICE, VARIANT_REVENUE, None
     )
-    tax_account = get_or_create_account(
-        db, TAX_PAYABLE_ACCOUNT_CODE, TAX_PAYABLE_ACCOUNT_NAME, "Liability"
+    _tax_ar, tax_account = resolve_posting_pair(
+        db, EVENT_SALES_INVOICE, VARIANT_TAX, None
     )
 
     # Dr AR for total; Cr Revenue for subtotal; Cr Tax Payable for tax
