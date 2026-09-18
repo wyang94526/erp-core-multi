@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from datetime import date, datetime
 from uuid import UUID
 

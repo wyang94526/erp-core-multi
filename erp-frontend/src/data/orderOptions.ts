@@ -1,4 +1,9 @@
-/** Shared commercial terms for sales orders, customer master, and POs. */
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
+ *  Shared commercial terms for sales orders, customer master, and POs.
+ */
 
 export const INCOTERM_OPTIONS = [
   'EXW',

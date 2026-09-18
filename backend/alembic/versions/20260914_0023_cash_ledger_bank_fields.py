@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Company bank accounts plus cash-ledger instrument and counterparty fields.
 
 Revision ID: 20260914_0023

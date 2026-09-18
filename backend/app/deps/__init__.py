@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from app.deps.auth import (
     get_current_user,
     require_permission,

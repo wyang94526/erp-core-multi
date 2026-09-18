@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """
 Subcontracting demo seed — now folded into the master seed script.
 

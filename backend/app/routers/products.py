@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Deprecated /products alias — prefer /api/v1/items."""
 
 from fastapi import APIRouter, Depends, HTTPException, status

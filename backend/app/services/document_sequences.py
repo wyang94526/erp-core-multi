@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Concurrency-safe document number generation: {PREFIX}{YY}{MM}{XXXX}."""
 
 from __future__ import annotations

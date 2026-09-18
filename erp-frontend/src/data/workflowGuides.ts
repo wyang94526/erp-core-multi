@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Interactive process-workflow content for /help/workflows.
  * Edit steps, nav labels, and deep links here without changing the page layout.
  */

@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * SalesOrderList — full-page sales orders with URL-driven filters
  * (used by dashboard KPI drill-through and direct navigation).
  */

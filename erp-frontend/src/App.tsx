@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useState } from 'react'
 import { CircleHelp } from 'lucide-react'
 import { Outlet, useLocation } from 'react-router-dom'

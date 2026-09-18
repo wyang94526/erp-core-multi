@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 export const SCO_RECEIVE_REQUIRES_APPROVAL_MESSAGE =
   'Finished goods cannot be received until the Subcontract Order receives full management approval.'
 

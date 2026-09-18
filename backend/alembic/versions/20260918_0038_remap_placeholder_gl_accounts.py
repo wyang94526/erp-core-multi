@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Remap placeholder GL codes onto the standard chart, then drop them.
 
 Revision ID: 20260918_0038

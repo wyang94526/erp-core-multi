@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Company posting rules: action → debit account + credit account.
 
 The engine looks up (event, variant, party) at post time. Catalog defaults

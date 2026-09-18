@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Overseas vendor classification, remittance, and trade fields.
 
 Revision ID: 20260819_0016

@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 export type ItemType = 'INVENTORY' | 'NON_INVENTORY' | 'SERVICE'
 
 export const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [

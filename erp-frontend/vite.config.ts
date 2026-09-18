@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Allow RECALLED on approval audit log for PO reopen.
 
 Revision ID: 20260917_0032

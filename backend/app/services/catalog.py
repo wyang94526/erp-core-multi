@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """BOM explode + vendor lookup helpers for purchase / subcontract workflows."""
 
 from __future__ import annotations

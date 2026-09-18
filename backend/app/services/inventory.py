@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """
 Inventory service: stock aggregation, adjustments, transfers, and
 sync of items.on_hand_quantity as company-wide cache.

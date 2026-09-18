@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * CustomerList Component
  * Displays a list of customers in a table format with pagination
  */

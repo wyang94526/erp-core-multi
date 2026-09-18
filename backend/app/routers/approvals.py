@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Approval workflow endpoints — uniform transactions API + legacy aliases."""
 
 from fastapi import APIRouter, Depends, HTTPException, status

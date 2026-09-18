@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Load GTT TIPTOP basic-data CSVs into this ERP.
 
 Source files (Aug 17 2026 export):

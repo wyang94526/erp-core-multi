@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * SalesOrderDetail Component
  * Displays full details of a single sales order including customer info, status, and line items
  */

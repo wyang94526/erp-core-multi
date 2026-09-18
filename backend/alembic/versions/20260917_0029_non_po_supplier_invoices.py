@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Non-PO supplier invoices: invoice_type, nullable PO, GL distributions.
 
 Revision ID: 20260917_0029

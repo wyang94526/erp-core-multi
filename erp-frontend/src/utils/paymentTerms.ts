@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 export interface PaymentTerm {
   id: string
   code: string

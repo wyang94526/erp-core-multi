@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * VendorList Component
  * Displays a list of vendors/suppliers in a table format with pagination
  */

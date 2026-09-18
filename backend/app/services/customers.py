@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Transactional customer create / upsert with nested locations and certifications."""
 
 from __future__ import annotations

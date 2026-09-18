@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Store and validate supporting files attached to any ERP document."""
 
 from __future__ import annotations

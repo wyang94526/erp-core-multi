@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Purchase-order line/header totals and vendor-payable freight rules."""
 
 from __future__ import annotations

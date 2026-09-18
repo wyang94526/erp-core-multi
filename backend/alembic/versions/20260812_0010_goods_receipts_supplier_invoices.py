@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add goods receipts and supplier invoices for Procure-to-Pay.
 
 Revision ID: 20260812_0010

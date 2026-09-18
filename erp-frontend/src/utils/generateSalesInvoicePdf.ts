@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Printable customer invoice PDF (AR / sales invoice).
  */
+
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { ARInvoiceDetail } from '../types'

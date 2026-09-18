@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Create posting_rules and seed the standard TIPTOP debit/credit catalog.
 
 Revision ID: 20260918_0039

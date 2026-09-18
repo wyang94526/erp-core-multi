@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Payment-term master lookup, snapshot sync, and due-date calculation."""
 
 from __future__ import annotations

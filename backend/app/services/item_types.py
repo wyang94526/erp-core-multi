@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Catalog item types: inventory vs non-stock / service charges."""
 
 from __future__ import annotations

@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { BankAccount, BankAccountType } from '../types'
 
 export const BANK_ACCOUNT_TYPES: { value: BankAccountType; label: string }[] = [

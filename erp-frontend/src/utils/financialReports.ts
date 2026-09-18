@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { FinancialReport, FinancialReportCatalogItem, FinancialReportQuery } from '../types'
 
 export const REPORT_CATEGORY_ORDER = ['primary', 'operational', 'managerial'] as const

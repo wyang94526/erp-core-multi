@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { JournalEntry } from '../types'
 
 export const JOURNAL_CREATE_PATH = '/general-ledger/journals/new'

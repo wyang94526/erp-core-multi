@@ -1,4 +1,9 @@
-/** Lightweight Markdown renderer for AI chat replies (no extra deps). */
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
+ *  Lightweight Markdown renderer for AI chat replies (no extra deps).
+ */
 
 import AiMonthTrendChart, {
   type AiMonthTrendPoint,

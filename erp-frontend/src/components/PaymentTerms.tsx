@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * PaymentTerms — global master list of Net / P02 / due-on-receipt terms.
  */
 

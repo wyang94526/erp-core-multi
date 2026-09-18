@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * WorkflowTreeView — module-grouped tree with optional CRUD actions on bands & steps.
  */
 

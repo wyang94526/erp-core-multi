@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Create an item fulfillment against an approved sales order.
  * Routes: /sales-orders/:id/fulfill , /orders/:id/fulfill
  */

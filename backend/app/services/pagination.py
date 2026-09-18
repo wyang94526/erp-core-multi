@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Offset/limit pagination helpers for catalog and directory list endpoints."""
 
 from __future__ import annotations

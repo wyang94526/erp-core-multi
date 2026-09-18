@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Helpers for security-question answers (catalog lives in DB)."""
 
 DEFAULT_SECURITY_QUESTION = "What is your favorite color?"

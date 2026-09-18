@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useReducer, useCallback } from 'react';
 import type { FreightPaymentTerms, PurchaseOrder, PurchaseOrderItem } from '../types';
 import { includesVendorFreight } from '../data/orderOptions';

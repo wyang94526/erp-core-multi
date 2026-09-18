@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * ItemDetail Component
  * Displays full details of an item and provides a UI for managing its
  * Bill of Materials (BOM) — the raw-material components required to build

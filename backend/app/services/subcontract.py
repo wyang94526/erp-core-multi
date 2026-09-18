@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Allocation, cost-sheet math, and SO-line helpers for subcontract orders."""
 
 from __future__ import annotations

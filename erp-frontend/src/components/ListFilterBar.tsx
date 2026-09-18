@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { Link, useSearchParams } from 'react-router-dom'
 import type { CSSProperties, ReactNode } from 'react'
 import { METRIC_PAGE_TITLES } from '../config/metricRoutes'

@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { UnfulfilledScoComponent } from '../types'
 
 export const ALL_SCO_COMPONENTS_IMPORTED_MESSAGE =

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """SO customer revision date / P/N snapshot and PO subcontract type.
 
 Revision ID: 20260820_0017

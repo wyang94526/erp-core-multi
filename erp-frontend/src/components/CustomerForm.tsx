@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * CustomerForm Component
  * Create / edit manufacturing customers with Bill-To, Ship-To, and certifications.
  */

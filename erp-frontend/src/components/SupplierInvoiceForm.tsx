@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Create a supplier invoice (vendor bill) from a PO/SCO or as a Non-PO voucher.
  * Routes: /supplier-invoices/new?source_type=&source_order_id=&category=non-po
  */

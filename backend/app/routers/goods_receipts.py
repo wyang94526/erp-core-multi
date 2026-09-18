@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Goods receipt inquiry: list and detail for PO / SCO receipts."""
 
 from fastapi import APIRouter, Depends, Query

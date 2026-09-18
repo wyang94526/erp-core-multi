@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Generate a printable sales order PDF for an approved Sales Order.
  */
+
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { Location, SalesOrder } from '../types'

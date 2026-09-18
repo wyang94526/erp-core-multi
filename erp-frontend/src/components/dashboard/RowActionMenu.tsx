@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 

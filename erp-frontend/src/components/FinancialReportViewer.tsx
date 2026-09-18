@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Financial report viewer with global filters and PDF / CSV / Excel export.
  */
 

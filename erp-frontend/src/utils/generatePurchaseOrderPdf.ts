@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Generate a printable vendor purchase attachment PDF for an approved Purchase Order.
  */
+
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { PurchaseOrder } from '../types'

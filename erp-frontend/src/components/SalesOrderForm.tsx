@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * SalesOrderForm Component
  * Form for creating and editing sales orders with dynamic line items
  */

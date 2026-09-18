@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Shared supporting-document list + upload for any ERP document.
  */
+
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react'

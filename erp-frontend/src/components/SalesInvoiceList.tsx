@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Sales Invoices list — Order-to-Cash billing documents.
  */
 

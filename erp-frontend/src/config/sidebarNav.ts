@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Sidebar navigation configuration.
  * Supports category → optional subgroup → link nesting.
  */

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus

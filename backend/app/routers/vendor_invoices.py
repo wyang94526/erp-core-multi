@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Supplier Invoice (Vendor Bill) API for Procure-to-Pay."""
 
 from __future__ import annotations

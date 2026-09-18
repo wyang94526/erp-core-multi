@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """In-memory pending write actions awaiting user confirmation."""
 
 from __future__ import annotations

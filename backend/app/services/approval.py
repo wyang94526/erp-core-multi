@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Multi-stage approval workflow orchestration for ERP documents."""
 
 from __future__ import annotations

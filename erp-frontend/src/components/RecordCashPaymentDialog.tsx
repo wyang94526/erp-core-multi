@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { bankAccountService, cashTransactionService } from '../api/services'
 import type { BankAccount, CashPaymentMethod } from '../types'

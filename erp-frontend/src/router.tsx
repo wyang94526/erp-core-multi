@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Router Configuration
  * Defines all routes for the ERP application using React Router v8
  */

@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * TypeScript interfaces for ERP Frontend
  * These types correspond to the backend Pydantic schemas
  */

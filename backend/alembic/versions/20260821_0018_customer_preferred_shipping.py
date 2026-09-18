@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add customers.preferred_shipping_method for sales-order header defaulting.
 
 Revision ID: 20260821_0018

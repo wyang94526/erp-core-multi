@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Ingest ERP knowledge into ChromaDB for the AI assistant.
 
 Usage (from repo root, with venv active):

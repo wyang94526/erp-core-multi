@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Procure-to-Pay: goods receipts (GRNI) and supplier invoices (vendor bills)."""
 
 from __future__ import annotations

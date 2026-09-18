@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from app.schemas import PaginationMeta
 from app.services.pagination import build_pagination
 

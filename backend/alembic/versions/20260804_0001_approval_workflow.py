@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add RBAC roles and approval workflow tables/columns.
 
 Revision ID: 20260804_0001

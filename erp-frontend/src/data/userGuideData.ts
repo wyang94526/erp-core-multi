@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * In-app User Guide content.
  * Edit this file to add or revise articles, FAQs, and troubleshooting
  * without changing UI components.

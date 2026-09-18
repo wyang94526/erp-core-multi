@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Allow credit-card disbursements on cash_transactions.
 
 Revision ID: 20260914_0025

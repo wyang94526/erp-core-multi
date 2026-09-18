@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Send } from 'lucide-react'

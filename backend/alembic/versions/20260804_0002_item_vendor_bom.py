@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Purchase item catalog: classification flags, vendor mappings, BOM scrap factors.
 
 Revision ID: 20260804_0002

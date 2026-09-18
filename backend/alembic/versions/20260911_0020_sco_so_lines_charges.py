@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Link subcontract orders to sales-order lines and per-line cost sheets.
 
 Revision ID: 20260911_0020

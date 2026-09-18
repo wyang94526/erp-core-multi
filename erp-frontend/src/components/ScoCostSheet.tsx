@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { SubcontractCharge } from '../types'
 import { defaultCostSheet, rollupCostSheet } from '../utils/scoCostSheet'
 

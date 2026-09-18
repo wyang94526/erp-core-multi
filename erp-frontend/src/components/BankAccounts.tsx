@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Bank Accounts directory — company bank master data.
  * View / Edit open a dedicated Bank Account Detail / form page.
  */

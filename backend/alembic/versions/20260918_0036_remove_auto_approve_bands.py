@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Remove auto-approve amount bands; route $0–$10,000 to Step 1.
 
 Revision ID: 20260918_0036

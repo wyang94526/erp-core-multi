@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 export const PURCHASE_ORDER_LOCKED_EDIT_MESSAGE =
   'Approved purchase orders cannot be modified directly. Use Recall / Reopen for Revision.'
 

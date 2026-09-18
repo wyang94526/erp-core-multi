@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Payment terms master table, FKs, seed, and string backfill.
 
 Revision ID: 20260917_0030

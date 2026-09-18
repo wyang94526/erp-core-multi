@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Financial statement and management-report builders.
 
 Reports are derived from posted journal entries, AR/AP open balances, cash

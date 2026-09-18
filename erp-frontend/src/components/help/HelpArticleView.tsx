@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { HelpArticle, HelpCalloutKind } from '../../data/userGuideData'

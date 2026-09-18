@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add document_attachments for supporting files on any ERP document.
 
 Revision ID: 20260817_0011

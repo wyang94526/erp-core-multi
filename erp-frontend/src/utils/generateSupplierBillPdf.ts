@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Printable vendor bill PDF (AP / supplier invoice).
  */
+
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { APBillDetail } from '../types'

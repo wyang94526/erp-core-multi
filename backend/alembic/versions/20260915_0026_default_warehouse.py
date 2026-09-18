@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Seed a default warehouse and receiving bin when inventory masters are empty.
 
 Revision ID: 20260915_0026

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal

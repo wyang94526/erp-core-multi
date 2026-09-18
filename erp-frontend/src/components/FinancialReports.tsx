@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Financial Reports hub — card-style catalog grouped by statement type.
  */
 

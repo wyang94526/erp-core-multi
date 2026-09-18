@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add security_question_options catalog for choosable recovery questions.
 
 Revision ID: 20260812_0007

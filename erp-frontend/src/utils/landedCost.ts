@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { isNonStockItem } from './itemTypes'
 
 const round2 = (num: number) => Math.round((Number(num) + Number.EPSILON) * 100) / 100

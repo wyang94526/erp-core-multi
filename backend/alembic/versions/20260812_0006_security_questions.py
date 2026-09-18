@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add security question / answer for password recovery.
 
 Revision ID: 20260812_0006

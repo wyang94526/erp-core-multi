@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """SCO cost-sheet amendment: revision counter plus AMENDED audit action.
 
 Revision ID: 20260911_0022

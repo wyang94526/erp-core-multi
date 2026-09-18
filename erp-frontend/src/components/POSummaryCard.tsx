@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import React from 'react';
 import type { POFormState } from '../hooks/usePurchaseOrderState';
 import { includesVendorFreight } from '../data/orderOptions';

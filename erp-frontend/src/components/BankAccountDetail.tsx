@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Bank Account Detail — read-only master-data view with Edit / Back actions.
  */
 

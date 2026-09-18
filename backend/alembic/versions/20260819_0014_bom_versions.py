@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Versioned BOMs: header per assembly revision, pin SCOs to a version.
 
 Revision ID: 20260819_0014

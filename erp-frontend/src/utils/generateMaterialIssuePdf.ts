@@ -1,6 +1,10 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Printable kit shipping document for a subcontract material issue.
  */
+
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type {

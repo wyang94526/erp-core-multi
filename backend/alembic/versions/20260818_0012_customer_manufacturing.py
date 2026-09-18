@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Expand customers for manufacturing master data (locations + certifications).
 
 Revision ID: 20260818_0012

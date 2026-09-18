@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { CSSProperties } from 'react'
 import type { GoodsReceipt, GoodsReceiptJournal, JournalEntry, LedgerPosting } from '../types'
 

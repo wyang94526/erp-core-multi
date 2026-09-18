@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * SubcontractOrderDetail Component
  * Displays full details of a subcontract order (SCO): header info, required components,
  * material issue history, and finished goods receipt history. Also provides inline

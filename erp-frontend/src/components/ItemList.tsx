@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * ItemList Component
  * Displays a list of items in a table format with pagination
  */

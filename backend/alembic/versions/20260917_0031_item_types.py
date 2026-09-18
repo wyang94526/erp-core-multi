@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Item catalog types for inventory vs non-stock / service SKUs.
 
 Revision ID: 20260917_0031

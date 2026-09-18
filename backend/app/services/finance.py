@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """
 Finance service layer: AR / AP / Cash Management / General Ledger integration.
 

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Subcontract BOM / assembly kit management (Material lines on ItemBOMComponents)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

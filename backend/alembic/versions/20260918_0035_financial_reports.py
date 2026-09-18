@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add financial report permission and optional budget book.
 
 Revision ID: 20260918_0035

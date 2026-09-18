@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * PurchaseOrderList Component
  * Directory of purchase orders — drill into detail / create new
  */

@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, type CSSProperties } from 'react'
 import type { JournalEntry, LedgerPosting } from '../types'
 import { shortJournalId } from '../utils/journalEntries'

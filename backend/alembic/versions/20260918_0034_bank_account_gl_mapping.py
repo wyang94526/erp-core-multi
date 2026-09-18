@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Map company bank accounts to Chart of Accounts for cash posting.
 
 Revision ID: 20260918_0034

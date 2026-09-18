@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Sales Invoice API for Order-to-Cash billing."""
 
 from __future__ import annotations

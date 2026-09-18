@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Rename existing SO/PO/SCO/sales-invoice IDs to PREFIX+YY+MM+XXXX.
 
 Revision ID: 20260916_0028

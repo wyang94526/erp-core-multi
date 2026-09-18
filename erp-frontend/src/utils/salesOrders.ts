@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { SalesOrder } from '../types'
 
 export const SALES_ORDER_LOCKED_EDIT_MESSAGE =

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal

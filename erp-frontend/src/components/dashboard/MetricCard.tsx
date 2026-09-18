@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useState } from 'react'
 import { ChevronRight, type LucideIcon } from 'lucide-react'
 import type { MetricAccent } from '../../types/dashboard'

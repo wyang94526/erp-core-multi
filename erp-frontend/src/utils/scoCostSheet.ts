@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { SubcontractCharge } from '../types'
 
 export const DEFAULT_COST_COMPONENTS: Omit<SubcontractCharge, 'line_no' | 'cost_per_unit' | 'is_margin'>[] = [

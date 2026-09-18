@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { Link } from 'react-router-dom'
 import type { QuickAction } from '../../types/dashboard'
 import { sectionStyle, sectionTitleStyle } from './dashboardStyles'

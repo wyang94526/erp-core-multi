@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Read-only LangChain tools for live ERP lookups across all modules."""
 
 from __future__ import annotations

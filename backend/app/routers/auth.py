@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Authentication endpoints: register, login, change/reset password, and session restore."""
 
 from __future__ import annotations

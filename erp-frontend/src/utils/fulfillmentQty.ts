@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { ItemFulfillment, SalesOrder, SalesOrderItem } from '../types'
 
 export function overFulfillmentMessage(ordered: number, itemId?: string): string {

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add ROLE-UNASSIGNED for self-registered users awaiting admin assignment.
 
 Revision ID: 20260812_0008

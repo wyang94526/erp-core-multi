@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { CSSProperties, ReactNode } from 'react'
 import type { SortConfig } from '../hooks/useSortableData'
 

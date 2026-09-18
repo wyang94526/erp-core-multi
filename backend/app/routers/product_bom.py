@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Item BOM endpoints under /items/{item_id}/bom (+ deprecated /products alias)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

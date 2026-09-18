@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """LangChain tools that wrap live ERP database lookups and write proposals."""
 
 from __future__ import annotations

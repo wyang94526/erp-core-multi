@@ -1,7 +1,11 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Create a Subcontract Order from one Sales Order (many finished-good lines)
  * or as a standalone single-assembly document.
  */
+
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

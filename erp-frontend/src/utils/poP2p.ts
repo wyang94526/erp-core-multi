@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import type { PurchaseOrder, PurchaseOrderItem } from '../types'
 
 export const ALL_PO_ITEMS_RECEIVED_MESSAGE =

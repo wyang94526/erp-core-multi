@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Request-scoped AI execution context (DB session, user, page)."""
 
 from __future__ import annotations

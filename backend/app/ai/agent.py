@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """LangGraph / LangChain agent + heuristic fallback for ERP AI chat."""
 
 from __future__ import annotations

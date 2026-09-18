@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Password hashing and JWT helpers."""
 
 from __future__ import annotations

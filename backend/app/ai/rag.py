@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """ChromaDB RAG pipeline for ERP documentation and schema context.
 
 Uses OpenAI embeddings when OPENAI_API_KEY is set; otherwise falls back to

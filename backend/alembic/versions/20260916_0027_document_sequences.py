@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Persisted document number counters per type and year-month.
 
 Revision ID: 20260916_0027

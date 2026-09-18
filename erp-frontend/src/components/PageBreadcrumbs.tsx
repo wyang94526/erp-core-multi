@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { Link, useLocation } from 'react-router-dom'
 import { getBreadcrumbs, type BreadcrumbCrumb } from '../config/sidebarNav'
 import { getArticleById } from '../data/userGuideData'

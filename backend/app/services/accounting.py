@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 import re
 from datetime import date, datetime
 from decimal import Decimal

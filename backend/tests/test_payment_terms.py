@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 from datetime import date
 
 from app.services.payment_terms import (

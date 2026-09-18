@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Rename products item master to items (product_id -> item_id).
 
 Revision ID: 20260805_0004

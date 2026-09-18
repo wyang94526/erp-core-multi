@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Create a sales invoice from a fulfilled sales order / fulfillment.
  * Routes: /sales-orders/:id/invoice , /orders/:id/invoice
  */

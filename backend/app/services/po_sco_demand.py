@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Material-PO demand against subcontract-order component requirements."""
 
 from __future__ import annotations

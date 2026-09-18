@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * Vendor catalog mappings for a purchase item / raw material.
  */
 

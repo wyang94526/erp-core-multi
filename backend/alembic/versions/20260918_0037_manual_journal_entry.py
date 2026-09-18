@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Add manual journal header fields and finance create/submit rights.
 
 Revision ID: 20260918_0037

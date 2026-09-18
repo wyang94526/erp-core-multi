@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Order-to-Cash: item fulfillments and sales invoices."""
 
 from __future__ import annotations

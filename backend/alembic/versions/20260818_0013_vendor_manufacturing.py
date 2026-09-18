@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Extend suppliers for material vs subcontractor master data.
 
 Revision ID: 20260818_0013

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Authentication / RBAC dependencies.
 
 Identity is resolved from ``Authorization: Bearer <JWT>``.

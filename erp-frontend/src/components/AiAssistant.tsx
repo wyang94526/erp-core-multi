@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
 import { aiService, type AiPendingAction } from '../api/services'

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Item catalog endpoints (items table is the item master)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response

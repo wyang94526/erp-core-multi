@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * API Client using native Fetch API
  * Provides a base client for making HTTP requests to the backend
  */

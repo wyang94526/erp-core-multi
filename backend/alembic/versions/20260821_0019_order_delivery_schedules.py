@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """Create named delivery-schedule tables for SO, PO, and SCO.
 
 Revision ID: 20260821_0019

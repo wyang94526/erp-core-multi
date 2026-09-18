@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { getArticlesForPath } from '../../data/userGuideData'

@@ -1,3 +1,6 @@
+# @author: Wendy Yang
+# @date: 2026-09-19
+
 """PO material-SCO linkage coverage plus inbound freight terms.
 
 Revision ID: 20260911_0021

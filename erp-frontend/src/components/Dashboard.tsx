@@ -1,3 +1,8 @@
+/**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ */
+
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {

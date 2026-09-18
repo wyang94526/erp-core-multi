@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * PostingRules — debit/credit account mapping used when documents post to GL.
  */
 

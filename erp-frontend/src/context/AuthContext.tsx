@@ -1,4 +1,7 @@
 /**
+ * @author: Wendy Yang
+ * @date: 2026-09-19
+ *
  * AuthContext — JWT session + RBAC helpers.
  */
 
