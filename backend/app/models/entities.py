@@ -369,6 +369,33 @@ class FinancialBudget(Base):
 
     account = relationship("ChartOfAccount")
 
+
+class GlAccountBalance(Base):
+    """Imported period ending balances (e.g. TIPTOP 試算表), keyed by YYYY-MM + account."""
+
+    __tablename__ = "gl_account_balances"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    period = Column(String(7), nullable=False)  # YYYY-MM
+    account_id = Column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id"), nullable=False)
+    ending_debit = Column(Numeric(15, 4), nullable=False, default=0)
+    ending_credit = Column(Numeric(15, 4), nullable=False, default=0)
+    ending_balance = Column(Numeric(15, 4), nullable=False, default=0)
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    source_file = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("period", "account_id", "currency", name="uq_gl_account_balance_period_account"),
+    )
+
+    account = relationship("ChartOfAccount")
+
 # ========================================================
 # 3. CRM & SALES TABLES (Capitalized Table Names in SQL)
 # ========================================================

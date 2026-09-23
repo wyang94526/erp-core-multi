@@ -16,9 +16,18 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from datetime import date
+
 from fastapi import HTTPException, UploadFile, status
 
 from app.config import get_settings
+from app.database import SessionLocal
+from app.services.trial_balance_import import (
+    apply_trial_balance,
+    parse_csv,
+    period_from_filename,
+    row_to_preview,
+)
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -40,6 +49,7 @@ CANONICAL_NAMES = {
     "items": "items.csv",
     "bom": "bom.csv",
     "accounts": "chartOfAccount.csv",
+    "trial_balance": "trial_balance.csv",
 }
 
 EMPTY_COUNTS = {
@@ -48,6 +58,7 @@ EMPTY_COUNTS = {
     "items": 0,
     "bom": 0,
     "accounts": 0,
+    "trial_balance": 0,
     "customers_with_address": 0,
     "suppliers_with_address": 0,
     "warnings": 0,
@@ -63,6 +74,8 @@ def import_root() -> Path:
 def classify_filename(name: str) -> str | None:
     stem = Path(name).name
     lower = stem.lower().replace(" ", "")
+    if "試算表" in stem or "trialbalance" in lower or "trial_balance" in stem.lower():
+        return "trial_balance"
     if "科目" in stem or "chartofaccount" in lower or ("chart" in lower and "account" in lower):
         return "accounts"
     if lower in {"accounts.csv", "coa.csv"}:
@@ -111,6 +124,11 @@ def _empty_preview(status: dict[str, Any]) -> dict[str, Any]:
         "vendor_mappings": [],
         "bom": [],
         "accounts": [],
+        "trial_balance": [],
+        "trial_balance_errors": [],
+        "trial_balance_period": None,
+        "trial_balance_ready": False,
+        "trial_balance_count": 0,
     }
 
 
@@ -118,47 +136,183 @@ def preview_gtt_import(data_dir: str | Path | None = None) -> dict[str, Any]:
     root = Path(data_dir).expanduser() if data_dir else import_root()
     if not root.is_dir():
         root.mkdir(parents=True, exist_ok=True)
-    status = inspect_sources(root.resolve())
-    if not status["ready"]:
-        return _empty_preview(status)
-    mapped = preview_from_dir(root.resolve())
-    mapped.update(status)
+    resolved = root.resolve()
+    status = inspect_sources(resolved)
+    if status["ready"]:
+        mapped = preview_from_dir(resolved)
+        mapped.update(status)
+    else:
+        mapped = _empty_preview(status)
+    trial_balance = _trial_balance_preview(resolved)
+    mapped.update(trial_balance)
+    mapped["counts"] = {
+        **mapped.get("counts", dict(EMPTY_COUNTS)),
+        "trial_balance": trial_balance["trial_balance_count"],
+    }
     return mapped
 
 
-def apply_gtt_import(upsert: bool = True, truncate: bool = False) -> dict[str, Any]:
+def require_ending_period(value: str | None) -> str:
+    from app.services.trial_balance_import import normalize_period
+
+    period = normalize_period(value, "")
+    if not period:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter the ending period as YYYY-MM before loading the trial balance.",
+        )
+    return period
+
+
+def _trial_balance_path(root: Path) -> Path | None:
+    try:
+        return find_file(root, FILE_GLOBS["trial_balance"])
+    except FileNotFoundError:
+        return None
+
+
+def _trial_balance_preview(root: Path) -> dict[str, Any]:
+    path = _trial_balance_path(root)
+    if path is None:
+        return {
+            "trial_balance": [],
+            "trial_balance_errors": [],
+            "trial_balance_period": None,
+            "trial_balance_ready": False,
+            "trial_balance_count": 0,
+        }
+    suggested = period_from_filename(path.name, default=None)
+    try:
+        rows, failures = parse_csv(path, suggested or date.today().strftime("%Y-%m"))
+    except Exception as exc:  # noqa: BLE001 — surface parse errors in the preview
+        return {
+            "trial_balance": [],
+            "trial_balance_errors": [str(exc)],
+            "trial_balance_period": suggested,
+            "trial_balance_ready": True,
+            "trial_balance_count": 0,
+        }
+    return {
+        "trial_balance": [row_to_preview(row) for row in rows[:300]],
+        "trial_balance_errors": failures[:50],
+        "trial_balance_period": suggested,
+        "trial_balance_ready": True,
+        "trial_balance_count": len(rows),
+    }
+
+
+def _apply_trial_balance_file(root: Path, period: str) -> dict[str, Any]:
+    path = _trial_balance_path(root)
+    if path is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Upload a trial balance CSV (試算表 / trial_balance.csv) before loading ending balances.",
+        )
+    db = SessionLocal()
+    try:
+        result = apply_trial_balance(db, path, period)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not load trial balance: {exc}") from exc
+    finally:
+        db.close()
+    return {
+        "trial_balance_inserted": result.inserted,
+        "trial_balance_updated": result.updated,
+        "trial_balance_skipped": result.skipped,
+        "trial_balance_failed": len(result.failed),
+        "trial_balance_period": period,
+        "trial_balance_file": path.name,
+        "trial_balance_errors": result.failed[:50],
+    }
+
+
+def apply_gtt_import(
+    upsert: bool = True,
+    truncate: bool = False,
+    *,
+    apply_masters: bool = True,
+    trial_balance_period: str | None = None,
+) -> dict[str, Any]:
     """Write mapped TIPTOP CSVs into ERP tables using the same loader as the CLI script.
 
     Default is incremental upsert. Pass truncate=True only for a first-time / rebuild load.
+    Trial balance is applied only when trial_balance_period is provided.
     """
+    if not apply_masters and not trial_balance_period:
+        raise HTTPException(status_code=400, detail="Nothing to apply")
+
     root = import_root()
     sources = inspect_sources(root)
-    if not sources["ready"]:
-        missing = ", ".join(sources["missing"]) or "required CSV files"
-        raise HTTPException(
-            status_code=400,
-            detail=f"Upload the master CSVs before applying. Missing: {missing}",
-        )
-    plan = build_plan(root, {"customers", "suppliers", "items", "bom", "accounts"})
-    stats = apply_plan(plan, upsert=upsert, truncate=truncate)
-    warnings = collect_warnings(plan)
-    return {
+    payload: dict[str, Any] = {
         "dry_run": False,
         "upsert": upsert,
-        "truncated": bool(truncate),
+        "truncated": bool(truncate) if apply_masters else False,
         "data_dir": str(root),
-        "stats": dict(stats),
-        "warnings": warnings,
-        "counts": {
-            "customers": len(plan.customers),
-            "suppliers": len(plan.suppliers),
-            "items": len(plan.items),
-            "bom": len(plan.bom),
-            "accounts": len(plan.accounts),
-            "warnings": len(warnings),
-        },
+        "stats": {},
+        "warnings": [],
+        "counts": dict(EMPTY_COUNTS),
+        "trial_balance": [],
+        "trial_balance_errors": [],
+        "trial_balance_period": None,
+        "trial_balance_ready": bool(sources["files"].get("trial_balance")),
         **sources,
     }
+
+    if apply_masters:
+        if not sources["ready"]:
+            missing = ", ".join(sources["missing"]) or "required CSV files"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Upload the master CSVs before applying. Missing: {missing}",
+            )
+        plan = build_plan(root, {"customers", "suppliers", "items", "bom", "accounts"})
+        stats = apply_plan(plan, upsert=upsert, truncate=truncate)
+        warnings = collect_warnings(plan)
+        payload.update(
+            {
+                "stats": dict(stats),
+                "warnings": warnings,
+                "counts": {
+                    "customers": len(plan.customers),
+                    "suppliers": len(plan.suppliers),
+                    "items": len(plan.items),
+                    "bom": len(plan.bom),
+                    "accounts": len(plan.accounts),
+                    "trial_balance": 0,
+                    "warnings": len(warnings),
+                },
+            }
+        )
+
+    if trial_balance_period:
+        period = require_ending_period(trial_balance_period)
+        tb_stats = _apply_trial_balance_file(root, period)
+        payload["stats"].update(
+            {
+                key: value
+                for key, value in tb_stats.items()
+                if isinstance(value, int)
+            }
+        )
+        payload["trial_balance_period"] = tb_stats["trial_balance_period"]
+        payload["trial_balance_errors"] = tb_stats["trial_balance_errors"]
+        payload["counts"]["trial_balance"] = (
+            tb_stats["trial_balance_inserted"] + tb_stats["trial_balance_updated"]
+        )
+        payload["warnings"] = [
+            *payload["warnings"],
+            *[
+                {"entity": "trial_balance", "id": "", "message": message}
+                for message in tb_stats["trial_balance_errors"]
+            ],
+        ]
+
+    return payload
 
 
 def _max_bytes() -> int:
@@ -178,7 +332,21 @@ async def _read_limited(upload: UploadFile) -> bytes:
     return data
 
 
-def _write_bytes(root: Path, kind: str, payload: bytes) -> str:
+def _clear_trial_balance_files(root: Path) -> None:
+    for path in root.iterdir():
+        if path.is_file() and classify_filename(path.name) == "trial_balance":
+            path.unlink(missing_ok=True)
+
+
+def _write_bytes(root: Path, kind: str, payload: bytes, original_name: str | None = None) -> str:
+    if kind == "trial_balance":
+        _clear_trial_balance_files(root)
+        name = Path(original_name or CANONICAL_NAMES[kind]).name
+        if Path(name).suffix.lower() != ".csv":
+            name = CANONICAL_NAMES[kind]
+        dest = root / name
+        dest.write_bytes(payload)
+        return dest.name
     dest = root / CANONICAL_NAMES[kind]
     dest.write_bytes(payload)
     return dest.name
@@ -207,11 +375,11 @@ async def save_uploads(uploads: list[UploadFile]) -> dict[str, Any]:
                 status_code=400,
                 detail=(
                     f"Cannot tell which master '{filename}' is. "
-                    "Name files with 客戶 / 供應商 / 料件 / BOM / 科目, or customers.csv / "
-                    "suppliers.csv / items.csv / bom.csv / chartOfAccount.csv."
+                    "Name files with 客戶 / 供應商 / 料件 / BOM / 科目 / 試算表, or customers.csv / "
+                    "suppliers.csv / items.csv / bom.csv / chartOfAccount.csv / trial_balance.csv."
                 ),
             )
-        saved[kind] = _write_bytes(root, kind, payload)
+        saved[kind] = _write_bytes(root, kind, payload, filename)
     return {"saved": saved, **inspect_sources(root)}
 
 
@@ -239,10 +407,10 @@ def _extract_zip(root: Path, payload: bytes, zip_name: str) -> dict[str, str]:
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=f"{name} in the zip exceeds the file size limit",
                 )
-            saved[kind] = _write_bytes(root, kind, data)
+            saved[kind] = _write_bytes(root, kind, data, name)
     if not saved:
         raise HTTPException(
             status_code=400,
-            detail="Zip did not contain recognizable customer/supplier/item/BOM/chart-of-account CSV files",
+            detail="Zip did not contain recognizable customer/supplier/item/BOM/chart-of-account/trial-balance CSV files",
         )
     return saved

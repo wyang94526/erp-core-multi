@@ -685,7 +685,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Company profile in the UI is the top-bar title “Grand-Tek Technology USA”. Legal/tax identity for vendors/customers lives on those masters, not in a separate profile screen.',
-      'CSV Import (Administration) maps TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv, then upserts them into the database.',
+      'CSV Import (Administration) maps TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv and 試算表 trial-balance files, then upserts them into the database.',
     ],
     faqs: [
       {
@@ -742,16 +742,17 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'CSV Import',
     routeMatch: ['/admin/data-import'],
     summary:
-      'Upload TIPTOP CSVs, preview mapped masters, then incrementally upsert. Truncate & reload is only for a first-time rebuild.',
+      'Upload TIPTOP CSVs, preview mapped masters, then incrementally upsert. Optionally load a 試算表 trial balance after choosing the ending period. Truncate & reload is only for a first-time rebuild.',
     screenshots: [
       { src: '/guide-screenshots/admin-import.jpg', caption: 'Data import preview tabs' },
     ],
     steps: [
       'Open Administration → CSV Import.',
       'Upload the TIPTOP CSVs (or a zip) onto this server. OCI uses the server import folder, not a laptop path.',
-      'Choose the Customers, Suppliers, Items, BOM, or Chart of Accounts tab and review mapped columns.',
+      'Choose the Customers, Suppliers, Items, BOM, Chart of Accounts, or Trial Balance tab and review mapped columns.',
       'Fix source-file issues called out in warnings.',
       'Click Incremental upsert to insert new IDs and update existing masters (customers, vendors, items, BOM, accounts) without deleting orders.',
+      'To load ending balances, upload a 試算表 CSV, enter the ending period (YYYY-MM), and click Load trial balance. The file usually has no period column, so the month you enter is required.',
       'Use Truncate & reload only for a first-time or rebuild load. That wipes those masters and related transactional rows, then reloads from the CSVs.',
     ],
     callouts: [
@@ -765,6 +766,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Chart of account type looks wrong after import',
         fix: 'Type is inferred from the account name, then the 1xxx–9xxx code range. Open Finance → Chart of Accounts and edit account_type, or correct the name in chartOfAccount.csv and re-run with --upsert.',
+      },
+      {
+        issue: 'Trial balance load is disabled or fails',
+        fix: 'Enter the ending period as YYYY-MM. Accounts in the CSV must already exist in Chart of Accounts. Re-upload the 試算表 file if the import folder does not list it.',
       },
     ],
   },

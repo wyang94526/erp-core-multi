@@ -18,6 +18,14 @@ class DataImportApplyRequest(BaseModel):
         default=False,
         description="If true, wipe customers/vendors/items/BOM/COA (and related orders) before load. Use only for initial rebuilds, not live incremental updates.",
     )
+    apply_masters: bool = Field(
+        default=True,
+        description="Load TIPTOP customer/vendor/item/BOM/COA CSVs. Set false to load only trial balance.",
+    )
+    trial_balance_period: str | None = Field(
+        default=None,
+        description="Ending period YYYY-MM required to upsert trial-balance ending balances.",
+    )
 
 
 @router.get("/preview")
@@ -53,9 +61,16 @@ def apply_csv_import(
 
     Default is incremental upsert (insert new IDs, update existing). Set truncate=true
     only for a first-time rebuild; that also removes related orders/inventory/invoices.
+    Pass trial_balance_period (YYYY-MM) to upsert 試算表 ending balances; set
+    apply_masters=false to load only the trial balance.
     """
     try:
-        return apply_gtt_import(upsert=True, truncate=payload.truncate)
+        return apply_gtt_import(
+            upsert=True,
+            truncate=payload.truncate,
+            apply_masters=payload.apply_masters,
+            trial_balance_period=payload.trial_balance_period,
+        )
     except HTTPException:
         raise
     except Exception as exc:

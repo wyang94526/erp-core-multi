@@ -51,6 +51,21 @@ INSERT INTO chart_of_accounts (account_code, account_name, account_type)
 VALUES ('1103', 'Cash in Banks', 'Asset')
 ON CONFLICT (account_code) DO NOTHING;
 
+DROP TABLE IF EXISTS gl_account_balances CASCADE;
+CREATE TABLE IF NOT EXISTS gl_account_balances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    period VARCHAR(7) NOT NULL,
+    account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
+    ending_debit NUMERIC(15, 4) NOT NULL DEFAULT 0,
+    ending_credit NUMERIC(15, 4) NOT NULL DEFAULT 0,
+    ending_balance NUMERIC(15, 4) NOT NULL DEFAULT 0,
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    source_file VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_gl_account_balance_period_account UNIQUE (period, account_id, currency)
+);
+
 DROP TABLE IF EXISTS payment_terms CASCADE;
 CREATE TABLE IF NOT EXISTS payment_terms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

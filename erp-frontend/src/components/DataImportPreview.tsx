@@ -7,7 +7,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { dataImportService } from '../api/services'
 import type {
   DataImportAccount,
@@ -17,11 +17,12 @@ import type {
   DataImportItem,
   DataImportPreview,
   DataImportSupplier,
+  DataImportTrialBalanceRow,
   DataImportVendorMapping,
 } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 
-type Tab = 'customers' | 'suppliers' | 'items' | 'bom' | 'accounts'
+type Tab = 'customers' | 'suppliers' | 'items' | 'bom' | 'accounts' | 'trial_balance'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'customers', label: 'Customers' },
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'items', label: 'Items' },
   { id: 'bom', label: 'BOM' },
   { id: 'accounts', label: 'Chart of Accounts' },
+  { id: 'trial_balance', label: 'Trial Balance' },
 ]
 
 const CUSTOMER_COLUMNS: (keyof DataImportCustomer)[] = [
@@ -144,6 +146,16 @@ const ACCOUNT_COLUMNS: (keyof DataImportAccount)[] = [
   'account_name',
   'account_type',
   'type_basis',
+]
+
+const TRIAL_BALANCE_COLUMNS: (keyof DataImportTrialBalanceRow)[] = [
+  'account_code',
+  'account_name',
+  'ending_debit',
+  'ending_credit',
+  'ending_balance',
+  'period',
+  'source_line',
 ]
 
 function emptyCell(value: unknown) {
@@ -265,6 +277,16 @@ function renderAccountCell(row: DataImportAccount, col: keyof DataImportAccount)
   return schemaValue(row[col])
 }
 
+function renderTrialBalanceCell(row: DataImportTrialBalanceRow, col: keyof DataImportTrialBalanceRow) {
+  if (col === 'account_code') {
+    return <code>{row.account_code}</code>
+  }
+  if (col === 'ending_debit' || col === 'ending_credit' || col === 'ending_balance') {
+    return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{row[col]}</span>
+  }
+  return schemaValue(row[col])
+}
+
 export default function DataImportPreview() {
   const { hasPermission } = useAuth()
   const canView = hasPermission('admin:manage')
@@ -273,6 +295,7 @@ export default function DataImportPreview() {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<DataImportApplyResult | null>(null)
+  const [endingPeriod, setEndingPeriod] = useState('')
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['data-import-preview'],
@@ -293,7 +316,8 @@ export default function DataImportPreview() {
   })
 
   const apply = useMutation({
-    mutationFn: (truncate: boolean) => dataImportService.apply({ truncate }),
+    mutationFn: (options: { truncate?: boolean; apply_masters?: boolean; trial_balance_period?: string }) =>
+      dataImportService.apply(options),
     onSuccess: async (result) => {
       setApplyResult(result)
       await queryClient.invalidateQueries({ queryKey: ['data-import-preview'] })
@@ -301,15 +325,39 @@ export default function DataImportPreview() {
       await queryClient.invalidateQueries({ queryKey: ['items'] })
       await queryClient.invalidateQueries({ queryKey: ['suppliers'] })
       await queryClient.invalidateQueries({ queryKey: ['vendors'] })
+      await queryClient.invalidateQueries({ queryKey: ['financial-reports'] })
     },
   })
+
+  useEffect(() => {
+    if (!endingPeriod && data?.trial_balance_period) {
+      setEndingPeriod(data.trial_balance_period)
+    }
+  }, [data?.trial_balance_period, endingPeriod])
+
+  useEffect(() => {
+    if (!data?.ready && data?.trial_balance_ready) {
+      setTab('trial_balance')
+    }
+  }, [data?.ready, data?.trial_balance_ready])
 
   const handleApply = (truncate: boolean) => {
     const message = truncate
       ? 'INITIAL LOAD ONLY. This deletes existing customers, vendors, items, BOM, and chart of accounts, plus related sales/purchase/subcontract orders, inventory, and invoices. Then it reloads from the CSVs. Do not use this once the system is live.'
       : 'Incrementally upsert mapped customers, vendors, items, BOM lines, and accounts? Existing IDs are updated; new IDs are inserted. Orders and inventory are not deleted.'
     if (!window.confirm(message)) return
-    apply.mutate(truncate)
+    apply.mutate({ truncate, apply_masters: true })
+  }
+
+  const handleLoadTrialBalance = () => {
+    if (!endingPeriod) {
+      setUploadError('Enter the ending period (YYYY-MM) before loading the trial balance.')
+      return
+    }
+    const message = `Load ending balances for ${endingPeriod} into gl_account_balances? Existing rows for the same account and period will be updated.`
+    if (!window.confirm(message)) return
+    setUploadError(null)
+    apply.mutate({ apply_masters: false, trial_balance_period: endingPeriod })
   }
 
   if (!canView) {
@@ -359,6 +407,10 @@ export default function DataImportPreview() {
         fileRef={fileRef}
         busy={upload.isPending}
         error={uploadError}
+        endingPeriod={endingPeriod}
+        onEndingPeriod={setEndingPeriod}
+        loadBusy={apply.isPending}
+        onLoadTrialBalance={handleLoadTrialBalance}
         onPick={() => fileRef.current?.click()}
         onFiles={(files) => {
           if (files.length) upload.mutate(files)
@@ -377,7 +429,9 @@ export default function DataImportPreview() {
       )}
       {applyResult && <ApplyResultBanner result={applyResult} />}
 
-      {data?.ready && <PreviewBody data={data} tab={tab} onTab={setTab} />}
+      {(data?.ready || data?.trial_balance_ready) && data && (
+        <PreviewBody data={data} tab={tab} onTab={setTab} />
+      )}
     </div>
   )
 }
@@ -388,16 +442,21 @@ const FILE_LABELS: Record<string, string> = {
   items: 'Items (料件)',
   bom: 'BOM',
   accounts: 'Chart of Accounts (科目)',
+  trial_balance: 'Trial Balance (試算表)',
 }
 
 const CORE_FILE_KEYS = ['customers', 'suppliers', 'items', 'bom'] as const
-const FILE_KEYS = [...CORE_FILE_KEYS, 'accounts'] as const
+const FILE_KEYS = [...CORE_FILE_KEYS, 'accounts', 'trial_balance'] as const
 
 function UploadPanel({
   data,
   fileRef,
   busy,
   error,
+  endingPeriod,
+  onEndingPeriod,
+  loadBusy,
+  onLoadTrialBalance,
   onPick,
   onFiles,
 }: {
@@ -405,6 +464,10 @@ function UploadPanel({
   fileRef: RefObject<HTMLInputElement | null>
   busy: boolean
   error: string | null
+  endingPeriod: string
+  onEndingPeriod: (value: string) => void
+  loadBusy: boolean
+  onLoadTrialBalance: () => void
   onPick: () => void
   onFiles: (files: File[]) => void
 }) {
@@ -425,7 +488,7 @@ function UploadPanel({
       <ul style={fileList}>
         {FILE_KEYS.map((key) => {
           const info = data?.files?.[key]
-          const optional = key === 'accounts'
+          const optional = key === 'accounts' || key === 'trial_balance'
           return (
             <li key={key}>
               {info ? (
@@ -463,8 +526,41 @@ function UploadPanel({
       </button>
       {missing.length > 0 && (
         <p style={{ ...muted, margin: '10px 0 0' }}>
-          Upload the four TIPTOP exports (or a zip). Optionally add chartOfAccount.csv. Recognized
-          names include 客戶 / 供應商 / 料件 / BOM / 科目.
+          Upload the four TIPTOP exports (or a zip). Optionally add chartOfAccount.csv or a 試算表
+          trial balance. Recognized names include 客戶 / 供應商 / 料件 / BOM / 科目 / 試算表.
+        </p>
+      )}
+      {data?.files?.trial_balance ? (
+        <div style={tbBox}>
+          <strong>Trial balance ending period</strong>
+          <p style={{ ...muted, margin: '6px 0 10px' }}>
+            This CSV has no period column. Choose the month these ending balances belong to
+            {data.trial_balance_period ? ` (suggested from the file name: ${data.trial_balance_period})` : ''}.
+          </p>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <label style={periodLabel}>
+              Ending period
+              <input
+                type="month"
+                value={endingPeriod}
+                onChange={(event) => onEndingPeriod(event.target.value)}
+                style={periodInput}
+              />
+            </label>
+            <button
+              type="button"
+              style={primaryBtn}
+              onClick={onLoadTrialBalance}
+              disabled={!endingPeriod || loadBusy}
+            >
+              {loadBusy ? 'Working…' : 'Load trial balance'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p style={{ ...muted, margin: '10px 0 0' }}>
+          To import ending balances, upload a 試算表 / trial_balance.csv file and enter the ending
+          period.
         </p>
       )}
       {error && <p style={errorStyle}>{error}</p>}
@@ -503,6 +599,7 @@ function PreviewBody({
         <Stat label="Items" value={counts.items} />
         <Stat label="BOM lines" value={counts.bom} />
         <Stat label="Accounts" value={counts.accounts ?? 0} />
+        <Stat label="Trial balance" value={counts.trial_balance ?? 0} />
         <Stat label="Warnings" value={counts.warnings} warn={counts.warnings > 0} />
       </div>
 
@@ -813,6 +910,58 @@ function PreviewBody({
           </div>
         </>
       )}
+
+      {tab === 'trial_balance' && (
+        <>
+          <p style={muted}>
+            Columns match <code>gl_account_balances</code>. Debit minus credit is stored as the
+            ending balance. Rows are upserted for the ending period you enter above. Accounts must
+            already exist in the chart of accounts.
+          </p>
+          {(data.trial_balance_errors ?? []).length > 0 && (
+            <div style={warnBox}>
+              <strong>Row errors</strong>
+              <ul style={warnList}>
+                {(data.trial_balance_errors ?? []).map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div style={tableWrap}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  {TRIAL_BALANCE_COLUMNS.map((col) => (
+                    <th key={col} style={th}>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(data.trial_balance ?? []).length === 0 ? (
+                  <tr>
+                    <td style={td} colSpan={TRIAL_BALANCE_COLUMNS.length}>
+                      <span style={muted}>No 試算表 / trial_balance.csv in the import folder</span>
+                    </td>
+                  </tr>
+                ) : (
+                  (data.trial_balance ?? []).map((row) => (
+                    <tr key={`${row.account_code}-${row.source_line}`}>
+                      {TRIAL_BALANCE_COLUMNS.map((col) => (
+                        <td key={col} style={td}>
+                          {renderTrialBalanceCell(row, col)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </>
   )
 }
@@ -836,13 +985,27 @@ function ApplyResultBanner({ result }: { result: DataImportApplyResult }) {
     'bom_skipped',
     'accounts_created',
     'accounts_updated',
+    'trial_balance_inserted',
+    'trial_balance_updated',
+    'trial_balance_skipped',
+    'trial_balance_failed',
   ]
   return (
     <div style={successBox}>
       <strong>
-        {result.truncated ? 'Masters truncated, then upsert complete.' : 'Database upsert complete.'}
+        {result.truncated
+          ? 'Masters truncated, then upsert complete.'
+          : result.stats.trial_balance_inserted != null || result.stats.trial_balance_updated != null
+            ? 'Trial balance load complete.'
+            : 'Database upsert complete.'}
       </strong>{' '}
       Folder <code>{result.data_dir}</code>
+      {result.trial_balance_period ? (
+        <>
+          {' '}
+          · period <code>{result.trial_balance_period}</code>
+        </>
+      ) : null}
       <ul style={warnList}>
         {keys
           .filter((key) => (stats[key] ?? 0) > 0)
@@ -918,6 +1081,26 @@ const uploadBox: React.CSSProperties = {
   padding: '14px 16px',
   marginBottom: '16px',
   background: 'var(--bg)',
+}
+const tbBox: React.CSSProperties = {
+  marginTop: '14px',
+  paddingTop: '12px',
+  borderTop: '1px solid var(--border)',
+}
+const periodLabel: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  fontSize: '12px',
+  color: 'var(--text-h)',
+  fontWeight: 600,
+}
+const periodInput: React.CSSProperties = {
+  padding: '6px 8px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontFamily: 'inherit',
+  fontSize: '13px',
 }
 const fileList: React.CSSProperties = {
   margin: '0 0 12px',

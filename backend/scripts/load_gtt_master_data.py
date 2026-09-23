@@ -140,6 +140,12 @@ FILE_GLOBS = {
         "*chart*account*.csv",
         "*科目*.csv",
     ],
+    "trial_balance": [
+        "trial_balance.csv",
+        "*試算表*.csv",
+        "*trial*balance*.csv",
+        "*TrialBalance*.csv",
+    ],
 }
 
 ACCOUNT_CODE_KEYS = ("科目代號", "科目代号", "aag01", "account_code", "accountcode", "code")

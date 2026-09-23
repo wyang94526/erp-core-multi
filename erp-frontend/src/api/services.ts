@@ -1750,6 +1750,16 @@ export type DataImportFileInfo = {
   size: number
 } | null
 
+export type DataImportTrialBalanceRow = {
+  account_code: string
+  account_name: string | null
+  ending_debit: string
+  ending_credit: string
+  ending_balance: string
+  period: string
+  source_line: number
+}
+
 export type DataImportPreview = {
   dry_run: boolean
   ready: boolean
@@ -1763,6 +1773,7 @@ export type DataImportPreview = {
     items: number
     bom: number
     accounts?: number
+    trial_balance?: number
     customers_with_address: number
     suppliers_with_address: number
     warnings: number
@@ -1774,6 +1785,10 @@ export type DataImportPreview = {
   vendor_mappings?: DataImportVendorMapping[]
   bom: DataImportBomLine[]
   accounts?: DataImportAccount[]
+  trial_balance?: DataImportTrialBalanceRow[]
+  trial_balance_errors?: string[]
+  trial_balance_period?: string | null
+  trial_balance_ready?: boolean
 }
 
 export type DataImportApplyResult = {
@@ -1789,9 +1804,11 @@ export type DataImportApplyResult = {
     items: number
     bom: number
     accounts?: number
+    trial_balance?: number
     warnings: number
   }
   warnings: DataImportWarning[]
+  trial_balance_period?: string | null
 }
 
 export const dataImportService = {
@@ -1808,9 +1825,11 @@ export const dataImportService = {
       formData,
     )
   },
-  apply(options?: { truncate?: boolean }) {
+  apply(options?: { truncate?: boolean; apply_masters?: boolean; trial_balance_period?: string }) {
     return apiClient.post<DataImportApplyResult>('/api/v1/admin/data-import/apply', {
       truncate: Boolean(options?.truncate),
+      apply_masters: options?.apply_masters ?? true,
+      trial_balance_period: options?.trial_balance_period ?? null,
     })
   },
 };
