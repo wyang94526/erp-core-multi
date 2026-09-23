@@ -4,8 +4,11 @@
 from types import SimpleNamespace
 from unittest import TestCase
 
+from fastapi import HTTPException
+
 from app.services.subcontract import (
     PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
+    assert_linked_sales_order_approved,
     fully_fulfilled_sco_message,
     subcontract_create_gate,
 )
@@ -85,3 +88,23 @@ class ScoSoRemainingGateTests(TestCase):
             )
             self.assertFalse(can_create)
             self.assertEqual(message, PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL)
+
+    def test_assert_linked_sales_order_approved_rejects_draft(self):
+        class FakeDb:
+            def get(self, _model, _key):
+                return SimpleNamespace(approval_status="DRAFT")
+
+        with self.assertRaises(HTTPException) as raised:
+            assert_linked_sales_order_approved(FakeDb(), "PU61-26090001")
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(raised.exception.detail, PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL)
+
+    def test_assert_linked_sales_order_approved_allows_approved(self):
+        order = SimpleNamespace(approval_status="APPROVED")
+
+        class FakeDb:
+            def get(self, _model, _key):
+                return order
+
+        self.assertIs(assert_linked_sales_order_approved(FakeDb(), "PU61-26090001"), order)
+        self.assertIsNone(assert_linked_sales_order_approved(FakeDb(), None))

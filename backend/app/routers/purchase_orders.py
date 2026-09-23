@@ -140,6 +140,7 @@ def _load_po(db: Session, po_number: str) -> PurchaseOrder | None:
     )
     if po:
         apply_estimated_landed_unit_costs(po)
+        p2p.apply_po_actual_landed_costs(db, po)
     return p2p.attach_po_recall_flags(db, po)
 
 
@@ -179,6 +180,7 @@ def list_purchase_orders(
     rows = p2p.attach_po_recall_flags_many(db, rows)
     for po in rows:
         apply_estimated_landed_unit_costs(po)
+        p2p.apply_po_actual_landed_costs(db, po)
     return rows
 
 

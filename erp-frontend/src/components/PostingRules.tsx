@@ -27,9 +27,10 @@ function PostingRules() {
   const [creditId, setCreditId] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
+  const load = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     setError(null)
     try {
       const [ruleRows, accountRows] = await Promise.all([
@@ -41,7 +42,7 @@ function PostingRules() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load posting rules')
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }
 
@@ -65,11 +66,29 @@ function PostingRules() {
     setDebitId(rule.debit_account_id)
     setCreditId(rule.credit_account_id)
     setFormError(null)
+    setSaveMessage(null)
   }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editing) return
+    const payload = {
+      debit_account_id: debitId,
+      credit_account_id: creditId,
+    }
+    console.log('[PostingRules] Save Rule clicked', {
+      ruleId: editing?.id,
+      ruleName: editing?.name,
+      canEdit,
+      payload,
+    })
+    if (!editing) {
+      setFormError('No posting rule is open for edit.')
+      return
+    }
+    if (!canEdit) {
+      setFormError('You need journal:create permission to save posting rules.')
+      return
+    }
     if (!debitId || !creditId) {
       setFormError('Debit and credit accounts are required.')
       return
@@ -80,15 +99,21 @@ function PostingRules() {
     }
     setSaving(true)
     setFormError(null)
+    setSaveMessage(null)
     try {
-      await postingRulesService.update(editing.id, {
-        debit_account_id: debitId,
-        credit_account_id: creditId,
-      })
+      const saved = await postingRulesService.update(editing.id, payload)
+      console.log('[PostingRules] Save Rule succeeded', saved)
+      setRules((current) => current.map((row) => (row.id === saved.id ? saved : row)))
       setEditing(null)
-      await load()
+      setSaveMessage(
+        `Saved ${saved.name}: debit ${saved.debit_account_code} / credit ${saved.credit_account_code}.`,
+      )
+      await load({ silent: true })
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save posting rule')
+      const status = err && typeof err === 'object' && 'status' in err ? (err as { status?: number }).status : undefined
+      const message = err instanceof Error ? err.message : 'Failed to save posting rule'
+      console.error('[PostingRules] Save Rule failed', { status, message, err })
+      setFormError(status ? `Save failed (${status}): ${message}` : message)
     } finally {
       setSaving(false)
     }
@@ -123,12 +148,17 @@ function PostingRules() {
         </div>
       </header>
 
+      {saveMessage && !editing && <p style={successStyle}>{saveMessage}</p>}
+
       {editing && (
         <form style={formCardStyle} onSubmit={handleSave}>
           <h3 style={formTitleStyle}>{editing.name}</h3>
           <p style={pageSubStyle}>
             {editing.event_label} · {editing.variant_label} · {editing.party_label}
           </p>
+          {!canEdit && (
+            <p style={errorStyle}>You can view this rule, but journal:create is required to save changes.</p>
+          )}
           <div style={formGridStyle}>
             <label style={labelStyle}>
               Debit account
@@ -157,7 +187,15 @@ function PostingRules() {
           </div>
           {formError && <p style={errorStyle}>{formError}</p>}
           <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-            <button type="submit" style={primaryButtonStyle} disabled={saving || !canEdit}>
+            <button
+              type="submit"
+              style={{
+                ...primaryButtonStyle,
+                ...(saving || !canEdit ? { opacity: 0.65, cursor: 'not-allowed' } : {}),
+              }}
+              disabled={saving || !canEdit}
+              title={!canEdit ? 'Requires journal:create permission' : 'Save debit and credit accounts'}
+            >
               {saving ? 'Saving…' : 'Save Rule'}
             </button>
             <button
@@ -286,6 +324,15 @@ const inputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 const errorStyle: React.CSSProperties = { color: '#c62828', fontSize: 13 }
+const successStyle: React.CSSProperties = {
+  color: '#1b5e20',
+  background: '#e8f5e9',
+  border: '1px solid #a5d6a7',
+  borderRadius: 8,
+  padding: '10px 14px',
+  fontSize: 13,
+  marginBottom: 16,
+}
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',

@@ -7,6 +7,7 @@ from unittest import TestCase
 from fastapi import HTTPException
 
 from app.services.subcontract import (
+    SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL,
     SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL,
     assert_sco_fulfillment_allowed,
     assert_sco_receive_allowed,
@@ -39,9 +40,19 @@ class ScoReceiveApprovalTests(TestCase):
             )
         self.assertEqual(raised.exception.detail, SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL)
 
-    def test_kit_issue_still_allowed_before_approval(self):
+    def test_kit_issue_blocked_before_approval(self):
+        for approval in ("DRAFT", "PENDING_APPROVAL", "REJECTED"):
+            with self.assertRaises(HTTPException) as raised:
+                assert_sco_fulfillment_allowed(
+                    SimpleNamespace(status="PLANNED", approval_status=approval),
+                    "issuing materials",
+                )
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertEqual(raised.exception.detail, SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL)
+
+    def test_kit_issue_allowed_after_approval(self):
         assert_sco_fulfillment_allowed(
-            SimpleNamespace(status="PLANNED", approval_status="DRAFT"),
+            SimpleNamespace(status="PLANNED", approval_status="APPROVED"),
             "issuing materials",
         )
 

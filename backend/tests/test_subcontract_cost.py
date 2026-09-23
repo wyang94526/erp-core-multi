@@ -52,19 +52,26 @@ def test_amend_allowed_only_when_approved_and_open():
     assert closed.value.status_code == 400
 
 
-def test_fulfillment_continues_during_cost_sheet_amendment():
+def test_fulfillment_requires_approval_including_during_amendment():
+    from app.services.subcontract import SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
+
     assert not previously_approved(SimpleNamespace(amendment_number=0))
     draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0, status="PLANNED")
-    assert_sco_fulfillment_allowed(draft, "issuing materials")
+    with pytest.raises(HTTPException) as blocked:
+        assert_sco_fulfillment_allowed(draft, "issuing materials")
+    assert blocked.value.status_code == 400
+    assert blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
     amending = SimpleNamespace(approval_status="DRAFT", amendment_number=1, status="PLANNED")
-    assert_sco_fulfillment_allowed(amending, "issuing materials")
+    with pytest.raises(HTTPException) as amending_blocked:
+        assert_sco_fulfillment_allowed(amending, "issuing materials")
+    assert amending_blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
     assert_sco_fulfillment_allowed(
         SimpleNamespace(approval_status="APPROVED", amendment_number=0, status="PLANNED"),
         "issuing materials",
     )
     with pytest.raises(HTTPException) as closed:
         assert_sco_fulfillment_allowed(
-            SimpleNamespace(approval_status="DRAFT", status="COMPLETED"),
+            SimpleNamespace(approval_status="APPROVED", status="COMPLETED"),
             "issuing materials",
         )
     assert closed.value.status_code == 400

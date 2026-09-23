@@ -267,11 +267,22 @@ export function POLineItemsTable({
               {isSubcontract && <th style={{ ...thStyle, width: '180px' }}>BOM Version</th>}
               {!isSubcontract && <th style={{ ...thStyle, width: '80px' }}>UOM</th>}
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Quantity *</th>
-              <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>Unit Price ($) *</th>
+              <th style={{ ...thStyle, width: '140px', textAlign: 'right' }}>
+                Vendor Unit Price ($) *
+                <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
+                  PO price only
+                </div>
+              </th>
               <th style={{ ...thStyle, width: '160px', textAlign: 'right' }} title="Includes allocated freight, duty, and fees for estimation only.">
                 Est. Landed Unit Cost ($)
                 <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
                   Freight / duty / fees
+                </div>
+              </th>
+              <th style={{ ...thStyle, width: '150px', textAlign: 'right' }} title="Vendor unit price plus freight/duty allocated from supplier invoices.">
+                Unit Cost ($)
+                <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
+                  After allocated AP
                 </div>
               </th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
@@ -433,6 +444,24 @@ export function POLineItemsTable({
                       <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
                         Estimation only
                       </span>
+                    </div>
+                  </td>
+
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <div
+                      style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}
+                      title="Purchase price plus freight/duty allocated from supplier invoices."
+                    >
+                      {formatCurrency(item.actual_unit_cost ?? item.unit_price)}
+                      {(item.actual_allocated_landed_expense || 0) > 0 ? (
+                        <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
+                          Incl. allocated AP
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
+                          PO unit price
+                        </span>
+                      )}
                     </div>
                   </td>
 

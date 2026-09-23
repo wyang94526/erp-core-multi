@@ -337,6 +337,9 @@ export function SubcontractOrderForm() {
                     if (order?.sales_order_id) clearError('sales_order_id')
                   }}
                 />
+                <span style={{ fontSize: 12, color: 'var(--muted, #666)', marginTop: 6 }}>
+                  Only approved sales orders are listed.
+                </span>
                 {errors.sales_order_id && <span style={errorTextStyle}>{errors.sales_order_id}</span>}
               </div>
             )}

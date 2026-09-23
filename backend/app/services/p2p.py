@@ -37,6 +37,13 @@ from app.models import (
     VendorItemMapping,
 )
 from app.services import finance, inventory
+from app.services.landed_cost import (
+    LANDED_COST_ACTIVE_STATUSES,
+    allocate_amount_by_weights,
+    allocation_weight,
+    annotate_po_line,
+    annotate_receipt_line,
+)
 from app.services.po_totals import invoice_freight_default
 from app.services.finance import (
     resolve_ap_account,
@@ -279,7 +286,9 @@ def attach_po_recall_flags(db: Session, po: PurchaseOrder | None) -> PurchaseOrd
         return None
     has_receipts, has_invoices = po_downstream_flags(db, po.po_number)
     apply_po_recall_flags(po, has_receipts, has_invoices)
-    return attach_po_p2p_progress(db, po)
+    attach_po_p2p_progress(db, po)
+    apply_po_actual_landed_costs(db, po)
+    return po
 
 
 def attach_po_recall_flags_many(db: Session, rows: list[PurchaseOrder]) -> list[PurchaseOrder]:
@@ -412,6 +421,150 @@ def _d(value) -> Decimal:
     return Decimal(str(value or 0))
 
 
+def _merchandise_receipt_lines(db: Session, receipt: GoodsReceipt) -> list[GoodsReceiptLine]:
+    merch: list[GoodsReceiptLine] = []
+    for line in receipt.lines or []:
+        catalog = catalog_item(db, line.item_id) or getattr(line, "item", None)
+        if skip_inventory_movement(catalog):
+            continue
+        merch.append(line)
+    return merch or list(receipt.lines or [])
+
+
+def _allocate_amount_to_receipt_lines(
+    db: Session,
+    receipt: GoodsReceipt,
+    amount: Decimal,
+    *,
+    goods_receipt_line_id: int | None = None,
+) -> dict[int, Decimal]:
+    shares: dict[int, Decimal] = {}
+    if amount <= 0:
+        return shares
+    if goods_receipt_line_id is not None:
+        target = next((line for line in (receipt.lines or []) if line.id == goods_receipt_line_id), None)
+        if target is not None:
+            shares[target.id] = amount
+        return shares
+    merch = _merchandise_receipt_lines(db, receipt)
+    if not merch:
+        return shares
+    weights = [
+        allocation_weight(line.quantity_received, line.line_amount)
+        for line in merch
+    ]
+    for line, share in zip(merch, allocate_amount_by_weights(weights, amount)):
+        if share > 0:
+            shares[line.id] = share
+    return shares
+
+
+def _active_landed_distributions(db: Session, receipt_ids: list[int]) -> list[SupplierInvoiceDistribution]:
+    if not receipt_ids:
+        return []
+    line_ids = [
+        line_id
+        for (line_id,) in db.query(GoodsReceiptLine.id)
+        .filter(GoodsReceiptLine.receipt_id.in_(receipt_ids))
+        .all()
+        if line_id is not None
+    ]
+    filters = [SupplierInvoiceDistribution.goods_receipt_id.in_(receipt_ids)]
+    if line_ids:
+        filters.append(SupplierInvoiceDistribution.goods_receipt_line_id.in_(line_ids))
+    return (
+        db.query(SupplierInvoiceDistribution)
+        .join(SupplierInvoice, SupplierInvoiceDistribution.invoice_id == SupplierInvoice.id)
+        .filter(
+            or_(*filters),
+            SupplierInvoice.invoice_type == "LANDED_COST",
+            SupplierInvoice.status.in_(LANDED_COST_ACTIVE_STATUSES),
+        )
+        .all()
+    )
+
+
+def landed_allocations_for_receipt(db: Session, receipt: GoodsReceipt) -> dict[int, Decimal]:
+    totals: dict[int, Decimal] = {line.id: Decimal("0.00") for line in (receipt.lines or []) if line.id}
+    if receipt.id is None:
+        return totals
+    for dist in _active_landed_distributions(db, [receipt.id]):
+        amount = _d(dist.amount).quantize(Decimal("0.01"))
+        # Receipt-level allocation always spreads. A line id is used only when
+        # the distribution is pinned to that line and has no receipt header.
+        pinned_line_id = None if dist.goods_receipt_id else dist.goods_receipt_line_id
+        for target_line_id, share in _allocate_amount_to_receipt_lines(
+            db,
+            receipt,
+            amount,
+            goods_receipt_line_id=pinned_line_id,
+        ).items():
+            totals[target_line_id] = (totals.get(target_line_id) or Decimal("0.00")) + share
+    return totals
+
+
+def apply_receipt_landed_costs(db: Session, receipt: GoodsReceipt) -> dict[int, Decimal]:
+    allocations = landed_allocations_for_receipt(db, receipt)
+    for line in receipt.lines or []:
+        annotate_receipt_line(line, allocations.get(line.id) or Decimal("0.00"))
+    return allocations
+
+
+def apply_po_actual_landed_costs(db: Session, po: PurchaseOrder) -> None:
+    receipts = (
+        db.query(GoodsReceipt)
+        .options(selectinload(GoodsReceipt.lines))
+        .filter(
+            GoodsReceipt.source_type == "PURCHASE_ORDER",
+            GoodsReceipt.source_order_id == po.po_number,
+            GoodsReceipt.status != "CANCELLED",
+        )
+        .all()
+    )
+    extra_by_po_line: dict[int, Decimal] = {}
+    for receipt in receipts:
+        allocations = apply_receipt_landed_costs(db, receipt)
+        for line in receipt.lines or []:
+            if line.source_line_id is None:
+                continue
+            extra_by_po_line[int(line.source_line_id)] = (
+                extra_by_po_line.get(int(line.source_line_id), Decimal("0.00"))
+                + (allocations.get(line.id) or Decimal("0.00"))
+            )
+    for item in po.items or []:
+        annotate_po_line(item, extra_by_po_line.get(int(item.item_id), Decimal("0.00")))
+
+
+def _apply_landed_cost_to_linked_receipts(db: Session, invoice: SupplierInvoice) -> None:
+    receipt_ids = {
+        dist.goods_receipt_id
+        for dist in (invoice.distributions or [])
+        if dist.goods_receipt_id
+    }
+    for receipt_id in receipt_ids:
+        receipt = (
+            db.query(GoodsReceipt)
+            .options(selectinload(GoodsReceipt.lines))
+            .filter(GoodsReceipt.id == receipt_id)
+            .first()
+        )
+        if receipt is None:
+            continue
+        apply_receipt_landed_costs(db, receipt)
+        if (receipt.source_type or "").upper() == "PURCHASE_ORDER" and receipt.source_order_id:
+            po = (
+                db.query(PurchaseOrder)
+                .options(selectinload(PurchaseOrder.items))
+                .filter(PurchaseOrder.po_number == receipt.source_order_id)
+                .first()
+            )
+            if po is not None:
+                from app.services.po_totals import apply_estimated_landed_unit_costs
+
+                apply_estimated_landed_unit_costs(po)
+                apply_po_actual_landed_costs(db, po)
+
+
 def serialize_goods_receipt(
     row: GoodsReceipt,
     db: Session | None = None,
@@ -420,6 +573,7 @@ def serialize_goods_receipt(
 ) -> dict:
     vendor = getattr(row, "vendor", None)
     vendor_name = getattr(vendor, "company_name", None) if vendor is not None else None
+    allocations = apply_receipt_landed_costs(db, row) if db is not None else {}
     lines_payload = [
         {
             "id": line.id,
@@ -432,6 +586,9 @@ def serialize_goods_receipt(
             "quantity_received": line.quantity_received,
             "unit_cost": line.unit_cost,
             "line_amount": line.line_amount,
+            "allocated_landed_amount": getattr(line, "allocated_landed_amount", allocations.get(line.id) or Decimal("0.00")),
+            "landed_unit_cost": getattr(line, "landed_unit_cost", line.unit_cost),
+            "actual_unit_cost": getattr(line, "actual_unit_cost", line.unit_cost),
             "uom": None,
             "lot_number": None,
             "serial_number": None,
@@ -824,19 +981,30 @@ def list_goods_receipts(
     source_type: str | None = None,
     source_order_id: str | None = None,
     status: str | None = None,
+    q: str | None = None,
     skip: int = 0,
     limit: int = 100,
 ) -> list[dict]:
-    q = _receipt_query(db).order_by(GoodsReceipt.id.desc())
+    query = _receipt_query(db).order_by(GoodsReceipt.id.desc())
     if vendor_id:
-        q = q.filter(GoodsReceipt.vendor_id == vendor_id)
+        query = query.filter(GoodsReceipt.vendor_id == vendor_id)
     if source_type:
-        q = q.filter(GoodsReceipt.source_type == source_type.upper())
+        query = query.filter(GoodsReceipt.source_type == source_type.upper())
     if source_order_id:
-        q = q.filter(GoodsReceipt.source_order_id == source_order_id)
+        query = query.filter(GoodsReceipt.source_order_id == source_order_id)
     if status:
-        q = q.filter(GoodsReceipt.status == status.upper())
-    return [serialize_goods_receipt(r) for r in q.offset(skip).limit(limit).all()]
+        query = query.filter(GoodsReceipt.status == status.upper())
+    term = (q or "").strip()
+    if term:
+        like = f"%{term}%"
+        vendor_ids = db.query(Supplier.supplier_id).filter(Supplier.company_name.ilike(like))
+        query = query.filter(
+            GoodsReceipt.receipt_number.ilike(like)
+            | GoodsReceipt.source_order_id.ilike(like)
+            | GoodsReceipt.vendor_id.ilike(like)
+            | GoodsReceipt.vendor_id.in_(vendor_ids)
+        )
+    return [serialize_goods_receipt(r, db) for r in query.offset(skip).limit(limit).all()]
 
 
 def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
@@ -1337,12 +1505,14 @@ def list_posted_goods_receipts(
     db: Session,
     *,
     vendor_id: str | None = None,
+    q: str | None = None,
     skip: int = 0,
     limit: int = 100,
 ) -> list[dict]:
     return list_goods_receipts(
         db,
         vendor_id=vendor_id,
+        q=q,
         status="POSTED",
         skip=skip,
         limit=limit,
@@ -1371,6 +1541,7 @@ def create_supplier_invoice(
     distributions: list[dict] | None = None,
     payment_term_id=None,
     payment_terms: str | None = None,
+    allocate_to_goods_receipt_id: int | None = None,
 ) -> dict:
     resolved_type, source_type, source_order_id = validate_supplier_invoice_payload(
         invoice_type=invoice_type,
@@ -1396,6 +1567,7 @@ def create_supplier_invoice(
             distributions=distributions or [],
             payment_term_id=payment_term_id,
             payment_terms=payment_terms,
+            allocate_to_goods_receipt_id=allocate_to_goods_receipt_id,
         )
 
     if source_type not in PO_MATCHED_SOURCES:
@@ -1633,6 +1805,7 @@ def _create_non_po_invoice(
     distributions: list[dict],
     payment_term_id=None,
     payment_terms: str | None = None,
+    allocate_to_goods_receipt_id: int | None = None,
 ) -> dict:
     vendor = db.get(Supplier, vendor_id)
     if vendor is None:
@@ -1669,6 +1842,8 @@ def _create_non_po_invoice(
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Distribution amount must be positive")
         receipt_id = raw.get("goods_receipt_id")
+        if receipt_id is None and allocate_to_goods_receipt_id is not None and invoice_type == "LANDED_COST":
+            receipt_id = allocate_to_goods_receipt_id
         receipt_line_id = raw.get("goods_receipt_line_id")
         if receipt_id is not None and db.get(GoodsReceipt, int(receipt_id)) is None:
             raise HTTPException(status_code=400, detail="Goods receipt not found")
@@ -1695,6 +1870,13 @@ def _create_non_po_invoice(
                 goods_receipt_line_id=int(receipt_line_id) if receipt_line_id is not None else None,
             )
         )
+
+    if invoice_type == "LANDED_COST" and not source_order_id:
+        linked_receipt_id = next((dist.goods_receipt_id for dist in built_dist if dist.goods_receipt_id), None)
+        if linked_receipt_id is not None:
+            linked_receipt = db.get(GoodsReceipt, linked_receipt_id)
+            if linked_receipt is not None:
+                source_order_id = linked_receipt.source_order_id
 
     due, term = apply_due_date(
         db,
@@ -1739,6 +1921,8 @@ def _create_non_po_invoice(
     invoice.total_amount = (subtotal + tax + freight).quantize(Decimal("0.01"))
     invoice.outstanding_balance = invoice.total_amount
     db.flush()
+    if invoice_type == "LANDED_COST":
+        _apply_landed_cost_to_linked_receipts(db, invoice)
     return serialize_supplier_invoice(_load_invoice(db, invoice.id))
 
 
@@ -1817,15 +2001,25 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
         debit_account = dist.gl_account or db.get(ChartOfAccount, dist.gl_account_id)
         if debit_account is None:
             raise HTTPException(status_code=400, detail="GL account not found for distribution")
+        receipt = None
         if invoice.invoice_type == "LANDED_COST" and dist.goods_receipt_id:
+            receipt = db.get(GoodsReceipt, dist.goods_receipt_id)
             debit_account = inventory_account
+        receipt_number = getattr(receipt, "receipt_number", None)
         finance._post_balanced_journal_entry(
             db,
-            description=f"Supplier invoice {invoice.invoice_number} {dist.description or debit_account.account_name}",
+            description=(
+                f"Supplier invoice {invoice.invoice_number} landed cost"
+                + (f" for {receipt_number}" if receipt_number else "")
+                + f" {dist.description or debit_account.account_name}"
+            ),
             debit_account=debit_account,
             credit_account=ap_account,
             amount=_d(dist.amount),
+            reference=receipt_number,
         )
+    if invoice.invoice_type == "LANDED_COST":
+        _apply_landed_cost_to_linked_receipts(db, invoice)
     extra = _d(invoice.tax_amount) + _d(invoice.freight_amount)
     if extra > 0:
         finance._post_balanced_journal_entry(

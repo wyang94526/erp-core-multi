@@ -3,8 +3,9 @@
  * @date: 2026-09-19
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { goodsReceiptService } from '../api/services'
 import type { GoodsReceipt, GoodsReceiptJournal, JournalEntry } from '../types'
@@ -48,33 +49,17 @@ export function GoodsReceiptDetail() {
   const { receiptId: rawId } = useParams<{ receiptId: string }>()
   const receiptKey = decodeURIComponent(rawId || '').trim()
   const navigate = useNavigate()
-  const [detail, setDetail] = useState<GoodsReceipt | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [viewingJournal, setViewingJournal] = useState<JournalEntry | null>(null)
-
-  useEffect(() => {
-    if (!receiptKey) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    goodsReceiptService
-      .get(receiptKey)
-      .then((row) => {
-        if (!cancelled) setDetail(row)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setDetail(null)
-        setError(err instanceof Error ? err.message : 'Failed to load goods receipt')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [receiptKey])
+  const {
+    data: detail = null,
+    error: queryError,
+    isLoading: loading,
+  } = useQuery({
+    queryKey: ['goodsReceipts', receiptKey],
+    queryFn: () => goodsReceiptService.get(receiptKey),
+    enabled: Boolean(receiptKey),
+  })
+  const error = queryError instanceof Error ? queryError.message : queryError ? 'Failed to load goods receipt' : null
 
   if (loading) {
     return (
@@ -177,6 +162,9 @@ export function GoodsReceiptDetail() {
                 <th style={thStyle}>Description</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Ordered Qty</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Received Qty</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Receipt Unit Cost</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Allocated Landed</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Actual Unit Cost</th>
                 <th style={thStyle}>UOM</th>
                 <th style={thStyle}>Lot / Serial</th>
               </tr>
@@ -184,7 +172,7 @@ export function GoodsReceiptDetail() {
             <tbody>
               {lines.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ ...tdStyle, fontStyle: 'italic', color: '#666' }}>
+                  <td colSpan={9} style={{ ...tdStyle, fontStyle: 'italic', color: '#666' }}>
                     No lines on this receipt.
                   </td>
                 </tr>
@@ -205,6 +193,15 @@ export function GoodsReceiptDetail() {
                       <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
                         {formatReceiptQty(line.quantity_received)}
                       </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatReceiptMoney(line.unit_cost)}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatReceiptMoney(line.allocated_landed_amount)}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
+                        {formatReceiptMoney(line.actual_unit_cost ?? line.landed_unit_cost ?? line.unit_cost)}
+                      </td>
                       <td style={tdStyle}>{line.uom || '—'}</td>
                       <td style={{ ...tdStyle, color: lotSerial ? 'var(--text)' : '#9e9e9e' }}>
                         {lotSerial || 'Not tracked'}
@@ -221,8 +218,10 @@ export function GoodsReceiptDetail() {
       <section style={cardStyle}>
         <h2 style={sectionHeadingStyle}>Status & accounting trail</h2>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-          This receipt is <strong>{statusKey}</strong>. Posted receipts accrue inventory or expense and credit
-          GRNI. Approving a matching supplier invoice clears that GRNI liability to Accounts Payable.
+          This receipt is <strong>{statusKey}</strong>. Receiving creates draft journal entries (inventory or
+          expense debit, GRNI credit). Those journals stay Draft / DRAFT until they are approved and posted
+          on the General Ledger. Approving a matching supplier invoice creates another draft to clear GRNI
+          to Accounts Payable.
         </p>
 
         <h3 style={subHeadingStyle}>Journal entries</h3>
@@ -316,7 +315,9 @@ function JournalRow({
       <td style={tdStyle}>{journalPurposeLabel(journal.purpose)}</td>
       <td style={tdStyle}>{formatDate(journal.posting_date || journal.created_at)}</td>
       <td style={tdStyle}>{journal.description}</td>
-      <td style={tdStyle}>{journal.posting_status || 'Posted'}</td>
+      <td style={tdStyle}>
+        {journal.posting_status || 'Draft'} / {journal.approval_status || 'DRAFT'}
+      </td>
       <td style={tdStyle}>
         <button type="button" style={linkButtonStyle} onClick={onView}>
           View

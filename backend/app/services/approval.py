@@ -369,10 +369,6 @@ def submit_document(
     _assert_permission(user, SUBMIT_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
-    if canonical == "SUBCONTRACT_ORDER":
-        from app.services.subcontract import assert_sco_kit_fully_issued
-
-        assert_sco_kit_fully_issued(doc)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current not in {"DRAFT", "REJECTED"}:
         raise HTTPException(
@@ -445,10 +441,6 @@ def approve_document(
     _assert_permission(user, APPROVE_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
-    if canonical == "SUBCONTRACT_ORDER":
-        from app.services.subcontract import assert_sco_kit_fully_issued
-
-        assert_sco_kit_fully_issued(doc)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current != "PENDING_APPROVAL":
         raise HTTPException(

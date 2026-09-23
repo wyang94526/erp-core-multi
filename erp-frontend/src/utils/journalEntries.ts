@@ -27,3 +27,9 @@ export function isJournalEditable(entry: Pick<JournalEntry, 'approval_status' | 
   const posting = (entry.posting_status || '').toLowerCase()
   return posting !== 'posted' && (approval === 'DRAFT' || approval === 'REJECTED')
 }
+
+export function isJournalDeletable(entry: Pick<JournalEntry, 'approval_status' | 'posting_status'>) {
+  const approval = (entry.approval_status || '').toLowerCase()
+  const posting = (entry.posting_status || '').toLowerCase()
+  return posting === 'draft' && approval === 'draft'
+}

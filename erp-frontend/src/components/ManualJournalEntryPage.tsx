@@ -8,16 +8,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { approvalService, chartOfAccountsService, journalEntryService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
-import type { JournalEntry } from '../types'
+import type { JournalEntry, JournalLineDraft } from '../types'
+import { newJournalLine } from '../utils/journalCsvImport'
 import { isJournalEditable } from '../utils/journalEntries'
-
-type LineRow = {
-  key: string
-  account_id: string
-  description: string
-  debit: string
-  credit: string
-}
 
 function todayISO() {
   const now = new Date()
@@ -40,25 +33,17 @@ function amountStr(value: number | string | null | undefined) {
   return Number.isFinite(n) && n > 0 ? String(n) : ''
 }
 
-function newLine(): LineRow {
-  return {
-    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    account_id: '',
-    description: '',
-    debit: '',
-    credit: '',
-  }
-}
-
-function linesFromEntry(entry: JournalEntry): LineRow[] {
-  const rows = (entry.postings || []).map((posting, index) => ({
-    key: posting.id || `line-${index}`,
-    account_id: posting.account_id,
-    description: posting.description || '',
-    debit: amountStr(posting.debit),
-    credit: amountStr(posting.credit),
-  }))
-  while (rows.length < 2) rows.push(newLine())
+function linesFromEntry(entry: JournalEntry): JournalLineDraft[] {
+  const rows = (entry.postings || []).map((posting, index) =>
+    newJournalLine({
+      key: posting.id || `line-${index}`,
+      account_id: posting.account_id,
+      description: posting.description || '',
+      debit: amountStr(posting.debit),
+      credit: amountStr(posting.credit),
+    }),
+  )
+  while (rows.length < 2) rows.push(newJournalLine())
   return rows
 }
 
@@ -84,7 +69,7 @@ export function ManualJournalEntryPage() {
   const [periodDirty, setPeriodDirty] = useState(false)
   const [reference, setReference] = useState('')
   const [description, setDescription] = useState('')
-  const [lines, setLines] = useState<LineRow[]>([newLine(), newLine()])
+  const [lines, setLines] = useState<JournalLineDraft[]>([newJournalLine(), newJournalLine()])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadedId, setLoadedId] = useState<string | null>(null)
@@ -112,7 +97,7 @@ export function ManualJournalEntryPage() {
       setPeriodDirty(false)
       setReference('')
       setDescription('')
-      setLines([newLine(), newLine()])
+      setLines([newJournalLine(), newJournalLine()])
       setError(null)
       setLoadedId(null)
       return
@@ -149,7 +134,7 @@ export function ManualJournalEntryPage() {
   const hasDebit = lines.some((line) => parseAmount(line.debit) > 0)
   const hasCredit = lines.some((line) => parseAmount(line.credit) > 0)
 
-  const updateLine = (key: string, patch: Partial<LineRow>) => {
+  const updateLine = (key: string, patch: Partial<JournalLineDraft>) => {
     setLines((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
@@ -403,7 +388,7 @@ export function ManualJournalEntryPage() {
           type="button"
           style={addLineBtn}
           disabled={busy}
-          onClick={() => setLines((rows) => [...rows, newLine()])}
+          onClick={() => setLines((rows) => [...rows, newJournalLine()])}
         >
           + Add line
         </button>

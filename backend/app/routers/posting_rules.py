@@ -30,9 +30,11 @@ def update_posting_rule(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("journal:create")),
 ):
-    return posting_rule_service.update_posting_rule(
+    result = posting_rule_service.update_posting_rule(
         db, rule_id, payload.model_dump(exclude_unset=True)
     )
+    db.commit()
+    return result
 
 
 @router.post("/{rule_id}/reset", response_model=PostingRuleRead, status_code=status.HTTP_200_OK)
@@ -41,4 +43,6 @@ def reset_posting_rule(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("journal:create")),
 ):
-    return posting_rule_service.reset_posting_rule(db, rule_id)
+    result = posting_rule_service.reset_posting_rule(db, rule_id)
+    db.commit()
+    return result

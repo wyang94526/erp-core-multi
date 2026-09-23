@@ -7,6 +7,10 @@ import unittest
 
 from fastapi import HTTPException
 
+from app.services.finance import (
+    GENERATED_JOURNAL_APPROVAL_STATUS,
+    GENERATED_JOURNAL_POSTING_STATUS,
+)
 from app.services.accounting import (
     normalize_journal_period,
     period_from_date,
@@ -61,6 +65,10 @@ class ManualJournalValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             validate_posting_amounts(Decimal("10"), Decimal("5"))
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_auto_generated_journals_start_as_drafts(self):
+        self.assertEqual(GENERATED_JOURNAL_POSTING_STATUS, "Draft")
+        self.assertEqual(GENERATED_JOURNAL_APPROVAL_STATUS, "DRAFT")
 
 
 if __name__ == "__main__":

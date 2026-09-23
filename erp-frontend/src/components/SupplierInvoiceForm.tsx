@@ -18,6 +18,7 @@ import {
   vendorService,
 } from '../api/services'
 import { addDaysIso, findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
+import GoodsReceiptLookup from './GoodsReceiptLookup'
 
 type InvoiceCategory = 'PO' | 'NON_PO'
 type NonPoType = 'EXPENSE' | 'LANDED_COST'
@@ -108,16 +109,6 @@ export function SupplierInvoiceForm() {
     queryKey: ['departments', 'invoice-form'],
     queryFn: () => vendorInvoiceService.listDepartments(),
     enabled: isNonPo,
-  })
-
-  const receiptsQuery = useQuery({
-    queryKey: ['postedGoodsReceipts', vendorId],
-    queryFn: () =>
-      vendorInvoiceService.listGoodsReceipts({
-        vendor_id: vendorId || undefined,
-        limit: 100,
-      }),
-    enabled: isNonPo && nonPoType === 'LANDED_COST',
   })
 
   const backPath = isNonPo
@@ -232,14 +223,12 @@ export function SupplierInvoiceForm() {
         .filter((row) => row.gl_account_id && Number(row.amount) > 0)
         .map((row) => {
           const receiptId = row.goods_receipt_id ? Number(row.goods_receipt_id) : null
-          const receipt = (receiptsQuery.data || []).find((r) => r.id === receiptId)
           return {
             gl_account_id: row.gl_account_id,
             department_id: row.department_id || null,
             amount: Number(row.amount),
             description: row.description || null,
             goods_receipt_id: receiptId,
-            goods_receipt_line_id: receipt?.lines?.[0]?.id ?? null,
           }
         })
       if (!vendorId) {
@@ -248,6 +237,9 @@ export function SupplierInvoiceForm() {
       if (rows.length === 0) {
         throw new Error('Add at least one GL distribution with a positive amount')
       }
+      const allocatedReceiptIds = [
+        ...new Set(rows.map((row) => row.goods_receipt_id).filter((id): id is number => Number.isFinite(id))),
+      ]
       const created = await vendorInvoiceService.create({
         invoice_type: nonPoType,
         source_type: 'NON_PO',
@@ -259,6 +251,7 @@ export function SupplierInvoiceForm() {
         payment_term_id: paymentTermId || null,
         tax_amount: taxAmount ? Number(taxAmount) : 0,
         freight_amount: freightAmount ? Number(freightAmount) : 0,
+        allocate_to_goods_receipt_id: allocatedReceiptIds.length === 1 ? allocatedReceiptIds[0] : null,
         currency,
         distributions: rows,
       })
@@ -268,7 +261,12 @@ export function SupplierInvoiceForm() {
       return created
     },
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] }),
+        queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['postedGoodsReceipts'] }),
+      ])
       navigate(`/supplier-invoices/${encodeURIComponent(created.invoice_number)}`)
     },
   })
@@ -450,7 +448,7 @@ export function SupplierInvoiceForm() {
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 0 }}>
               {nonPoType === 'LANDED_COST'
-                ? 'Map each charge to a GL account. Optionally allocate to a posted goods receipt so approval capitalizes inventory.'
+                ? 'Map each charge to a GL account. Search by PO or receipt number to allocate freight/duty onto inventory. The freight vendor can be different from the goods PO vendor.'
                 : 'Distribute the expense across GL accounts and optional departments / cost centers.'}
             </p>
 
@@ -524,19 +522,21 @@ export function SupplierInvoiceForm() {
                 </label>
                 {nonPoType === 'LANDED_COST' ? (
                   <label style={labelStyle}>
-                    Allocate to goods receipt (optional)
-                    <select
+                    Allocate to PO / goods receipt
+                    <GoodsReceiptLookup
                       value={row.goods_receipt_id}
-                      onChange={(e) => updateDist(row.key, { goods_receipt_id: e.target.value })}
-                      style={inputStyle}
-                    >
-                      <option value="">Expense to GL (no inventory capitalization)</option>
-                      {(receiptsQuery.data || []).map((receipt) => (
-                        <option key={receipt.id} value={String(receipt.id)}>
-                          {receipt.receipt_number} · {receipt.source_order_id} · {receipt.receipt_date}
-                        </option>
-                      ))}
-                    </select>
+                      onSelect={(receipt) => {
+                        updateDist(row.key, {
+                          goods_receipt_id: receipt ? String(receipt.id) : '',
+                        })
+                        if (receipt?.source_order_id) {
+                          setSourceOrderId(receipt.source_order_id)
+                        }
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted, #666)', marginTop: 6 }}>
+                      Search the purchase order or receipt to allocate. Do not look up the freight vendor’s own receipts.
+                    </span>
                   </label>
                 ) : null}
               </div>

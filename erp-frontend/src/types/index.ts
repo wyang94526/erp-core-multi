@@ -562,6 +562,8 @@ export interface PurchaseOrderItem {
   line_total: number; // line_subtotal + line_tax
   estimated_landed_unit_cost?: number;
   allocated_landed_expense?: number;
+  actual_allocated_landed_expense?: number;
+  actual_unit_cost?: number;
   quantity_received?: number;
   quantity_remaining_to_receive?: number;
   quantity_billed?: number;
@@ -720,6 +722,9 @@ export interface GoodsReceiptLine {
   quantity_received: number | string;
   unit_cost: number | string;
   line_amount: number | string;
+  allocated_landed_amount?: number | string;
+  landed_unit_cost?: number | string | null;
+  actual_unit_cost?: number | string | null;
   uom?: string | null;
   lot_number?: string | null;
   serial_number?: string | null;
@@ -1206,6 +1211,49 @@ export interface JournalEntryCreatePayload {
     currency?: string;
     description?: string | null;
   }[];
+}
+
+/** Draft line on the manual journal form. */
+export interface JournalLineDraft {
+  key: string
+  account_id: string
+  description: string
+  debit: string
+  credit: string
+  unknownAccount?: boolean
+  sourceAccountCode?: string
+}
+
+export interface JournalBulkImportLine {
+  account_id: string
+  account_code?: string
+  description?: string | null
+  debit: number
+  credit: number
+}
+
+export interface JournalBulkImportEntry {
+  group_id: string
+  description: string
+  posting_date: string
+  period?: string
+  reference?: string | null
+  postings: JournalBulkImportLine[]
+}
+
+export interface JournalBulkImportPayload {
+  journals: JournalBulkImportEntry[]
+}
+
+export interface JournalCsvGroupError {
+  group_id: string
+  message: string
+}
+
+export interface JournalBulkImportResult {
+  created: number
+  journals: JournalEntry[]
+  errors: JournalCsvGroupError[]
 }
 
 // ==========================================

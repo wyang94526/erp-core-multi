@@ -131,12 +131,15 @@ async function request<T>(
     throw new Error(message);
   }
 
-  // Handle non-JSON responses
+  // Handle non-JSON responses (204/205 and empty bodies have no JSON to parse)
   const contentType = response.headers.get('content-type');
   let data: unknown;
 
-  if (contentType?.includes('application/json')) {
-    data = await response.json();
+  if (response.status === 204 || response.status === 205) {
+    data = undefined;
+  } else if (contentType?.includes('application/json')) {
+    const text = await response.text();
+    data = text ? JSON.parse(text) : undefined;
   } else {
     data = await response.text();
   }

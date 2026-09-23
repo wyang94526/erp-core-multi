@@ -9,7 +9,7 @@ export const SALES_ORDER_LOCKED_EDIT_MESSAGE =
   'Approved or Invoiced orders cannot be modified. Please create a credit memo or change order instead.'
 
 export const PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE =
-  'Parent Sales Order must be fully approved before creating a subcontract order.'
+  'The parent Sales Order must be approved before a subcontract order can be created or updated.'
 
 const EDITABLE_APPROVAL = new Set(['DRAFT', 'REJECTED'])
 const LOCKED_STATUS = new Set(['SHIPPED', 'INVOICED', 'FULFILLED'])

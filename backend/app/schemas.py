@@ -328,6 +328,25 @@ class JournalEntryRead(ORMModel):
     postings: list[LedgerPostingRead]
 
 
+class JournalBulkImportItem(JournalEntryCreate):
+    group_id: str | None = Field(default=None, max_length=100)
+
+
+class JournalBulkImportRequest(BaseModel):
+    journals: list[JournalBulkImportItem] = Field(min_length=1, max_length=200)
+
+
+class JournalBulkImportError(BaseModel):
+    group_id: str
+    message: str
+
+
+class JournalBulkImportResponse(BaseModel):
+    created: int
+    journals: list[JournalEntryRead]
+    errors: list[JournalBulkImportError]
+
+
 class MonthEndClosePreview(ORMModel):
     period: str
     ready: list[JournalEntryRead]
@@ -1561,6 +1580,11 @@ class SubcontractOrderUpdate(BaseModel):
     quantity_ordered: int | None = Field(default=None, gt=0)
     unit_price: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     status: str | None = Field(default=None, max_length=30)
+    sales_order_id: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Parent Sales Order ID. Must be APPROVED when set.",
+    )
     expected_return_date: date | None = None
     notes: str | None = None
     lines: list[SubcontractOrderLineChargesUpdate] | None = None
@@ -1755,6 +1779,8 @@ class PurchaseOrderItemRead(ORMModel):
     line_total: Decimal
     estimated_landed_unit_cost: Decimal = Decimal("0.0000")
     allocated_landed_expense: Decimal = Decimal("0.00")
+    actual_allocated_landed_expense: Decimal = Decimal("0.00")
+    actual_unit_cost: Decimal = Decimal("0.0000")
     quantity_received: Decimal = Decimal("0")
     quantity_remaining_to_receive: Decimal = Decimal("0")
     quantity_billed: Decimal = Decimal("0")
@@ -2678,6 +2704,9 @@ class GoodsReceiptLineRead(BaseModel):
     quantity_received: Decimal
     unit_cost: Decimal
     line_amount: Decimal
+    allocated_landed_amount: Decimal = Decimal("0.00")
+    landed_unit_cost: Decimal | None = None
+    actual_unit_cost: Decimal | None = None
     uom: str | None = None
     lot_number: str | None = None
     serial_number: str | None = None
@@ -2769,6 +2798,10 @@ class SupplierInvoiceDistributionCreate(BaseModel):
 
 class SupplierInvoiceCreate(BaseModel):
     invoice_type: Literal["PO_MATCHED", "LANDED_COST", "EXPENSE"] | None = None
+    allocate_to_goods_receipt_id: int | None = Field(
+        default=None,
+        description="Allocate landed-cost distributions to this goods receipt when a line omits goods_receipt_id.",
+    )
     source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER", "NON_PO"] | None = None
     source_order_id: str | None = Field(default=None, max_length=50)
     vendor_id: str | None = Field(default=None, max_length=50)

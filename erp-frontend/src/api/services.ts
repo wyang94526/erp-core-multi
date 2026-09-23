@@ -36,6 +36,8 @@ import type {
   CashTransaction,
   JournalEntry,
   JournalEntryCreatePayload,
+  JournalBulkImportPayload,
+  JournalBulkImportResult,
   ChartOfAccount,
   ChartOfAccountCreate,
   PostingRule,
@@ -635,6 +637,7 @@ export const vendorInvoiceService = {
     payment_terms?: string | null;
     tax_amount?: number | null;
     freight_amount?: number | null;
+    allocate_to_goods_receipt_id?: number | null;
     currency?: string;
     lines?: Array<{
       source_line_id?: number | null;
@@ -670,12 +673,13 @@ export const vendorInvoiceService = {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/pay`, data);
   },
 
-  listGoodsReceipts(params: { vendor_id?: string; skip?: number; limit?: number } = {}) {
+  listGoodsReceipts(params: { vendor_id?: string; q?: string; skip?: number; limit?: number } = {}) {
     const query: Record<string, string | number> = {
       skip: params.skip ?? 0,
       limit: params.limit ?? 100,
     };
     if (params.vendor_id) query.vendor_id = params.vendor_id;
+    if (params.q) query.q = params.q;
     return apiClient.get<GoodsReceipt[]>('/api/v1/vendor-invoices/goods-receipts', { params: query });
   },
 
@@ -788,6 +792,8 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         line_total: Number(row.line_total ?? 0),
         estimated_landed_unit_cost: Number(row.estimated_landed_unit_cost ?? 0),
         allocated_landed_expense: Number(row.allocated_landed_expense ?? 0),
+        actual_allocated_landed_expense: Number(row.actual_allocated_landed_expense ?? 0),
+        actual_unit_cost: Number(row.actual_unit_cost ?? row.estimated_landed_unit_cost ?? 0),
         quantity_received: Number(row.quantity_received ?? 0),
         quantity_remaining_to_receive: Number(row.quantity_remaining_to_receive ?? 0),
         quantity_billed: Number(row.quantity_billed ?? 0),
@@ -2102,11 +2108,19 @@ export const journalEntryService = {
     return apiClient.post<JournalEntry>('/api/v1/journal-entries', data);
   },
 
+  async bulkImport(data: JournalBulkImportPayload): Promise<JournalBulkImportResult> {
+    return apiClient.post<JournalBulkImportResult>('/api/v1/journal-entries/bulk-import', data)
+  },
+
   async updateJournalEntry(
     entryId: string,
     data: JournalEntryCreatePayload,
   ): Promise<JournalEntry> {
     return apiClient.patch<JournalEntry>(`/api/v1/journal-entries/${entryId}`, data);
+  },
+
+  async deleteJournalEntry(entryId: string): Promise<void> {
+    await apiClient.delete(`/api/v1/journal-entries/${entryId}`);
   },
 
   async previewMonthEndClose(): Promise<{

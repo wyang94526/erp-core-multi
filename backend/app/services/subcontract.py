@@ -36,18 +36,19 @@ CLOSED_SO_STATUSES = {
 CANCELLED_SCO = "CANCELLED"
 CLOSED_SCO_STATUSES = {"COMPLETED", "CANCELLED"}
 AMENDABLE_APPROVAL = "APPROVED"
-OPS_ALLOWED_WHILE_AMENDING = {"DRAFT", "REJECTED", "PENDING_APPROVAL"}
-ISSUE_ALLOWED_APPROVAL = frozenset({AMENDABLE_APPROVAL, *OPS_ALLOWED_WHILE_AMENDING})
 SCO_KIT_MUST_BE_ISSUED_DETAIL = (
     "Cannot approve Subcontract Order: All required kit components must be "
     "fully issued to the subcontractor first."
+)
+SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL = (
+    "Materials cannot be issued until the Subcontract Order is approved."
 )
 SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL = (
     "Finished goods cannot be received until the Subcontract Order receives "
     "full management approval."
 )
 PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL = (
-    "Parent Sales Order must be fully approved before creating a subcontract order."
+    "The parent Sales Order must be approved before a subcontract order can be created or updated."
 )
 
 
@@ -60,6 +61,18 @@ def fully_fulfilled_sco_message(sales_order_id: str) -> str:
 
 def so_is_approved_for_sco(approval_status: str | None) -> bool:
     return (approval_status or "DRAFT").upper() == AMENDABLE_APPROVAL
+
+
+def assert_linked_sales_order_approved(db: Session, sales_order_id: str | None) -> SalesOrder | None:
+    """Reject create/update when a linked Sales Order is not APPROVED."""
+    if not sales_order_id:
+        return None
+    order = db.get(SalesOrder, sales_order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    if not so_is_approved_for_sco(getattr(order, "approval_status", None)):
+        raise HTTPException(status_code=400, detail=PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL)
+    return order
 
 
 def subcontract_create_gate(
@@ -232,23 +245,16 @@ def assert_can_amend_cost_sheet(sco) -> None:
 
 
 def assert_sco_fulfillment_allowed(sco, action_label: str = "this action") -> None:
-    """Allow kit issue in Draft and after approval, including during a cost-sheet amendment."""
+    """Issue materials only after the SCO is fully approved."""
     status = (getattr(sco, "status", None) or "").upper()
     if status in CLOSED_SCO_STATUSES:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot {action_label} on a {status.lower()} subcontract order",
         )
-    approval = (getattr(sco, "approval_status", None) or "").upper()
-    if approval in ISSUE_ALLOWED_APPROVAL:
-        return
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            f"Subcontract order must be open before {action_label} "
-            f"(current: {approval or None})"
-        ),
-    )
+    approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
+    if approval != AMENDABLE_APPROVAL:
+        raise HTTPException(status_code=400, detail=SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL)
 
 
 def assert_sco_receive_allowed(sco) -> None:
@@ -417,6 +423,7 @@ def list_eligible_sales_orders(
         db.query(SalesOrder)
         .options(joinedload(SalesOrder.customer), joinedload(SalesOrder.items))
         .filter(~func.upper(SalesOrder.status).in_(CLOSED_SO_STATUSES))
+        .filter(func.upper(func.coalesce(SalesOrder.approval_status, "DRAFT")) == AMENDABLE_APPROVAL)
         .order_by(SalesOrder.order_date.desc(), SalesOrder.sales_order_id.desc())
     )
     term = (q or "").strip()

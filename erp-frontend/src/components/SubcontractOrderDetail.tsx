@@ -16,8 +16,8 @@ import { itemService, purchaseOrderService, subcontractOrderService, vendorServi
 import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { defaultCostSheet } from '../utils/scoCostSheet'
-import { SCO_KIT_MUST_BE_ISSUED_MESSAGE, scoHasUnissuedKitComponents } from '../utils/scoKitIssue'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
+import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
 import { scoCanReceiveFinishedGoods, scoReceiveBlockedReason } from '../utils/scoReceive'
 import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
@@ -285,7 +285,8 @@ export function SubcontractOrderDetail() {
     isApproved &&
     isCancellable &&
     hasPermission('subcontract:submit')
-  const canOperateKit = isCancellable
+  const canOperateKit = scoCanIssueMaterials(sco)
+  const issueBlockedReason = scoIssueBlockedReason(sco)
   const canReceiveFinishedGoods = scoCanReceiveFinishedGoods(sco)
   const receiveBlockedReason = scoReceiveBlockedReason(sco)
 
@@ -354,9 +355,6 @@ export function SubcontractOrderDetail() {
           unit_cost: null,
         }))
   kitLinesRef.current = kitLines
-  const kitBlocksApproval = scoHasUnissuedKitComponents(
-    kitLines.length > 0 ? kitLines : sco.components,
-  )
 
   const handleExportVendorPdf = async () => {
     setExportError(null)
@@ -416,6 +414,7 @@ export function SubcontractOrderDetail() {
   }
 
   const openIssueForm = () => {
+    if (!canOperateKit) return
     const defaults: Record<string, string> = {}
     for (const component of sco.components || []) {
       const remaining = remainingRequiredQty(component, kitLines)
@@ -443,6 +442,13 @@ export function SubcontractOrderDetail() {
   const handleIssueSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setFormErrors({})
+
+    if (!canOperateKit) {
+      setFormErrors({
+        issue: issueBlockedReason || 'Materials cannot be issued until the Subcontract Order is approved.',
+      })
+      return
+    }
 
     if (!issueForm.issue_id.trim()) {
       setFormErrors({ issue: 'Issue ID is required' })
@@ -571,8 +577,6 @@ export function SubcontractOrderDetail() {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
         }}
-        actionDisabled={kitBlocksApproval}
-        actionDisabledReason={kitBlocksApproval ? SCO_KIT_MUST_BE_ISSUED_MESSAGE : null}
       />
 
       {canEditCostSheet && !editingCostSheet && (
@@ -583,7 +587,7 @@ export function SubcontractOrderDetail() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--text)' }}>
               {isAmending
-                ? `Amendment ${amendmentNumber} is open. Update labor, shipping, and admin charges, then submit for approval. Linked purchase orders stay. Issue / receive can continue; do not create the subcontractor bill until this amendment is approved.`
+                ? `Amendment ${amendmentNumber} is open. Update labor, shipping, and admin charges, then submit for approval. Linked purchase orders stay. Issue and receive stay locked until this amendment is approved. Do not create the subcontractor bill until then.`
                 : `Approval is ${approvalStatus.replace(/_/g, ' ')}. Update labor, shipping, and admin charges before submitting for approval.`}
             </div>
           </div>
@@ -601,7 +605,8 @@ export function SubcontractOrderDetail() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--text)' }}>
               The revised cost sheet is waiting for approval. Linked purchase orders stay.
-              Issue / receive can continue. Create the subcontractor bill after approval.
+              Issue and receive stay locked until this amendment is approved. Create the
+              subcontractor bill after approval.
             </div>
           </div>
         </div>
@@ -919,11 +924,6 @@ export function SubcontractOrderDetail() {
           Exploded from the assembly Subcontract BOM (order qty × qty per + scrap / yield loss),
           compared to warehouse issues to the subcontractor.
         </p>
-        {kitBlocksApproval && (approvalStatus === 'DRAFT' || approvalStatus === 'REJECTED' || approvalStatus === 'PENDING_APPROVAL') && (
-          <div style={{ ...errorAlertStyle, marginBottom: 12 }} role="alert">
-            <span>⚠️ {SCO_KIT_MUST_BE_ISSUED_MESSAGE}</span>
-          </div>
-        )}
         {(() => {
           const lines: CalculatedComponentLine[] = kitLines
 
@@ -1008,13 +1008,13 @@ export function SubcontractOrderDetail() {
           )}
         </div>
 
-        {!canOperateKit && (
+        {!canOperateKit && issueBlockedReason && (
           <p style={{ color: '#e65100', fontSize: '13px', marginBottom: '12px' }}>
-            This subcontract order is closed. Materials cannot be issued.
+            {issueBlockedReason}
           </p>
         )}
 
-        {showIssueForm && (
+        {showIssueForm && canOperateKit && (
           <form onSubmit={handleIssueSubmit} style={{ marginBottom: '20px' }}>
             <div style={gridStyle}>
               <div style={fieldGroupStyle}>

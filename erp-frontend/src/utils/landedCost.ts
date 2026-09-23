@@ -16,6 +16,8 @@ type LandedLine = {
   item_type?: string | null
   estimated_landed_unit_cost?: number
   allocated_landed_expense?: number
+  actual_allocated_landed_expense?: number
+  actual_unit_cost?: number
 }
 
 export function isAllocatedExpenseLine(item: LandedLine): boolean {
@@ -44,11 +46,13 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
   return items.map((item) => {
     const qty = Math.max(0, Number(item.quantity) || 0)
     const price = Math.max(0, Number(item.unit_price) || 0)
+    const actualExtra = Math.max(0, Number(item.actual_allocated_landed_expense) || 0)
     if (isAllocatedExpenseLine(item) || qty <= 0) {
       return {
         ...item,
         allocated_landed_expense: 0,
         estimated_landed_unit_cost: price > 0 ? round4(price) : 0,
+        actual_unit_cost: item.actual_unit_cost ?? (price > 0 ? round4(price) : 0),
       }
     }
     const merchIndex = merchandise.indexOf(item)
@@ -61,10 +65,13 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
         remaining = round2(remaining - allocated)
       }
     }
+    const combined = round2(allocated + actualExtra)
     return {
       ...item,
-      allocated_landed_expense: allocated,
-      estimated_landed_unit_cost: round4(price + allocated / qty),
+      allocated_landed_expense: combined,
+      estimated_landed_unit_cost: round4(price + combined / qty),
+      actual_unit_cost:
+        actualExtra > 0 ? round4(price + actualExtra / qty) : item.actual_unit_cost ?? round4(price + allocated / qty),
     }
   })
 }

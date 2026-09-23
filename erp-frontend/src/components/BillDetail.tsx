@@ -5,6 +5,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Send } from 'lucide-react'
 import { apBillService, vendorInvoiceService } from '../api/services'
 import type { APBillDetail } from '../types'
@@ -66,6 +67,7 @@ export function BillDetail() {
   const { invoiceId: rawId } = useParams<{ invoiceId: string }>()
   const billId = decodeURIComponent(rawId || '').trim()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [detail, setDetail] = useState<APBillDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -148,7 +150,13 @@ export function BillDetail() {
     setError(null)
     try {
       await vendorInvoiceService.submit(detail.supplier_invoice_id)
-      await load()
+      await Promise.all([
+        load(),
+        queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['postedGoodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] }),
+      ])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submit failed')
     } finally {
@@ -162,7 +170,13 @@ export function BillDetail() {
     setError(null)
     try {
       await vendorInvoiceService.approve(detail.supplier_invoice_id)
-      await load()
+      await Promise.all([
+        load(),
+        queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['postedGoodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] }),
+      ])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approve failed')
     } finally {

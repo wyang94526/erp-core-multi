@@ -11,6 +11,8 @@ from app.database import get_db
 from app.deps.auth import require_permission
 from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.schemas import (
+    JournalBulkImportRequest,
+    JournalBulkImportResponse,
     JournalEntryCreate,
     JournalEntryRead,
     JournalEntryUpdate,
@@ -150,12 +152,7 @@ def run_month_end_close(
     }
 
 
-@router.post("", response_model=JournalEntryRead, status_code=status.HTTP_201_CREATED)
-def create_journal_entry(
-    payload: JournalEntryCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("journal:create")),
-) -> JournalEntry:
+def _create_journal_entry(db: Session, payload: JournalEntryCreate, user: User) -> JournalEntry:
     posting_rows = _validated_posting_rows(db, payload.postings)
     posting_date = resolve_posting_date(payload.posting_date)
     period = normalize_journal_period(payload.period, posting_date)
@@ -175,6 +172,46 @@ def create_journal_entry(
         entry.postings.append(LedgerPosting(**row))
 
     db.add(entry)
+    db.flush()
+    return entry
+
+
+@router.post("/bulk-import", response_model=JournalBulkImportResponse)
+def bulk_import_journal_entries(
+    payload: JournalBulkImportRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("journal:create")),
+) -> dict:
+    created_ids: list[UUID] = []
+    errors: list[dict[str, str]] = []
+    for index, item in enumerate(payload.journals, start=1):
+        group_id = (item.group_id or item.reference or str(index)).strip() or str(index)
+        try:
+            with db.begin_nested():
+                entry = _create_journal_entry(db, item, user)
+                created_ids.append(entry.id)
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            errors.append({"group_id": group_id, "message": detail})
+        except Exception as exc:  # noqa: BLE001 — keep remaining journals importing
+            errors.append({"group_id": group_id, "message": str(exc)})
+
+    db.commit()
+    journals = [entry for entry_id in created_ids if (entry := _load_entry(db, entry_id))]
+    return {
+        "created": len(journals),
+        "journals": journals,
+        "errors": errors,
+    }
+
+
+@router.post("", response_model=JournalEntryRead, status_code=status.HTTP_201_CREATED)
+def create_journal_entry(
+    payload: JournalEntryCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("journal:create")),
+) -> JournalEntry:
+    entry = _create_journal_entry(db, payload, user)
     db.commit()
     created = _load_entry(db, entry.id)
     return created or entry
@@ -235,6 +272,10 @@ def update_journal_entry(
     return updated or entry
 
 
+def _is_draft_status(value: str | None) -> bool:
+    return (value or "").strip().lower() == "draft"
+
+
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_journal_entry(
     entry_id: UUID,
@@ -245,14 +286,20 @@ def delete_journal_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Journal entry not found")
 
-    approval = (entry.approval_status or "DRAFT").upper()
-    if approval not in _EDITABLE_APPROVAL:
+    posting = entry.posting_status or ""
+    approval = entry.approval_status or ""
+    if not _is_draft_status(posting) or not _is_draft_status(approval):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot delete a journal entry with approval status {approval}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Cannot delete this journal entry unless posting status and "
+                f"approval status are both Draft (posting={posting or '—'}, "
+                f"approval={approval or '—'})."
+            ),
         )
 
-    for posting in list(entry.postings):
-        db.delete(posting)
+    # ledger_postings.entry_id is ON DELETE RESTRICT — remove lines first.
+    for posting_row in list(entry.postings):
+        db.delete(posting_row)
     db.delete(entry)
     db.commit()

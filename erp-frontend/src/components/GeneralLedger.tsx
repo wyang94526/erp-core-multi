@@ -3,16 +3,18 @@
  * @date: 2026-09-19
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { journalEntryService } from '../api/services'
+import { chartOfAccountsService, journalEntryService } from '../api/services'
 import type { JournalEntry } from '../types'
+import { parseJournalBulkCsvFile } from '../utils/journalCsvImport'
 import { ApprovalPanel } from './ApprovalPanel'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
 import { useAuth } from '../context/AuthContext'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import {
+  isJournalDeletable,
   isJournalDraft,
   JOURNAL_CREATE_PATH,
   journalEditPath,
@@ -40,9 +42,15 @@ function GeneralLedger() {
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
+  const csvInputRef = useRef<HTMLInputElement | null>(null)
+  const approvalPanelRef = useRef<HTMLDivElement | null>(null)
   const canCreate = hasPermission('journal:create')
+  const selectedEntry = entries.find((entry) => entry.id === selectedId) || null
 
   const loadEntries = async () => {
     setLoading(true)
@@ -60,6 +68,71 @@ function GeneralLedger() {
   useEffect(() => {
     loadEntries()
   }, [])
+
+  useEffect(() => {
+    if (!selectedId) return
+    approvalPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedId])
+
+  const handleImportJournals = async (file: File | undefined) => {
+    if (!file) return
+    setImporting(true)
+    setError(null)
+    setImportMessage(null)
+    try {
+      const accounts = await chartOfAccountsService.listAccounts(0, 2000)
+      const parsed = await parseJournalBulkCsvFile(file, accounts)
+      if (parsed.journals.length === 0) {
+        const details = parsed.errors.map((row) => `${row.group_id}: ${row.message}`).join(' ')
+        setError(details || 'No balanced journals were found in the CSV.')
+        return
+      }
+      const skipNote = parsed.errors.length
+        ? `\n${parsed.errors.length} journal(s) have errors and will be skipped:\n${parsed.errors
+            .map((row) => `• ${row.group_id}: ${row.message}`)
+            .join('\n')}`
+        : ''
+      const confirmed = window.confirm(
+        `Import ${parsed.journals.length} balanced journal${parsed.journals.length === 1 ? '' : 's'} as drafts?${skipNote}`,
+      )
+      if (!confirmed) return
+      const result = await journalEntryService.bulkImport({ journals: parsed.journals })
+      const parts = [`Successfully imported ${result.created} journal${result.created === 1 ? '' : 's'}.`]
+      const failed = [...parsed.errors, ...result.errors]
+      if (failed.length) {
+        parts.push(`Failed: ${failed.map((row) => `${row.group_id} (${row.message})`).join('; ')}`)
+      }
+      setImportMessage(parts.join(' '))
+      if (failed.length && result.created === 0) {
+        setError(parts.join(' '))
+        setImportMessage(null)
+      }
+      await loadEntries()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import journals')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleDeleteJournal = async (entry: JournalEntry) => {
+    if (!isJournalDeletable(entry)) return
+    if (!window.confirm('Are you sure you want to delete this draft journal entry?')) return
+    setDeletingId(entry.id)
+    setError(null)
+    setImportMessage(null)
+    try {
+      await journalEntryService.deleteJournalEntry(entry.id)
+      if (selectedId === entry.id) setSelectedId(null)
+      if (viewingEntry?.id === entry.id) setViewingEntry(null)
+      setImportMessage('Draft journal entry deleted.')
+      await loadEntries()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete journal entry')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const formatCurrency = (amount: number) =>
     amount === 0
@@ -145,9 +218,30 @@ function GeneralLedger() {
         </div>
         <div style={headerActionsStyle}>
           {canCreate && (
-            <button style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
-              + Manual Journal Entry
-            </button>
+            <>
+              <button style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
+                + Manual Journal Entry
+              </button>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                disabled={importing}
+                onClick={() => csvInputRef.current?.click()}
+              >
+                {importing ? 'Importing…' : 'Import Journals (CSV)'}
+              </button>
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  void handleImportJournals(file)
+                }}
+              />
+            </>
           )}
           <button style={secondaryButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
             Run Month-End Close
@@ -155,12 +249,34 @@ function GeneralLedger() {
         </div>
       </div>
 
+      {importMessage && <div style={successBannerStyle}>{importMessage}</div>}
+      {error && <div style={errorBannerStyle}>{error}</div>}
+
+      {selectedId && (
+        <div ref={approvalPanelRef} style={approvalAnchorStyle}>
+          <div style={approvalContextStyle}>
+            <div>
+              <strong>Journal {shortJournalId(selectedId)}</strong>
+              {selectedEntry?.description ? ` — ${selectedEntry.description}` : ''}
+            </div>
+            <button type="button" style={closeButtonStyle} onClick={() => setSelectedId(null)}>
+              Close
+            </button>
+          </div>
+          <ApprovalPanel
+            module="journal-entries"
+            documentId={selectedId}
+            approvalStatus={selectedEntry?.approval_status}
+            currentApprovalStep={selectedEntry?.current_approval_step}
+            onStatusChange={loadEntries}
+          />
+        </div>
+      )}
+
       <div style={dashboardSectionStyle}>
         <h3 style={sectionTitleStyle}>Journal Entries</h3>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading journal entries...</div>
-        ) : error ? (
-          <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
         ) : sortedEntries.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No journal entries found.</div>
         ) : (
@@ -215,7 +331,14 @@ function GeneralLedger() {
               </thead>
               <tbody>
                 {sortedEntries.map((entry) => (
-                  <tr key={entry.id} style={directoryTbodyRowStyle}>
+                  <tr
+                    key={entry.id}
+                    style={
+                      entry.id === selectedId
+                        ? { ...directoryTbodyRowStyle, backgroundColor: '#e3f2fd' }
+                        : directoryTbodyRowStyle
+                    }
+                  >
                     <td style={directoryTdStyle}>
                       {formatDate(entry.posting_date || entry.created_at)}
                     </td>
@@ -245,10 +368,28 @@ function GeneralLedger() {
                         )}
                         <button
                           style={approvalButtonStyle}
-                          onClick={() => setSelectedId(entry.id)}
+                          onClick={() => {
+                            setSelectedId(entry.id)
+                            requestAnimationFrame(() => {
+                              approvalPanelRef.current?.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start',
+                              })
+                            })
+                          }}
                         >
                           Approval
                         </button>
+                        {canCreate && isJournalDeletable(entry) && (
+                          <button
+                            type="button"
+                            style={deleteButtonStyle}
+                            disabled={deletingId === entry.id}
+                            onClick={() => void handleDeleteJournal(entry)}
+                          >
+                            {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -259,20 +400,6 @@ function GeneralLedger() {
         )}
 
         <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
-
-        {selectedId && (
-          <ApprovalPanel
-            module="journal-entries"
-            documentId={selectedId}
-            approvalStatus={
-              entries.find((e) => e.id === selectedId)?.approval_status
-            }
-            currentApprovalStep={
-              entries.find((e) => e.id === selectedId)?.current_approval_step
-            }
-            onStatusChange={loadEntries}
-          />
-        )}
 
         <h3 style={sectionTitleStyle}>Posting Detail</h3>
         {loading ? null : sortedRows.length === 0 ? (
@@ -471,6 +598,13 @@ const viewButtonStyle: React.CSSProperties = {
   border: '1px solid #c8e6c9',
 }
 
+const deleteButtonStyle: React.CSSProperties = {
+  ...approvalButtonStyle,
+  backgroundColor: '#ffebee',
+  color: '#c62828',
+  border: '1px solid #ef9a9a',
+}
+
 const actionRowStyle: React.CSSProperties = {
   display: 'flex',
   gap: '6px',
@@ -511,6 +645,49 @@ const emptyStateWrapperStyle: React.CSSProperties = {
   textAlign: 'center',
   color: '#666',
   fontStyle: 'italic',
+}
+
+const successBannerStyle: React.CSSProperties = {
+  marginBottom: '16px',
+  padding: '10px 14px',
+  borderRadius: '8px',
+  background: '#e8f5e9',
+  border: '1px solid #a5d6a7',
+  color: '#1b5e20',
+  fontSize: '13px',
+}
+
+const errorBannerStyle: React.CSSProperties = {
+  ...successBannerStyle,
+  background: '#ffebee',
+  border: '1px solid #ef9a9a',
+  color: '#c62828',
+}
+
+const approvalAnchorStyle: React.CSSProperties = {
+  marginBottom: 16,
+  scrollMarginTop: 16,
+}
+
+const approvalContextStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 8,
+  fontSize: 13,
+  color: '#424242',
+}
+
+const closeButtonStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  backgroundColor: '#fff',
+  color: '#424242',
+  border: '1px solid #ddd',
+  borderRadius: 4,
+  cursor: 'pointer',
+  fontSize: 12,
+  fontFamily: 'inherit',
 }
 
 export default GeneralLedger

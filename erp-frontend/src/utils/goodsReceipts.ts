@@ -76,8 +76,8 @@ export function toJournalEntry(row: GoodsReceiptJournal): JournalEntry {
     period: row.period || null,
     posting_date: row.posting_date || null,
     reference: row.reference || null,
-    posting_status: (row.posting_status as JournalEntry['posting_status']) || 'Posted',
-    approval_status: (row.approval_status as JournalEntry['approval_status']) || 'APPROVED',
+    posting_status: (row.posting_status as JournalEntry['posting_status']) || 'Draft',
+    approval_status: (row.approval_status as JournalEntry['approval_status']) || 'DRAFT',
     postings,
   }
 }

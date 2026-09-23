@@ -17,7 +17,6 @@ from app.models import (
     Item,
     MaterialIssue,
     MaterialIssueLine,
-    SalesOrder,
     SubcontractOrder,
     SubcontractOrderComponent,
     SubcontractOrderItem,
@@ -52,8 +51,8 @@ from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
 from app.services.subcontract import (
-    PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
     apply_line_charge_sheet,
+    assert_linked_sales_order_approved,
     assert_sco_fulfillment_allowed,
     assert_sco_receive_allowed,
     assert_so_line_allocatable,
@@ -62,7 +61,6 @@ from app.services.subcontract import (
     list_eligible_sales_orders,
     remaining_qty_for_so_line,
     sales_order_subcontract_availability,
-    so_is_approved_for_sco,
     so_is_eligible,
 )
 
@@ -266,6 +264,29 @@ def preview_components(
     preview_lines: list[PreviewComponentLine] = []
     flat: list[CalculatedComponentLine] = []
 
+    if payload.sales_order_id:
+        try:
+            parent_so = assert_linked_sales_order_approved(db, payload.sales_order_id)
+            if parent_so is not None and not so_is_eligible(parent_so):
+                can_create = False
+                warnings.append(
+                    {
+                        "code": "SO_NOT_ELIGIBLE",
+                        "message": (
+                            f"Sales order {payload.sales_order_id} is {parent_so.status} "
+                            "and cannot be subcontracted"
+                        ),
+                    }
+                )
+        except HTTPException as exc:
+            can_create = False
+            warnings.append(
+                {
+                    "code": "SO_NOT_APPROVED",
+                    "message": exc.detail,
+                }
+            )
+
     seen_so_items: set[int] = set()
     for raw in payload.lines:
         if raw.so_item_id is not None:
@@ -401,21 +422,14 @@ def create_subcontract_order(
     payload: SubcontractOrderCreate, db: Session = Depends(get_db)
 ) -> SubcontractOrder:
     if payload.sales_order_id:
-        parent_so = db.get(SalesOrder, payload.sales_order_id)
-        if parent_so is None:
-            raise HTTPException(status_code=404, detail="Sales order not found")
-        if not so_is_eligible(parent_so):
+        parent_so = assert_linked_sales_order_approved(db, payload.sales_order_id)
+        if parent_so is not None and not so_is_eligible(parent_so):
             raise HTTPException(
                 status_code=400,
                 detail=(
                     f"Sales order {payload.sales_order_id} is {parent_so.status} "
                     "and cannot be subcontracted"
                 ),
-            )
-        if not so_is_approved_for_sco(getattr(parent_so, "approval_status", None)):
-            raise HTTPException(
-                status_code=400,
-                detail=PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
             )
 
     if db.get(Supplier, payload.supplier_id) is None:
@@ -700,6 +714,18 @@ def update_subcontract_order(
 
     data = payload.model_dump(exclude_unset=True)
     line_updates = data.pop("lines", None)
+
+    linked_so_id = data["sales_order_id"] if "sales_order_id" in data else sco.sales_order_id
+    if linked_so_id:
+        parent_so = assert_linked_sales_order_approved(db, linked_so_id)
+        if parent_so is not None and not so_is_eligible(parent_so):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Sales order {linked_so_id} is {parent_so.status} "
+                    "and cannot be subcontracted"
+                ),
+            )
 
     if line_updates is not None:
         approval = (sco.approval_status or "DRAFT").upper()

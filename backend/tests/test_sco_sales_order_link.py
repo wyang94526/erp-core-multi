@@ -3,7 +3,7 @@
 
 from unittest import TestCase
 
-from app.schemas import SubcontractOrderCreate, SubcontractOrderRead
+from app.schemas import SubcontractOrderCreate, SubcontractOrderRead, SubcontractOrderUpdate
 from app.routers.subcontract_orders import list_subcontract_orders
 from inspect import signature
 
@@ -17,6 +17,10 @@ class ScoSalesOrderLinkTests(TestCase):
             sales_order_id="PU61-26060001",
         )
         self.assertEqual(payload.sales_order_id, "PU61-26060001")
+
+    def test_update_schema_accepts_parent_sales_order_id(self):
+        fields = SubcontractOrderUpdate.model_fields
+        self.assertIn("sales_order_id", fields)
 
     def test_read_schema_exposes_parent_sales_order_id(self):
         fields = SubcontractOrderRead.model_fields

@@ -48,6 +48,10 @@ export function SalesOrderLookup({ value, onSelect, error, disabled }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  const approvedOrders = orders.filter(
+    (order) => (order.approval_status || '').toUpperCase() === 'APPROVED',
+  )
+
   const display = selected && selected.sales_order_id === value ? label(selected) : value
 
   return (
@@ -107,7 +111,7 @@ export function SalesOrderLookup({ value, onSelect, error, disabled }: Props) {
           >
             Clear selection
           </button>
-          {orders.map((order) => (
+          {approvedOrders.map((order) => (
             <button
               key={order.sales_order_id}
               type="button"
@@ -127,9 +131,9 @@ export function SalesOrderLookup({ value, onSelect, error, disabled }: Props) {
               </span>
             </button>
           ))}
-          {orders.length === 0 && (
+          {approvedOrders.length === 0 && (
             <div style={{ ...optionStyle, cursor: 'default' }}>
-              {isFetching ? 'Searching…' : 'No open sales orders found'}
+              {isFetching ? 'Searching…' : 'No approved sales orders found'}
             </div>
           )}
         </div>

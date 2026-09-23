@@ -45,11 +45,12 @@ def list_vendor_invoices(
 @router.get("/goods-receipts", response_model=list[GoodsReceiptRead])
 def list_posted_goods_receipts(
     vendor_id: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    return p2p.list_posted_goods_receipts(db, vendor_id=vendor_id, skip=skip, limit=limit)
+    return p2p.list_posted_goods_receipts(db, vendor_id=vendor_id, q=q, skip=skip, limit=limit)
 
 
 @router.get("/departments", response_model=list[DepartmentRead])
@@ -82,6 +83,7 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         ),
         payment_term_id=payload.payment_term_id,
         payment_terms=payload.payment_terms,
+        allocate_to_goods_receipt_id=payload.allocate_to_goods_receipt_id,
     )
     db.commit()
     return result

@@ -334,6 +334,10 @@ def create_ap_bill_for_purchase_order(db: Session, po: PurchaseOrder) -> APBill:
 # Cash Management + GL Postings
 # ==================================================================
 
+GENERATED_JOURNAL_POSTING_STATUS = "Draft"
+GENERATED_JOURNAL_APPROVAL_STATUS = "DRAFT"
+
+
 def _post_balanced_journal_entry(
     db: Session,
     description: str,
@@ -345,14 +349,21 @@ def _post_balanced_journal_entry(
     posted_by_user_id: UUID | None = None,
     posting_date: date | None = None,
 ) -> JournalEntry:
+    """Create a balanced two-line journal as Draft / DRAFT.
+
+    Receipts, invoices, payments, credit memos, and other automatic
+    postings enter the General Ledger as drafts so they can be reviewed,
+    approved, or deleted before month-end posting.
+    """
     today = posting_date or datetime.utcnow().date()
     period = today.strftime("%Y-%m")
     entry = JournalEntry(
         description=description,
         period=period,
         posting_date=today,
-        posting_status="Posted",
-        approval_status="APPROVED",
+        posting_status=GENERATED_JOURNAL_POSTING_STATUS,
+        approval_status=GENERATED_JOURNAL_APPROVAL_STATUS,
+        current_approval_step=None,
         reference=(reference.strip() if reference else None) or None,
         posted_by_user_id=posted_by_user_id,
     )
