@@ -1132,6 +1132,7 @@ class APBill(Base):
     supplier_invoice_id = Column(Integer, ForeignKey('supplier_invoices.id'), nullable=True)
     source_type = Column(String(30), nullable=True)
     source_order_id = Column(String(50), nullable=True)
+    reference_po_number = Column(String(50), nullable=True)
 
     amount = Column(Numeric(12, 2), nullable=False)
     status = Column(String(20), nullable=False, default='Unpaid')  # Unpaid, Partial, Paid
@@ -1290,6 +1291,42 @@ class BankAccount(Base):
     )
 
     gl_account = relationship("ChartOfAccount")
+
+
+class BankTransfer(Base):
+    """Internal movement of funds between company bank accounts."""
+
+    __tablename__ = "bank_transfers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    from_account_id = Column(
+        String(50),
+        ForeignKey("bank_accounts.bank_account_id"),
+        nullable=False,
+    )
+    to_account_id = Column(
+        String(50),
+        ForeignKey("bank_accounts.bank_account_id"),
+        nullable=False,
+    )
+    amount = Column(Numeric(12, 2), nullable=False)
+    transfer_date = Column(Date, nullable=False)
+    reference_number = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False, server_default=text("'DRAFT'"))
+    approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
+    current_approval_step = Column(Integer, nullable=True)
+    journal_entry_id = Column(UUID(as_uuid=True), ForeignKey("journal_entries.id"), nullable=True)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
+
+    __table_args__ = (
+        CheckConstraint("from_account_id <> to_account_id", name="chk_bank_transfer_distinct_accounts"),
+        CheckConstraint("amount > 0", name="chk_bank_transfer_amount_positive"),
+        CheckConstraint("status IN ('DRAFT', 'POSTED')", name="chk_bank_transfer_status"),
+    )
+
+    from_account = relationship("BankAccount", foreign_keys=[from_account_id])
+    to_account = relationship("BankAccount", foreign_keys=[to_account_id])
+    journal_entry = relationship("JournalEntry")
 
 
 class CashTransaction(Base):
@@ -1600,6 +1637,7 @@ class SupplierInvoice(Base):
     invoice_type = Column(String(20), nullable=False, server_default=text("'PO_MATCHED'"))
     source_type = Column(String(30), nullable=False)
     source_order_id = Column(String(50), nullable=True)
+    reference_po_number = Column(String(50), nullable=True)
     vendor_invoice_number = Column(String(100), nullable=True)
     invoice_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)

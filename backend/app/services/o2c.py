@@ -500,6 +500,38 @@ def update_fulfillment_status(
     return serialize_fulfillment(_load_fulfillment(db, fulfillment_id))
 
 
+def assert_fulfillment_can_be_deleted(fulfillment: ItemFulfillment) -> None:
+    status = (getattr(fulfillment, "status", None) or "").upper()
+    if status != "DRAFT":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only draft fulfillments can be deleted "
+                f"(current: {status}). Picked, packed, and shipped records cannot be removed."
+            ),
+        )
+
+
+def delete_fulfillment(db: Session, fulfillment_id: int) -> None:
+    fulfillment = _load_fulfillment(db, fulfillment_id)
+    assert_fulfillment_can_be_deleted(fulfillment)
+    linked_invoice = (
+        db.query(SalesInvoice.id)
+        .filter(SalesInvoice.fulfillment_id == fulfillment.id)
+        .first()
+    )
+    if linked_invoice is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a fulfillment that has a sales invoice",
+        )
+    for line in list(fulfillment.lines or []):
+        db.delete(line)
+    db.flush()
+    db.delete(fulfillment)
+    db.flush()
+
+
 def list_sales_invoices(db: Session, skip: int = 0, limit: int = 100) -> list[dict]:
     rows = (
         db.query(SalesInvoice)

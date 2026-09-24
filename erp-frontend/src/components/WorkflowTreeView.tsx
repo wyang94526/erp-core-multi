@@ -14,6 +14,7 @@ export const WORKFLOW_MODULES = [
   'AR_INVOICE',
   'AP_BILL',
   'CASH_TRANSACTION',
+  'BANK_TRANSFER',
   'JOURNAL_ENTRY',
 ] as const
 
@@ -55,6 +56,7 @@ export const MODULE_LABELS: Record<string, string> = {
   AR_INVOICE: 'AR Invoice',
   AP_BILL: 'AP Bill',
   CASH_TRANSACTION: 'Cash Transaction',
+  BANK_TRANSFER: 'Bank Transfer',
   JOURNAL_ENTRY: 'Journal Entry',
 }
 

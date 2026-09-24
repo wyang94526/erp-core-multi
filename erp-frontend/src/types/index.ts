@@ -985,10 +985,12 @@ export interface SalesInvoiceDoc {
 export interface APBill {
   bill_id: string;
   purchase_order_id: string | null;
+  po_number?: string | null;
   vendor_id: string;
   supplier_invoice_id?: number | null;
   source_type?: string | null;
   source_order_id?: string | null;
+  reference_po_number?: string | null;
   amount: number;
   status: 'Unpaid' | 'Partial' | 'Paid' | string;
   approval_status?: ApprovalStatus;
@@ -1080,6 +1082,7 @@ export interface SupplierInvoice {
   invoice_type: VendorInvoiceType;
   source_type: VendorInvoiceSourceType;
   source_order_id?: string | null;
+  reference_po_number?: string | null;
   vendor_invoice_number?: string | null;
   invoice_date: string;
   due_date: string;
@@ -1134,6 +1137,7 @@ export interface BankAccount {
   display_name?: string | null;
   is_default?: boolean;
   is_active?: boolean;
+  book_balance?: number | null;
 }
 
 export interface BankAccountWrite {
@@ -1146,6 +1150,32 @@ export interface BankAccountWrite {
   gl_account_id: string;
   is_default?: boolean;
   is_active?: boolean;
+}
+
+export type BankTransferStatus = 'DRAFT' | 'POSTED' | string
+
+export interface BankTransfer {
+  id: number
+  from_account_id: string
+  to_account_id: string
+  from_account_name?: string | null
+  to_account_name?: string | null
+  amount: number
+  transfer_date: string
+  reference_number?: string | null
+  status: BankTransferStatus
+  approval_status?: ApprovalStatus | string | null
+  current_approval_step?: number | null
+  journal_entry_id?: string | null
+  created_at?: string | null
+}
+
+export interface BankTransferWrite {
+  from_account_id: string
+  to_account_id: string
+  amount: number
+  transfer_date: string
+  reference_number?: string | null
 }
 
 export interface CashTransaction {
@@ -1197,6 +1227,66 @@ export interface JournalEntry {
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
   postings: LedgerPosting[];
+}
+
+export interface YearEndCloseAccount {
+  account_id: string
+  account_code: string
+  account_name: string
+  account_type: string
+}
+
+export interface YearEndCloseLine {
+  account_id: string
+  account_code: string
+  account_name: string
+  account_type: string
+  debit: number | string
+  credit: number | string
+  description: string
+}
+
+export interface YearEndClosePreview {
+  fiscal_year: number
+  period: string
+  close_date: string
+  year_still_open: boolean
+  retained_earnings: YearEndCloseAccount | null
+  revenue_total: number | string
+  expense_total: number | string
+  net_income: number | string
+  lines: YearEndCloseLine[]
+  ready: JournalEntry[]
+  held: JournalEntry[]
+  existing_journal: JournalEntry | null
+  can_run: boolean
+  blockers: string[]
+}
+
+export interface YearEndCloseResult {
+  message: string
+  journal: JournalEntry
+}
+
+export interface MonthEndClosePreview {
+  period: string
+  close_date: string
+  period_still_open: boolean
+  current_period_ni: YearEndCloseAccount | null
+  revenue_total: number | string
+  expense_total: number | string
+  net_income: number | string
+  lines: YearEndCloseLine[]
+  ready: JournalEntry[]
+  held: JournalEntry[]
+  existing_journal: JournalEntry | null
+  can_run: boolean
+  blockers: string[]
+}
+
+export interface MonthEndCloseResult {
+  message: string
+  journal: JournalEntry
 }
 
 export interface JournalEntryCreatePayload {

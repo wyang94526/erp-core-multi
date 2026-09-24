@@ -15,22 +15,16 @@ router = APIRouter(prefix="/ap-bills", tags=["ap-bills"])
 @router.get("", response_model=list[APBillRead])
 def list_ap_bills(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
-) -> list[APBill]:
-    return (
-        db.query(APBill)
-        .order_by(APBill.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+) -> list[dict]:
+    return finance.list_ap_bills(db, skip=skip, limit=limit)
 
 
 @router.get("/{bill_id}", response_model=APBillRead)
-def get_ap_bill(bill_id: str, db: Session = Depends(get_db)) -> APBill:
+def get_ap_bill(bill_id: str, db: Session = Depends(get_db)) -> dict:
     bill = db.get(APBill, bill_id)
     if not bill:
         raise HTTPException(status_code=404, detail="AP Bill not found")
-    return bill
+    return finance.serialize_ap_bill_row(db, bill)
 
 
 @router.get("/{bill_id}/detail", response_model=APBillDetailRead)

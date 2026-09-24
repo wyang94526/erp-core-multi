@@ -7,6 +7,7 @@ import type { JournalEntry } from '../types'
 
 export const JOURNAL_CREATE_PATH = '/general-ledger/journals/new'
 export const MONTH_END_CLOSE_PATH = '/general-ledger/month-end-close'
+export const YEAR_END_CLOSE_PATH = '/general-ledger/year-end-close'
 
 export function journalEditPath(id: string) {
   return `/general-ledger/journals/${id}/edit`

@@ -91,6 +91,26 @@ def test_expense_rejects_po_match_lines():
     assert "distributions" in str(exc.value.detail)
 
 
+def test_schema_accepts_optional_reference_po_number():
+    payload = SupplierInvoiceCreate(
+        invoice_type="EXPENSE",
+        source_type="NON_PO",
+        vendor_id="V-100",
+        reference_po_number="PU62-26090001",
+        currency="USD",
+        distributions=[
+            {
+                "gl_account_id": uuid4(),
+                "amount": "40.00",
+                "description": "Import duty",
+            }
+        ],
+    )
+    assert payload.reference_po_number == "PU62-26090001"
+    assert payload.source_type == "NON_PO"
+    assert payload.source_order_id is None
+
+
 def test_schema_allows_non_po_without_po_id():
     payload = SupplierInvoiceCreate(
         invoice_type="EXPENSE",

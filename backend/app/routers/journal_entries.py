@@ -17,6 +17,11 @@ from app.schemas import (
     JournalEntryRead,
     JournalEntryUpdate,
     MonthEndClosePreview,
+    MonthEndCloseRequest,
+    MonthEndCloseResult,
+    YearEndClosePreview,
+    YearEndCloseRequest,
+    YearEndCloseResult,
 )
 from app.services.accounting import (
     normalize_journal_period,
@@ -24,6 +29,7 @@ from app.services.accounting import (
     validate_journal_balance,
     validate_posting_rows,
 )
+from app.services import month_end_close, year_end_close
 
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
 
@@ -98,57 +104,71 @@ def list_journal_entries(
 
 @router.get("/month-end-close", response_model=MonthEndClosePreview)
 def preview_month_end_close(
+    period: str | None = None,
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("journal:view")),
 ) -> dict:
-    drafts = (
-        db.query(JournalEntry)
-        .options(_POSTING_LOAD)
-        .filter(JournalEntry.posting_status == "Draft")
-        .order_by(JournalEntry.created_at.desc())
-        .all()
+    return month_end_close.preview_month_end_close(db, period=period)
+
+
+@router.post("/month-end-close", response_model=MonthEndCloseResult)
+def run_month_end_close(
+    payload: MonthEndCloseRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("journal:create")),
+) -> dict:
+    """Create a Draft / DRAFT monthly closing journal. It does not post until approved."""
+    body = payload or MonthEndCloseRequest()
+    entry = month_end_close.run_month_end_close(
+        db,
+        user,
+        period=body.period,
+        current_period_ni_account_id=body.current_period_ni_account_id,
     )
-    ready = [entry for entry in drafts if (entry.approval_status or "").upper() == "APPROVED"]
-    held = [entry for entry in drafts if (entry.approval_status or "").upper() != "APPROVED"]
+    db.commit()
+    loaded = month_end_close.find_month_end_journal(
+        db, month_end_close.resolve_period(body.period)
+    )
     return {
-        "period": datetime.utcnow().strftime("%Y-%m"),
-        "ready": ready,
-        "held": held,
+        "message": (
+            "Month-end close journal created as Draft. Submit it for approval; "
+            "P&L does not move until the journal is approved and posted."
+        ),
+        "journal": loaded or entry,
     }
 
 
-@router.post("/month-end-close")
-def run_month_end_close(
+@router.get("/year-end-close", response_model=YearEndClosePreview)
+def preview_year_end_close(
+    fiscal_year: int | None = None,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("journal:approve")),
+    _user: User = Depends(require_permission("journal:view")),
 ) -> dict:
-    """
-    Batch-posting operation for the Month-End Close process.
+    return year_end_close.preview_year_end_close(db, fiscal_year=fiscal_year)
 
-    Finds approved Journal Entries still sitting in 'Draft' posting_status
-    and flips them to 'Posted'. Unapproved drafts are left for the approval
-    workflow. This MUST be declared before the "/{entry_id}" routes below.
-    """
-    draft_entries = (
-        db.query(JournalEntry)
-        .filter(
-            JournalEntry.posting_status == "Draft",
-            JournalEntry.approval_status == "APPROVED",
-        )
-        .all()
+
+@router.post("/year-end-close", response_model=YearEndCloseResult)
+def run_year_end_close(
+    payload: YearEndCloseRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("journal:create")),
+) -> dict:
+    """Create a Draft / DRAFT closing journal. It does not post until approved."""
+    body = payload or YearEndCloseRequest()
+    entry = year_end_close.run_year_end_close(
+        db,
+        user,
+        fiscal_year=body.fiscal_year,
+        retained_earnings_account_id=body.retained_earnings_account_id,
     )
-
-    posted_ids: list[str] = []
-    for entry in draft_entries:
-        entry.posting_status = "Posted"
-        posted_ids.append(str(entry.id))
-
     db.commit()
-
+    loaded = year_end_close.find_year_end_journal(db, year_end_close.resolve_fiscal_year(body.fiscal_year))
     return {
-        "message": "Month-End Close process completed.",
-        "entries_posted": len(posted_ids),
-        "journal_entry_ids": posted_ids,
+        "message": (
+            "Year-end close journal created as Draft. Submit it for approval; "
+            "P&L does not move until the journal is approved and posted."
+        ),
+        "journal": loaded or entry,
     }
 
 

@@ -19,6 +19,7 @@ import {
   JOURNAL_CREATE_PATH,
   journalEditPath,
   MONTH_END_CLOSE_PATH,
+  YEAR_END_CLOSE_PATH,
   shortJournalId,
 } from '../utils/journalEntries'
 
@@ -245,6 +246,9 @@ function GeneralLedger() {
           )}
           <button style={secondaryButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
             Run Month-End Close
+          </button>
+          <button style={secondaryButtonStyle} onClick={() => navigate(YEAR_END_CLOSE_PATH)}>
+            Year-End Close
           </button>
         </div>
       </div>

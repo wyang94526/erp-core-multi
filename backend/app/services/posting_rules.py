@@ -25,6 +25,8 @@ EVENT_SALES_INVOICE = "SALES_INVOICE"
 EVENT_SALES_CREDIT = "SALES_CREDIT"
 EVENT_AR_PAYMENT = "AR_PAYMENT"
 EVENT_AP_PAYMENT = "AP_PAYMENT"
+EVENT_MONTH_END_CLOSE = "MONTH_END_CLOSE"
+EVENT_YEAR_END_CLOSE = "YEAR_END_CLOSE"
 
 VARIANT_MATERIALS = "MATERIALS"
 VARIANT_SUBCONTRACT = "SUBCONTRACT"
@@ -37,6 +39,7 @@ VARIANT_LANDED_COST = "LANDED_COST"
 VARIANT_REVENUE = "REVENUE"
 VARIANT_SETTLE = "SETTLE"
 VARIANT_CREDIT_MEMO = "CREDIT_MEMO"
+VARIANT_CLOSE = "CLOSE"
 
 PARTY_TRADE = "TRADE"
 PARTY_RELATED = "RELATED"
@@ -49,6 +52,8 @@ EVENT_LABELS = {
     EVENT_SALES_CREDIT: "Sales credit memo",
     EVENT_AR_PAYMENT: "Customer payment",
     EVENT_AP_PAYMENT: "Vendor payment",
+    EVENT_MONTH_END_CLOSE: "Month-end close",
+    EVENT_YEAR_END_CLOSE: "Year-end close",
 }
 
 VARIANT_LABELS = {
@@ -63,6 +68,7 @@ VARIANT_LABELS = {
     VARIANT_REVENUE: "Revenue",
     VARIANT_SETTLE: "Settle open item",
     VARIANT_CREDIT_MEMO: "Reverse revenue",
+    VARIANT_CLOSE: "Closing journal target",
 }
 
 PARTY_LABELS = {
@@ -397,6 +403,34 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "credit_type": "Asset",
         "sort_order": 141,
     },
+    {
+        "rule_code": "MEC_CLOSE",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_CLOSE,
+        "party_scope": PARTY_ANY,
+        "name": "Month-end close — P&L to current-period net income",
+        "debit_code": "4110001",
+        "debit_name": "Sales Revenue",
+        "debit_type": "Revenue",
+        "credit_code": "3353",
+        "credit_name": "Net income or loss for current period-BS",
+        "credit_type": "Equity",
+        "sort_order": 200,
+    },
+    {
+        "rule_code": "YEC_CLOSE",
+        "event_code": EVENT_YEAR_END_CLOSE,
+        "variant": VARIANT_CLOSE,
+        "party_scope": PARTY_ANY,
+        "name": "Year-end close — current-period NI to retained earnings",
+        "debit_code": "3353",
+        "debit_name": "Net income or loss for current period-BS",
+        "debit_type": "Equity",
+        "credit_code": "3350",
+        "credit_name": "Retained earnings-unappropriated (or accumulated deficit)",
+        "credit_type": "Equity",
+        "sort_order": 210,
+    },
 )
 
 _DEFAULT_BY_KEY = {
@@ -493,7 +527,13 @@ def resolve_posting_pair(
     """Debit and credit accounts for an automated posting action."""
     ensure_default_posting_rules(db)
     party = party_scope_for(supplier) if supplier is not None else PARTY_TRADE
-    if event_code in {EVENT_SALES_INVOICE, EVENT_SALES_CREDIT, EVENT_AR_PAYMENT}:
+    if event_code in {
+        EVENT_SALES_INVOICE,
+        EVENT_SALES_CREDIT,
+        EVENT_AR_PAYMENT,
+        EVENT_MONTH_END_CLOSE,
+        EVENT_YEAR_END_CLOSE,
+    }:
         party = PARTY_ANY
     rows = (
         db.query(PostingRule)
@@ -521,6 +561,11 @@ def resolve_posting_pair(
     debit = _ensure_account(db, spec["debit_code"], spec["debit_name"], spec["debit_type"])
     credit = _ensure_account(db, spec["credit_code"], spec["credit_name"], spec["credit_type"])
     return debit, credit
+
+
+def resolve_close_pair(db: Session, event_code: str) -> tuple[ChartOfAccount, ChartOfAccount]:
+    """Debit/credit targets for month-end or year-end close journals."""
+    return resolve_posting_pair(db, event_code, VARIANT_CLOSE)
 
 
 def serialize_posting_rule(rule: PostingRule) -> dict[str, Any]:

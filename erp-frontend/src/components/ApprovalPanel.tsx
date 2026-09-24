@@ -18,6 +18,7 @@ const MODULE_SUBMIT: Record<string, string> = {
   'ar-invoices': 'ar_invoice:submit',
   'ap-bills': 'ap_bill:submit',
   'cash-transactions': 'cash:submit',
+  'bank-transfers': 'cash:submit',
   'journal-entries': 'journal:submit',
 }
 
@@ -28,6 +29,7 @@ const MODULE_APPROVE: Record<string, string> = {
   'ar-invoices': 'ar_invoice:approve',
   'ap-bills': 'ap_bill:approve',
   'cash-transactions': 'cash:approve',
+  'bank-transfers': 'cash:approve',
   'journal-entries': 'journal:approve',
 }
 

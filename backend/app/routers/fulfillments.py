@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -59,3 +59,9 @@ def update_fulfillment_status(
     )
     db.commit()
     return result
+
+
+@router.delete("/{fulfillment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_fulfillment(fulfillment_id: int, db: Session = Depends(get_db)) -> None:
+    o2c.delete_fulfillment(db, fulfillment_id)
+    db.commit()

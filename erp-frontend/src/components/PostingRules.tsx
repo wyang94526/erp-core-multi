@@ -142,8 +142,11 @@ function PostingRules() {
         <div>
           <h2 style={pageTitleStyle}>Posting Rules</h2>
           <p style={pageSubStyle}>
-            When a document is posted, the engine creates a journal using these debit and credit
-            accounts. Vendor AP mapping and bank GL still override AP and cash.
+            Auto-generated journals read these debit and credit accounts. Change them here to
+            maintain your chart — the next posting uses the new setup. Vendor AP mapping and
+            bank-account G/L still override AP and cash. Month-end uses the credit account on
+            Month-end close; year-end uses debit = current-period NI and credit = retained
+            earnings.
           </p>
         </div>
       </header>

@@ -48,9 +48,13 @@ import CashManagement from './components/CashManagement'
 import BankAccounts from './components/BankAccounts'
 import BankAccountDetail from './components/BankAccountDetail'
 import BankAccountForm from './components/BankAccountForm'
+import BankTransferList from './components/BankTransferList'
+import BankTransferForm from './components/BankTransferForm'
+import BankTransferDetail from './components/BankTransferDetail'
 import GeneralLedger from './components/GeneralLedger'
 import { ManualJournalEntryPage } from './components/ManualJournalEntryPage'
 import { MonthEndClosePage } from './components/MonthEndClosePage'
+import { YearEndClosePage } from './components/YearEndClosePage'
 import FinancialReports from './components/FinancialReports'
 import FinancialReportViewer from './components/FinancialReportViewer'
 import InventoryOverview from './components/InventoryOverview'
@@ -322,6 +326,22 @@ export const router = createBrowserRouter([
         element: <BankAccountDetail />,
       },
       {
+        path: 'bank-transfers',
+        element: <BankTransferList />,
+      },
+      {
+        path: 'bank-transfers/new',
+        element: <BankTransferForm />,
+      },
+      {
+        path: 'bank-transfers/:id/edit',
+        element: <BankTransferForm />,
+      },
+      {
+        path: 'bank-transfers/:id',
+        element: <BankTransferDetail />,
+      },
+      {
         path: 'general-ledger',
         element: <GeneralLedger />,
       },
@@ -336,6 +356,10 @@ export const router = createBrowserRouter([
       {
         path: 'general-ledger/month-end-close',
         element: <MonthEndClosePage />,
+      },
+      {
+        path: 'general-ledger/year-end-close',
+        element: <YearEndClosePage />,
       },
       {
         path: 'financial-reports',

@@ -7,6 +7,7 @@ from unittest import TestCase
 from fastapi import HTTPException
 
 from app.services.o2c import (
+    assert_fulfillment_can_be_deleted,
     assert_fulfillment_qty_within_ordered,
     over_fulfillment_detail,
 )
@@ -50,6 +51,14 @@ class FulfillmentQtyValidationTests(TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "quantity_fulfilled must be positive")
+
+    def test_only_draft_fulfillments_can_be_deleted(self):
+        assert_fulfillment_can_be_deleted(SimpleNamespace(status="DRAFT"))
+        for status in ("PICKED", "PACKED", "SHIPPED"):
+            with self.assertRaises(HTTPException) as ctx:
+                assert_fulfillment_can_be_deleted(SimpleNamespace(status=status))
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("draft", str(ctx.exception.detail).lower())
 
     def test_helper_is_independent_of_sales_order_namespace(self):
         line = SimpleNamespace(item_id="SKU-1", quantity_ordered=3)

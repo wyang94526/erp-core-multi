@@ -21,6 +21,7 @@ from app.models import (
     APBill,
     ARInvoice,
     ApprovalAuditLog,
+    BankTransfer,
     CashTransaction,
     JournalEntry,
     PurchaseOrder,
@@ -58,6 +59,10 @@ MODULE_CANONICAL = {
     "cash-transactions": "CASH_TRANSACTION",
     "cash_transaction": "CASH_TRANSACTION",
     "CASH_TRANSACTION": "CASH_TRANSACTION",
+    "bank-transfers": "BANK_TRANSFER",
+    "bank_transfer": "BANK_TRANSFER",
+    "bank-transfer": "BANK_TRANSFER",
+    "BANK_TRANSFER": "BANK_TRANSFER",
     "je": "JOURNAL_ENTRY",
     "journal-entries": "JOURNAL_ENTRY",
     "journal": "JOURNAL_ENTRY",
@@ -72,6 +77,7 @@ LEGACY_MODULES = {
     "AR_INVOICE": "ar-invoices",
     "AP_BILL": "ap-bills",
     "CASH_TRANSACTION": "cash-transactions",
+    "BANK_TRANSFER": "bank-transfers",
     "JOURNAL_ENTRY": "journal-entries",
 }
 
@@ -82,6 +88,7 @@ SUBMIT_PERMISSION = {
     "AR_INVOICE": "ar_invoice:submit",
     "AP_BILL": "ap_bill:submit",
     "CASH_TRANSACTION": "cash:submit",
+    "BANK_TRANSFER": "cash:submit",
     "JOURNAL_ENTRY": "journal:submit",
 }
 
@@ -92,6 +99,7 @@ APPROVE_PERMISSION = {
     "AR_INVOICE": "ar_invoice:approve",
     "AP_BILL": "ap_bill:approve",
     "CASH_TRANSACTION": "cash:approve",
+    "BANK_TRANSFER": "cash:approve",
     "JOURNAL_ENTRY": "journal:approve",
 }
 
@@ -158,9 +166,24 @@ def _on_po_approved(db: Session, doc: PurchaseOrder) -> None:
     doc.status = "Approved"
 
 
+def _bt_amount(doc: BankTransfer) -> Decimal:
+    return Decimal(str(doc.amount or 0))
+
+
+def _on_bank_transfer_approved(db: Session, doc: BankTransfer) -> None:
+    finance.ensure_transfer_journal(db, doc)
+
+
 def _on_je_approved(db: Session, doc: JournalEntry) -> None:
     if doc.posting_status == "Draft":
         doc.posting_status = "Posted"
+    transfer = (
+        db.query(BankTransfer)
+        .filter(BankTransfer.journal_entry_id == doc.id)
+        .one_or_none()
+    )
+    if transfer is not None and (transfer.status or "").upper() != "POSTED":
+        transfer.status = "POSTED"
 
 
 MODULE_CONFIG: dict[str, dict[str, Any]] = {
@@ -206,6 +229,14 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "on_approve": None,
         "legacy": "cash-transactions",
     },
+    "BANK_TRANSFER": {
+        "model": BankTransfer,
+        "id_attr": "id",
+        "amount_fn": _bt_amount,
+        "on_approve": _on_bank_transfer_approved,
+        "id_cast": int,
+        "legacy": "bank-transfers",
+    },
     "JOURNAL_ENTRY": {
         "model": JournalEntry,
         "id_attr": "id",
@@ -227,6 +258,11 @@ def _load_document(db: Session, canonical: str, document_id: str) -> Any:
         try:
             lookup_id = UUID(document_id)
         except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid document id") from exc
+    elif cast is int:
+        try:
+            lookup_id = int(document_id)
+        except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="Invalid document id") from exc
     query = db.query(model)
     if canonical == "JOURNAL_ENTRY":

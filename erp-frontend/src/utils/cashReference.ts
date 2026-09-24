@@ -21,7 +21,6 @@ export function sourceOrderHref(
   const id = (sourceOrderId || '').trim()
   if (!id) return null
   const type = (sourceType || '').toUpperCase()
-  if (type === 'NON_PO' && !id) return null
   if (
     type === 'SUBCONTRACT_ORDER' ||
     id.toUpperCase().startsWith('SCO-') ||
@@ -29,6 +28,12 @@ export function sourceOrderHref(
   ) {
     return `/subcontract-orders/${encodeURIComponent(id)}`
   }
+  return `/purchase-orders/${encodeURIComponent(id)}`
+}
+
+export function purchaseOrderHref(poNumber: string | null | undefined): string | null {
+  const id = (poNumber || '').trim()
+  if (!id) return null
   return `/purchase-orders/${encodeURIComponent(id)}`
 }
 

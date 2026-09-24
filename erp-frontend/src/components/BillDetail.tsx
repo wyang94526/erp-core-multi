@@ -10,7 +10,7 @@ import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Send } from
 import { apBillService, vendorInvoiceService } from '../api/services'
 import type { APBillDetail } from '../types'
 import { generateSupplierBillPdf } from '../utils/generateSupplierBillPdf'
-import { cashReferenceLinkStyle, sourceOrderHref } from '../utils/cashReference'
+import { cashReferenceLinkStyle, purchaseOrderHref, sourceOrderHref } from '../utils/cashReference'
 import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPaymentDialog'
 
 const money = (n: number | null | undefined, currency = 'USD') =>
@@ -99,8 +99,9 @@ export function BillDetail() {
   const collectionBadge = statusColors(detail?.display_status || detail?.status || '')
   const approvalBadge = statusColors(detail?.approval_status || '')
   const siStatus = (detail?.supplier_invoice_status || '').toUpperCase()
-  const sourceId = detail?.source_order_id || detail?.purchase_order_id || ''
-  const sourceHref = sourceOrderHref(detail?.source_type, sourceId)
+  const poId = detail?.purchase_order_id || detail?.po_number || detail?.reference_po_number || null
+  const sourceId = poId || detail?.source_order_id || ''
+  const sourceHref = poId ? purchaseOrderHref(poId) : sourceOrderHref(detail?.source_type, sourceId)
   const unpaid = Boolean(detail) && detail!.status !== 'Paid' && (detail!.display_status || '') !== 'Paid'
   const approved =
     (detail?.approval_status || '').toUpperCase() === 'APPROVED' || siStatus === 'APPROVED'

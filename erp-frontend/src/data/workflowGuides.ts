@@ -273,6 +273,20 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
           { label: 'Dashboard KPIs', to: '/' },
         ],
       },
+      {
+        id: 'close-month',
+        title: 'Month-End Close',
+        navPath: 'Finance & Accounting ▸ General Ledger & Setup ▸ Month-End Close',
+        body: 'Generate the monthly P&L closing journal into current-period net income (3353). The journal stays Draft until it is approved. Operational journals still post through their own approval.',
+        links: [{ label: 'Month-End Close', to: '/general-ledger/month-end-close' }],
+      },
+      {
+        id: 'close-year',
+        title: 'Year-End Close',
+        navPath: 'Finance & Accounting ▸ General Ledger & Setup ▸ Year-End Close',
+        body: 'After monthly closes are approved, generate the annual journal that moves remaining P&L and current-period net income into retained earnings (3350). The journal stays Draft until it is approved.',
+        links: [{ label: 'Year-End Close', to: '/general-ledger/year-end-close' }],
+      },
     ],
   },
 ]
@@ -303,6 +317,6 @@ export const WORKFLOW_FLOW_LANES: Array<{
   {
     id: 'close',
     label: 'Period Close',
-    nodes: ['Reconcile Sub-ledgers', 'Adjusting Entries', 'Financial Statements'],
+    nodes: ['Reconcile Sub-ledgers', 'Adjusting Entries', 'Financial Statements', 'Year-End Close'],
   },
 ]

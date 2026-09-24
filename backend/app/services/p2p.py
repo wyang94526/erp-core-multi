@@ -130,6 +130,14 @@ def assert_po_approved_for_p2p(po: PurchaseOrder, *, action: str) -> None:
         )
 
 
+def require_approved_reference_po(db: Session, po_number: str) -> PurchaseOrder:
+    po = db.get(PurchaseOrder, po_number)
+    if po is None:
+        raise HTTPException(status_code=400, detail="Reference purchase order not found")
+    assert_po_approved_for_p2p(po, action="use as a tracking reference")
+    return po
+
+
 def po_downstream_flags(db: Session, po_number: str) -> tuple[bool, bool]:
     has_receipts = (
         db.query(GoodsReceipt.id)
@@ -1022,6 +1030,7 @@ def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
         "invoice_type": getattr(row, "invoice_type", None) or "PO_MATCHED",
         "source_type": row.source_type,
         "source_order_id": row.source_order_id,
+        "reference_po_number": getattr(row, "reference_po_number", None),
         "vendor_invoice_number": row.vendor_invoice_number,
         "invoice_date": row.invoice_date,
         "due_date": row.due_date,
@@ -1529,6 +1538,7 @@ def create_supplier_invoice(
     *,
     source_type: str | None = None,
     source_order_id: str | None = None,
+    reference_po_number: str | None = None,
     vendor_id: str | None = None,
     invoice_type: str | None = None,
     vendor_invoice_number: str | None = None,
@@ -1557,6 +1567,7 @@ def create_supplier_invoice(
             invoice_type=resolved_type,
             source_type=source_type or "NON_PO",
             source_order_id=source_order_id,
+            reference_po_number=reference_po_number,
             vendor_id=vendor_id or "",
             vendor_invoice_number=vendor_invoice_number,
             invoice_date=invoice_date,
@@ -1795,6 +1806,7 @@ def _create_non_po_invoice(
     invoice_type: str,
     source_type: str,
     source_order_id: str | None,
+    reference_po_number: str | None = None,
     vendor_id: str,
     vendor_invoice_number: str | None,
     invoice_date: date | None,
@@ -1810,6 +1822,10 @@ def _create_non_po_invoice(
     vendor = db.get(Supplier, vendor_id)
     if vendor is None:
         raise HTTPException(status_code=400, detail="Vendor not found")
+    reference_po = (reference_po_number or "").strip() or None
+    if reference_po:
+        require_approved_reference_po(db, reference_po)
+        source_order_id = source_order_id or reference_po
     if source_order_id:
         po = db.get(PurchaseOrder, source_order_id)
         sco = (
@@ -1819,6 +1835,8 @@ def _create_non_po_invoice(
         )
         if po is None and sco is None:
             raise HTTPException(status_code=400, detail="Source order not found")
+        if reference_po is None and po is not None:
+            reference_po = source_order_id
 
     issue = invoice_date or date.today()
     tax = _d(tax_amount)
@@ -1877,6 +1895,10 @@ def _create_non_po_invoice(
             linked_receipt = db.get(GoodsReceipt, linked_receipt_id)
             if linked_receipt is not None:
                 source_order_id = linked_receipt.source_order_id
+                if reference_po is None and linked_receipt.source_order_id:
+                    linked_po = db.get(PurchaseOrder, linked_receipt.source_order_id)
+                    if linked_po is not None and (linked_po.approval_status or "").upper() == "APPROVED":
+                        reference_po = linked_receipt.source_order_id
 
     due, term = apply_due_date(
         db,
@@ -1892,6 +1914,7 @@ def _create_non_po_invoice(
         invoice_type=invoice_type,
         source_type=source_type,
         source_order_id=source_order_id,
+        reference_po_number=reference_po,
         vendor_invoice_number=vendor_invoice_number,
         invoice_date=issue,
         due_date=due,
@@ -1960,15 +1983,26 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
     if invoice.ap_bill_id:
         bill = db.get(APBill, invoice.ap_bill_id)
     if bill is None:
+        tracking_po = (
+            getattr(invoice, "reference_po_number", None)
+            or invoice.source_order_id
+        )
+        linked_po = (
+            tracking_po
+            if tracking_po and db.get(PurchaseOrder, tracking_po) is not None
+            else None
+        )
         bill = APBill(
             bill_id=invoice.invoice_number,
             purchase_order_id=invoice.source_order_id
             if invoice.source_type == "PURCHASE_ORDER"
+            or linked_po
             else None,
             vendor_id=invoice.vendor_id,
             supplier_invoice_id=invoice.id,
             source_type=invoice.source_type,
             source_order_id=invoice.source_order_id,
+            reference_po_number=getattr(invoice, "reference_po_number", None) or linked_po,
             amount=total,
             status="Unpaid",
             approval_status="APPROVED",

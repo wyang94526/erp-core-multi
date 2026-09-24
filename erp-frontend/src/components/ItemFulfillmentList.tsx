@@ -94,6 +94,24 @@ export function ItemFulfillmentList() {
     },
   })
 
+  const handleDelete = async (ful: ItemFulfillment) => {
+    if (ful.status !== 'DRAFT') return
+    if (!window.confirm(`Delete draft fulfillment ${ful.fulfillment_number}? This cannot be undone.`)) {
+      return
+    }
+    setBusy(true)
+    try {
+      await fulfillmentService.remove(ful.id)
+      setSelected(null)
+      await queryClient.invalidateQueries({ queryKey: ['fulfillments'] })
+      await queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete fulfillment')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const advanceStatus = async (ful: ItemFulfillment, status: string) => {
     if (shipBlocked && status !== 'DRAFT') {
       window.alert(overFulfillBanner || 'Total fulfillment quantity cannot exceed the ordered quantity.')
@@ -285,6 +303,21 @@ export function ItemFulfillmentList() {
                   onClick={() => advanceStatus(selected, 'PICKED')}
                 >
                   Mark Picked
+                </button>
+              ) : null}
+              {selected.status === 'DRAFT' ? (
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    backgroundColor: '#c62828',
+                    ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+                  }}
+                  disabled={busy}
+                  title="Delete this draft fulfillment"
+                  onClick={() => void handleDelete(selected)}
+                >
+                  Delete
                 </button>
               ) : null}
               {selected.status === 'PICKED' ? (

@@ -23,8 +23,9 @@ def list_bank_accounts(active_only: bool = True, db: Session = Depends(get_db)):
     if active_only:
         query = query.filter(BankAccount.is_active.is_(True))
     rows = query.order_by(BankAccount.is_default.desc(), BankAccount.bank_name.asc()).all()
+    payload = finance.serialize_bank_accounts_with_balances(db, rows)
     db.commit()
-    return [finance.serialize_bank_account(row) for row in rows]
+    return payload
 
 
 @router.get("/{bank_account_id}", response_model=BankAccountRead)
@@ -32,7 +33,7 @@ def get_bank_account(bank_account_id: str, db: Session = Depends(get_db)):
     account = _bank_query(db).filter(BankAccount.bank_account_id == bank_account_id).one_or_none()
     if account is None:
         raise HTTPException(status_code=404, detail="Bank account not found")
-    return finance.serialize_bank_account(account)
+    return finance.serialize_bank_accounts_with_balances(db, [account])[0]
 
 
 @router.post("", response_model=BankAccountRead, status_code=status.HTTP_201_CREATED)

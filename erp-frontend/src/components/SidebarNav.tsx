@@ -8,6 +8,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   CalendarCheck,
+  CalendarRange,
   Clock,
   CreditCard,
   DollarSign,
@@ -62,6 +63,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   'shield-check': ShieldCheck,
   'book-open': BookOpen,
   'calendar-check': CalendarCheck,
+  'calendar-range': CalendarRange,
 }
 
 function NavIcon({ name, size }: { name?: string; size: number }) {

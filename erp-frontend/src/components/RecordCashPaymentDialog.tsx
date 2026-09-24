@@ -79,7 +79,7 @@ export function RecordCashPaymentDialog({
     setPaymentDate(todayISO())
     setInstrumentRef('')
     void bankAccountService
-      .listAccounts()
+      .getBankAccounts(true)
       .then((rows) => {
         if (cancelled) return
         setAccounts(rows)

@@ -29,13 +29,14 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import Date, and_, cast, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import (
     APBill,
     ARInvoice,
     BankAccount,
+    BankTransfer,
     CashTransaction,
     ChartOfAccount,
     Customer,
@@ -49,6 +50,7 @@ from app.models import (
     SupplierInvoice,
     SupplierInvoiceDistribution,
 )
+from app.services.financial_reports import signed_balance
 from app.services.payment_terms import due_days_for, due_days_from_string
 from app.services.posting_rules import (
     EVENT_AR_PAYMENT,
@@ -348,12 +350,15 @@ def _post_balanced_journal_entry(
     reference: str | None = None,
     posted_by_user_id: UUID | None = None,
     posting_date: date | None = None,
+    posting_status: str | None = None,
+    approval_status: str | None = None,
 ) -> JournalEntry:
-    """Create a balanced two-line journal as Draft / DRAFT.
+    """Create a balanced two-line journal.
 
     Receipts, invoices, payments, credit memos, and other automatic
-    postings enter the General Ledger as drafts so they can be reviewed,
-    approved, or deleted before month-end posting.
+    postings default to Draft / DRAFT so they can be reviewed before
+    month-end. Posted bank transfers pass Posted / APPROVED so the
+    cash movement hits G/L balances immediately.
     """
     today = posting_date or datetime.utcnow().date()
     period = today.strftime("%Y-%m")
@@ -361,8 +366,8 @@ def _post_balanced_journal_entry(
         description=description,
         period=period,
         posting_date=today,
-        posting_status=GENERATED_JOURNAL_POSTING_STATUS,
-        approval_status=GENERATED_JOURNAL_APPROVAL_STATUS,
+        posting_status=posting_status or GENERATED_JOURNAL_POSTING_STATUS,
+        approval_status=approval_status or GENERATED_JOURNAL_APPROVAL_STATUS,
         current_approval_step=None,
         reference=(reference.strip() if reference else None) or None,
         posted_by_user_id=posted_by_user_id,
@@ -458,7 +463,7 @@ def gl_account_display(account: ChartOfAccount | None) -> str | None:
     return code or name or None
 
 
-def serialize_bank_account(account: BankAccount) -> dict:
+def serialize_bank_account(account: BankAccount, book_balance: Decimal | None = None) -> dict:
     gl = getattr(account, "gl_account", None)
     return {
         "bank_account_id": account.bank_account_id,
@@ -476,6 +481,7 @@ def serialize_bank_account(account: BankAccount) -> dict:
         "display_name": bank_account_display(account),
         "is_default": bool(account.is_default),
         "is_active": bool(account.is_active),
+        "book_balance": book_balance,
     }
 
 
@@ -657,6 +663,408 @@ def ensure_default_bank_account(db: Session) -> BankAccount:
     db.add(account)
     db.flush()
     return account
+
+
+BANK_TRANSFER_STATUSES = frozenset({"DRAFT", "POSTED"})
+
+
+def assert_bank_transfer_accounts(from_account_id: str, to_account_id: str) -> None:
+    source = (from_account_id or "").strip()
+    dest = (to_account_id or "").strip()
+    if not source or not dest:
+        raise HTTPException(status_code=400, detail="From account and to account are required")
+    if source == dest:
+        raise HTTPException(
+            status_code=400,
+            detail="From account and to account must be different",
+        )
+
+
+def assert_bank_transfer_amount(amount) -> Decimal:
+    try:
+        value = Decimal(str(amount))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero") from exc
+    if value <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+    return value.quantize(Decimal("0.01"))
+
+
+def _format_money(value: Decimal) -> str:
+    return f"{Decimal(value).quantize(Decimal('0.01')):,.2f}"
+
+
+def assert_transfer_within_balance(amount: Decimal, available: Decimal, *, account_label: str | None = None) -> None:
+    if amount <= available:
+        return
+    source = account_label or "the source account"
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Insufficient funds in {source}. Available book balance is "
+            f"{_format_money(available)}; transfer amount is {_format_money(amount)}."
+        ),
+    )
+
+
+def gl_book_balances(
+    db: Session,
+    gl_account_ids,
+    *,
+    as_of: date | None = None,
+    currency: str = "USD",
+) -> dict:
+    """Posted G/L book balances keyed by chart-of-accounts id."""
+    ids = [gid for gid in (gl_account_ids or []) if gid is not None]
+    if not ids:
+        return {}
+    debit_sum = func.coalesce(func.sum(LedgerPosting.debit), 0)
+    credit_sum = func.coalesce(func.sum(LedgerPosting.credit), 0)
+    query = (
+        db.query(ChartOfAccount.id, ChartOfAccount.account_type, debit_sum, credit_sum)
+        .join(LedgerPosting, LedgerPosting.account_id == ChartOfAccount.id)
+        .join(JournalEntry, JournalEntry.id == LedgerPosting.entry_id)
+        .filter(ChartOfAccount.id.in_(ids))
+        .filter(func.lower(func.coalesce(JournalEntry.posting_status, "Posted")) == "posted")
+        .filter(func.upper(func.coalesce(LedgerPosting.currency, "USD")) == (currency or "USD").upper())
+    )
+    if as_of is not None:
+        query = query.filter(
+            func.coalesce(JournalEntry.posting_date, cast(JournalEntry.created_at, Date)) <= as_of
+        )
+    rows = query.group_by(ChartOfAccount.id, ChartOfAccount.account_type).all()
+    balances = {gid: Decimal("0.00") for gid in ids}
+    for account_id, account_type, debit, credit in rows:
+        balances[account_id] = signed_balance(account_type, debit, credit)
+    return balances
+
+
+def bank_account_book_balance(
+    db: Session,
+    bank_account: BankAccount,
+    *,
+    as_of: date | None = None,
+) -> Decimal:
+    gl = resolve_bank_cash_gl(db, bank_account)
+    currency = getattr(bank_account, "currency", None) or "USD"
+    gl_id = getattr(gl, "id", None) or getattr(bank_account, "gl_account_id", None)
+    return gl_book_balances(db, [gl_id], as_of=as_of, currency=currency).get(gl_id, Decimal("0.00"))
+
+
+def serialize_bank_accounts_with_balances(db: Session, accounts: list[BankAccount]) -> list[dict]:
+    by_currency: dict[str, list] = {}
+    for account in accounts:
+        ccy = (getattr(account, "currency", None) or "USD").upper()
+        by_currency.setdefault(ccy, []).append(account)
+    balances: dict = {}
+    for ccy, group in by_currency.items():
+        balances.update(gl_book_balances(db, [row.gl_account_id for row in group], currency=ccy))
+    return [
+        serialize_bank_account(
+            account,
+            book_balance=balances.get(account.gl_account_id, Decimal("0.00")),
+        )
+        for account in accounts
+    ]
+
+
+def reserved_outbound_transfer_amount(
+    db: Session,
+    from_account_id: str,
+    *,
+    exclude_id: int | None = None,
+) -> Decimal:
+    """Amounts already committed but not yet in posted G/L."""
+    query = db.query(func.coalesce(func.sum(BankTransfer.amount), 0)).filter(
+        BankTransfer.from_account_id == from_account_id,
+        or_(
+            func.upper(BankTransfer.approval_status) == "PENDING_APPROVAL",
+            and_(
+                func.upper(BankTransfer.approval_status) == "APPROVED",
+                func.upper(BankTransfer.status) != "POSTED",
+            ),
+        ),
+    )
+    if exclude_id is not None:
+        query = query.filter(BankTransfer.id != exclude_id)
+    raw = query.scalar()
+    return Decimal(str(raw or 0)).quantize(Decimal("0.01"))
+
+
+def assert_source_has_funds(
+    db: Session,
+    from_account: BankAccount,
+    amount: Decimal,
+    *,
+    as_of: date | None = None,
+    exclude_transfer_id: int | None = None,
+) -> Decimal:
+    book = bank_account_book_balance(db, from_account, as_of=as_of)
+    reserved = reserved_outbound_transfer_amount(
+        db,
+        from_account.bank_account_id,
+        exclude_id=exclude_transfer_id,
+    )
+    available = book - reserved
+    assert_transfer_within_balance(
+        amount,
+        available,
+        account_label=bank_account_display(from_account) or from_account.bank_account_id,
+    )
+    return available
+
+
+def _require_bank_account(db: Session, bank_account_id: str, label: str) -> BankAccount:
+    account = (
+        db.query(BankAccount)
+        .options(joinedload(BankAccount.gl_account))
+        .filter(BankAccount.bank_account_id == bank_account_id)
+        .one_or_none()
+    )
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"{label} bank account was not found")
+    return account
+
+
+def _require_active_bank_account(db: Session, bank_account_id: str, label: str) -> BankAccount:
+    account = _require_bank_account(db, bank_account_id, label)
+    if not account.is_active:
+        raise HTTPException(status_code=400, detail=f"{label} bank account is inactive")
+    return account
+
+
+def _bank_transfer_query(db: Session):
+    return db.query(BankTransfer).options(
+        joinedload(BankTransfer.from_account).joinedload(BankAccount.gl_account),
+        joinedload(BankTransfer.to_account).joinedload(BankAccount.gl_account),
+    )
+
+
+def serialize_bank_transfer(transfer: BankTransfer) -> dict:
+    from_acct = getattr(transfer, "from_account", None)
+    to_acct = getattr(transfer, "to_account", None)
+    return {
+        "id": transfer.id,
+        "from_account_id": transfer.from_account_id,
+        "to_account_id": transfer.to_account_id,
+        "from_account_name": bank_account_display(from_acct) if from_acct is not None else None,
+        "to_account_name": bank_account_display(to_acct) if to_acct is not None else None,
+        "amount": transfer.amount,
+        "transfer_date": transfer.transfer_date,
+        "reference_number": transfer.reference_number,
+        "status": (getattr(transfer, "status", None) or "DRAFT").upper(),
+        "approval_status": (getattr(transfer, "approval_status", None) or "DRAFT").upper(),
+        "current_approval_step": getattr(transfer, "current_approval_step", None),
+        "journal_entry_id": getattr(transfer, "journal_entry_id", None),
+        "created_at": getattr(transfer, "created_at", None),
+    }
+
+
+def list_bank_transfers(db: Session) -> list[BankTransfer]:
+    return (
+        _bank_transfer_query(db)
+        .order_by(BankTransfer.transfer_date.desc(), BankTransfer.id.desc())
+        .all()
+    )
+
+
+def get_bank_transfer(db: Session, transfer_id: int) -> BankTransfer:
+    transfer = _bank_transfer_query(db).filter(BankTransfer.id == transfer_id).one_or_none()
+    if transfer is None:
+        raise HTTPException(status_code=404, detail="Bank transfer not found")
+    return transfer
+
+
+def create_bank_transfer(
+    db: Session,
+    *,
+    from_account_id: str,
+    to_account_id: str,
+    amount,
+    transfer_date: date,
+    reference_number: str | None = None,
+) -> BankTransfer:
+    assert_bank_transfer_accounts(from_account_id, to_account_id)
+    pay_amount = assert_bank_transfer_amount(amount)
+    from_account = _require_active_bank_account(db, from_account_id.strip(), "From")
+    to_account = _require_active_bank_account(db, to_account_id.strip(), "To")
+    from_ccy = (from_account.currency or "USD").upper()
+    to_ccy = (to_account.currency or "USD").upper()
+    if from_ccy != to_ccy:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and destination accounts must use the same currency",
+        )
+    assert_source_has_funds(db, from_account, pay_amount, as_of=transfer_date)
+    transfer = BankTransfer(
+        from_account_id=from_account.bank_account_id,
+        to_account_id=to_account.bank_account_id,
+        amount=pay_amount,
+        transfer_date=transfer_date,
+        reference_number=(reference_number or "").strip() or None,
+        status="DRAFT",
+        approval_status="DRAFT",
+        current_approval_step=None,
+    )
+    db.add(transfer)
+    db.flush()
+    if not transfer.reference_number:
+        transfer.reference_number = f"BTR-{transfer.id:06d}"
+        db.flush()
+    return get_bank_transfer(db, transfer.id)
+
+
+BANK_TRANSFER_EDITABLE = frozenset({"DRAFT", "REJECTED"})
+
+
+def is_bank_transfer_deletable(transfer: BankTransfer) -> bool:
+    gl = (getattr(transfer, "status", None) or "DRAFT").upper()
+    approval = (getattr(transfer, "approval_status", None) or "DRAFT").upper()
+    return gl == "DRAFT" and approval == "DRAFT"
+
+
+def _validate_transfer_accounts_and_amount(
+    db: Session,
+    *,
+    from_account_id: str,
+    to_account_id: str,
+    amount,
+    transfer_date: date,
+    exclude_transfer_id: int | None = None,
+) -> tuple[BankAccount, BankAccount, Decimal]:
+    assert_bank_transfer_accounts(from_account_id, to_account_id)
+    pay_amount = assert_bank_transfer_amount(amount)
+    from_account = _require_active_bank_account(db, from_account_id.strip(), "From")
+    to_account = _require_active_bank_account(db, to_account_id.strip(), "To")
+    from_ccy = (from_account.currency or "USD").upper()
+    to_ccy = (to_account.currency or "USD").upper()
+    if from_ccy != to_ccy:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and destination accounts must use the same currency",
+        )
+    assert_source_has_funds(
+        db,
+        from_account,
+        pay_amount,
+        as_of=transfer_date,
+        exclude_transfer_id=exclude_transfer_id,
+    )
+    return from_account, to_account, pay_amount
+
+
+def update_bank_transfer(
+    db: Session,
+    transfer_id: int,
+    *,
+    from_account_id: str,
+    to_account_id: str,
+    amount,
+    transfer_date: date,
+    reference_number: str | None = None,
+) -> BankTransfer:
+    transfer = get_bank_transfer(db, transfer_id)
+    approval = (transfer.approval_status or "DRAFT").upper()
+    if approval not in BANK_TRANSFER_EDITABLE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only draft or rejected transfers can be edited (current: {approval})",
+        )
+    if (transfer.status or "").upper() == "POSTED":
+        raise HTTPException(status_code=400, detail="Posted transfers cannot be edited")
+    from_account, to_account, pay_amount = _validate_transfer_accounts_and_amount(
+        db,
+        from_account_id=from_account_id,
+        to_account_id=to_account_id,
+        amount=amount,
+        transfer_date=transfer_date,
+        exclude_transfer_id=transfer.id,
+    )
+    transfer.from_account_id = from_account.bank_account_id
+    transfer.to_account_id = to_account.bank_account_id
+    transfer.amount = pay_amount
+    transfer.transfer_date = transfer_date
+    if reference_number is not None:
+        transfer.reference_number = reference_number.strip() or transfer.reference_number
+    db.flush()
+    return get_bank_transfer(db, transfer.id)
+
+
+def delete_bank_transfer(db: Session, transfer_id: int) -> None:
+    transfer = get_bank_transfer(db, transfer_id)
+    gl = (transfer.status or "DRAFT").upper()
+    approval = (transfer.approval_status or "DRAFT").upper()
+    if not is_bank_transfer_deletable(transfer):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cannot delete this bank transfer unless G/L status and "
+                f"approval status are both Draft (G/L={gl}, approval={approval})."
+            ),
+        )
+    if getattr(transfer, "journal_entry_id", None):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a bank transfer that has a journal entry",
+        )
+    db.delete(transfer)
+    db.flush()
+
+
+def ensure_transfer_journal(db: Session, transfer: BankTransfer) -> JournalEntry:
+    """Create the linked G/L journal as Draft / DRAFT after transfer approval.
+
+    Cash does not move until that journal is approved and posted.
+    """
+    loaded = get_bank_transfer(db, transfer.id)
+    if loaded.journal_entry_id:
+        existing = db.get(JournalEntry, loaded.journal_entry_id)
+        if existing is not None:
+            return existing
+
+    from_account = _require_active_bank_account(db, loaded.from_account_id, "From")
+    to_account = _require_active_bank_account(db, loaded.to_account_id, "To")
+    from_gl = resolve_bank_cash_gl(db, from_account)
+    to_gl = resolve_bank_cash_gl(db, to_account)
+    amount = assert_bank_transfer_amount(loaded.amount)
+    assert_source_has_funds(
+        db,
+        from_account,
+        amount,
+        as_of=loaded.transfer_date,
+        exclude_transfer_id=loaded.id,
+    )
+    reference = loaded.reference_number or f"BTR-{loaded.id:06d}"
+    from_label = bank_account_display(from_account) or from_account.bank_account_id
+    to_label = bank_account_display(to_account) or to_account.bank_account_id
+    entry = _post_balanced_journal_entry(
+        db,
+        description=f"Bank transfer {reference} from {from_label} to {to_label}",
+        debit_account=to_gl,
+        credit_account=from_gl,
+        amount=amount,
+        reference=reference,
+        posting_date=loaded.transfer_date,
+    )
+    loaded.journal_entry_id = entry.id
+    transfer.journal_entry_id = entry.id
+    db.flush()
+    return entry
+
+
+def post_bank_transfer(db: Session, transfer_id: int) -> BankTransfer:
+    """Kept for compatibility: only approved transfers may generate a draft journal."""
+    transfer = get_bank_transfer(db, transfer_id)
+    if (transfer.status or "").upper() == "POSTED":
+        raise HTTPException(status_code=400, detail="Transfer is already posted")
+    approval = (transfer.approval_status or "DRAFT").upper()
+    if approval != "APPROVED":
+        raise HTTPException(
+            status_code=400,
+            detail="Submit the transfer for approval before generating its journal entry",
+        )
+    ensure_transfer_journal(db, transfer)
+    return get_bank_transfer(db, transfer.id)
 
 
 def next_instrument_ref(db: Session, payment_method: str = "CHECK") -> str:
@@ -1288,6 +1696,55 @@ def _lookup_supplier_invoice(db: Session, bill_id: str) -> SupplierInvoice | Non
     )
 
 
+def resolve_ap_bill_po_number(db: Session, bill: APBill) -> str | None:
+    """PO number the AP list/detail can link to, including landed-cost NON_PO bills."""
+    if bill.purchase_order_id:
+        return bill.purchase_order_id
+    tracking = (getattr(bill, "reference_po_number", None) or "").strip() or None
+    if tracking:
+        return tracking
+    source_id = (bill.source_order_id or "").strip() or None
+    if not source_id:
+        return None
+    if (bill.source_type or "").upper() == "PURCHASE_ORDER":
+        return source_id
+    if db.get(PurchaseOrder, source_id) is not None:
+        return source_id
+    return None
+
+
+def serialize_ap_bill_row(db: Session, bill: APBill) -> dict:
+    po_number = resolve_ap_bill_po_number(db, bill)
+    return {
+        "bill_id": bill.bill_id,
+        "purchase_order_id": po_number,
+        "po_number": po_number,
+        "vendor_id": bill.vendor_id,
+        "supplier_invoice_id": bill.supplier_invoice_id,
+        "source_type": bill.source_type,
+        "source_order_id": bill.source_order_id or po_number,
+        "reference_po_number": getattr(bill, "reference_po_number", None) or po_number,
+        "amount": bill.amount,
+        "status": bill.status,
+        "approval_status": bill.approval_status or "DRAFT",
+        "current_approval_step": bill.current_approval_step,
+        "due_date": bill.due_date,
+        "payment_term_id": getattr(bill, "payment_term_id", None),
+        "created_at": bill.created_at,
+    }
+
+
+def list_ap_bills(db: Session, skip: int = 0, limit: int = 100) -> list[dict]:
+    rows = (
+        db.query(APBill)
+        .order_by(APBill.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [serialize_ap_bill_row(db, bill) for bill in rows]
+
+
 def get_bill_detail(db: Session, bill_id: str) -> dict:
     bill = db.get(APBill, bill_id)
     if bill is None:
@@ -1344,19 +1801,29 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
     """Draft / unposted supplier invoice with the same shape as AP bill detail."""
     vendor = db.get(Supplier, supplier_invoice.vendor_id)
     invoice_total = _money(supplier_invoice.total_amount)
+    tracking_po = getattr(supplier_invoice, "reference_po_number", None)
     po_number = (
-        supplier_invoice.source_order_id
-        if supplier_invoice.source_type == "PURCHASE_ORDER"
-        else None
+        tracking_po
+        or (
+            supplier_invoice.source_order_id
+            if supplier_invoice.source_type == "PURCHASE_ORDER"
+            or (
+                supplier_invoice.source_order_id
+                and db.get(PurchaseOrder, supplier_invoice.source_order_id) is not None
+            )
+            else None
+        )
     )
     lines = _ap_lines_for_invoice(supplier_invoice)
     return {
         "bill_id": supplier_invoice.invoice_number,
         "purchase_order_id": po_number,
+        "po_number": po_number,
         "vendor_id": supplier_invoice.vendor_id,
         "supplier_invoice_id": supplier_invoice.id,
         "source_type": supplier_invoice.source_type,
         "source_order_id": supplier_invoice.source_order_id,
+        "reference_po_number": tracking_po or po_number,
         "amount": invoice_total,
         "status": "Unpaid",
         "display_status": "Open",
@@ -1415,9 +1882,9 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
         vendor_invoice_number = supplier_invoice.vendor_invoice_number
         lines = _ap_lines_for_invoice(supplier_invoice)
 
-    po_number = bill.purchase_order_id
-    if not po_number and source_type == "PURCHASE_ORDER":
-        po_number = source_order_id
+    po_number = resolve_ap_bill_po_number(db, bill) or (
+        source_order_id if (source_type or "").upper() == "PURCHASE_ORDER" else None
+    )
     order = None
     if po_number:
         order = (
@@ -1500,12 +1967,19 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
     return {
         "bill_id": bill.bill_id,
         "purchase_order_id": bill.purchase_order_id or po_number,
+        "po_number": bill.purchase_order_id or po_number,
         "vendor_id": bill.vendor_id,
         "supplier_invoice_id": (
             supplier_invoice.id if supplier_invoice else bill.supplier_invoice_id
         ),
         "source_type": source_type,
         "source_order_id": source_order_id,
+        "reference_po_number": (
+            getattr(supplier_invoice, "reference_po_number", None)
+            if supplier_invoice
+            else getattr(bill, "reference_po_number", None)
+        )
+        or po_number,
         "amount": _money(bill.amount),
         "status": bill.status,
         "display_status": ap_display_status(status=bill.status, due_date=bill.due_date),

@@ -16,6 +16,7 @@ from app.routers import (
     auth,
     cash_transactions,
     bank_accounts,
+    bank_transfers,
     financial_reports,
     customer_locations,
     customers,
@@ -94,6 +95,7 @@ app.include_router(vendor_invoices.router, prefix="/api/v1")
 app.include_router(attachments.router, prefix="/api/v1")
 app.include_router(cash_transactions.router, prefix="/api/v1")
 app.include_router(bank_accounts.router, prefix="/api/v1")
+app.include_router(bank_transfers.router, prefix="/api/v1")
 app.include_router(financial_reports.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")

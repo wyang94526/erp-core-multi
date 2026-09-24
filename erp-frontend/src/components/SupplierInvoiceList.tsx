@@ -13,7 +13,7 @@ import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
-import { billDetailHref } from '../utils/cashReference'
+import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
 
 const PAGE_SIZE = 10
 
@@ -162,12 +162,8 @@ export function SupplierInvoiceList() {
                 {sorted.map((inv) => {
                   const colors = statusColors(inv.status)
                   const focused = Boolean(focusInvoice) && inv.invoice_number === focusInvoice
-                  const orderPath =
-                    inv.source_type === 'SUBCONTRACT_ORDER'
-                      ? `/subcontract-orders/${inv.source_order_id}`
-                      : inv.source_type === 'PURCHASE_ORDER' && inv.source_order_id
-                        ? `/purchase-orders/${inv.source_order_id}`
-                        : null
+                  const orderId = inv.reference_po_number || inv.source_order_id
+                  const orderPath = sourceOrderHref(inv.source_type, orderId)
                   return (
                     <tr
                       key={inv.id}
@@ -185,12 +181,12 @@ export function SupplierInvoiceList() {
                         <span style={tagStyle}>{sourceTag(inv)}</span>
                       </td>
                       <td style={tdStyle}>
-                        {orderPath && inv.source_order_id ? (
-                          <Link to={orderPath} style={linkStyle}>
-                            {inv.source_order_id}
+                        {orderPath && orderId ? (
+                          <Link to={orderPath} style={linkStyle} title="Open referenced purchase order">
+                            {orderId}
                           </Link>
                         ) : (
-                          inv.source_order_id || '—'
+                          orderId || '—'
                         )}
                       </td>
                       <td style={tdStyle}>{inv.vendor_name || inv.vendor_id}</td>
@@ -269,7 +265,7 @@ const tagStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
 }
-const linkStyle: React.CSSProperties = { color: '#1565c0', textDecoration: 'none', fontWeight: 600 }
+const linkStyle: React.CSSProperties = { color: '#1565c0', textDecoration: 'underline', fontWeight: 600 }
 const pagerStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16 }
 const primaryButtonStyle: React.CSSProperties = {
   padding: '10px 18px',

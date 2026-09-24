@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apBillService } from '../api/services'
 import type { APBill } from '../types'
-import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
+import { billDetailHref, purchaseOrderHref, sourceOrderHref } from '../utils/cashReference'
 import { ApprovalPanel } from './ApprovalPanel'
 import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPaymentDialog'
 import { useSortableData } from '../hooks/useSortableData'
@@ -177,8 +177,11 @@ function APBills() {
                 {sortedBills.map((bill) => {
                   const colors = getStatusColors(bill.status)
                   const focused = Boolean(focusBill) && bill.bill_id === focusBill
-                  const orderId = bill.source_order_id || bill.purchase_order_id
-                  const orderHref = sourceOrderHref(bill.source_type, orderId)
+                  const poId = bill.purchase_order_id || bill.po_number || null
+                  const orderId = poId || bill.source_order_id
+                  const orderHref = poId
+                    ? purchaseOrderHref(poId)
+                    : sourceOrderHref(bill.source_type, orderId)
                   return (
                     <tr
                       key={bill.bill_id}
@@ -194,7 +197,7 @@ function APBills() {
                       </td>
                       <td style={directoryTdStyle}>
                         {orderHref && orderId ? (
-                          <Link to={orderHref} style={idLinkStyle} title="Open source order">
+                          <Link to={orderHref} style={idLinkStyle} title={`Open purchase order ${orderId}`}>
                             {orderId}
                           </Link>
                         ) : (
@@ -372,7 +375,7 @@ const directoryActionButtonStyle: React.CSSProperties = {
 const idLinkStyle: React.CSSProperties = {
   color: '#1565c0',
   fontWeight: 700,
-  textDecoration: 'none',
+  textDecoration: 'underline',
 }
 
 const statusBadgeStyle: React.CSSProperties = {

@@ -7,10 +7,14 @@ from unittest import TestCase
 from app.services.posting_rules import (
     DEFAULT_RULES,
     EVENT_GOODS_RECEIPT,
+    EVENT_MONTH_END_CLOSE,
     EVENT_SALES_INVOICE,
     EVENT_SUPPLIER_INVOICE,
+    EVENT_YEAR_END_CLOSE,
+    PARTY_ANY,
     PARTY_RELATED,
     PARTY_TRADE,
+    VARIANT_CLOSE,
     VARIANT_GRNI_CLEAR,
     VARIANT_MATERIALS,
     VARIANT_REVENUE,
@@ -61,3 +65,11 @@ class PostingRuleCatalogTests(TestCase):
         )
         self.assertEqual(debit, "1172")
         self.assertEqual(credit, "4110001")
+
+    def test_close_rules_point_at_maintainable_equity_targets(self):
+        mec_credit = catalog_account(EVENT_MONTH_END_CLOSE, VARIANT_CLOSE, PARTY_ANY, "credit")
+        self.assertEqual(mec_credit[0], "3353")
+        yec_debit = catalog_account(EVENT_YEAR_END_CLOSE, VARIANT_CLOSE, PARTY_ANY, "debit")
+        yec_credit = catalog_account(EVENT_YEAR_END_CLOSE, VARIANT_CLOSE, PARTY_ANY, "credit")
+        self.assertEqual(yec_debit[0], "3353")
+        self.assertEqual(yec_credit[0], "3350")

@@ -347,10 +347,74 @@ class JournalBulkImportResponse(BaseModel):
     errors: list[JournalBulkImportError]
 
 
+class YearEndCloseAccount(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: str
+
+
+class YearEndCloseLine(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: str
+    debit: Decimal
+    credit: Decimal
+    description: str
+
+
 class MonthEndClosePreview(ORMModel):
     period: str
+    close_date: date
+    period_still_open: bool
+    current_period_ni: YearEndCloseAccount | None = None
+    revenue_total: Decimal
+    expense_total: Decimal
+    net_income: Decimal
+    lines: list[YearEndCloseLine]
     ready: list[JournalEntryRead]
     held: list[JournalEntryRead]
+    existing_journal: JournalEntryRead | None = None
+    can_run: bool
+    blockers: list[str]
+
+
+class MonthEndCloseRequest(BaseModel):
+    period: str | None = None
+    current_period_ni_account_id: UUID | None = None
+
+
+class MonthEndCloseResult(ORMModel):
+    message: str
+    journal: JournalEntryRead
+
+
+class YearEndClosePreview(ORMModel):
+    fiscal_year: int
+    period: str
+    close_date: date
+    year_still_open: bool
+    retained_earnings: YearEndCloseAccount | None = None
+    revenue_total: Decimal
+    expense_total: Decimal
+    net_income: Decimal
+    lines: list[YearEndCloseLine]
+    ready: list[JournalEntryRead]
+    held: list[JournalEntryRead]
+    existing_journal: JournalEntryRead | None = None
+    can_run: bool
+    blockers: list[str]
+
+
+class YearEndCloseRequest(BaseModel):
+    fiscal_year: int | None = None
+    retained_earnings_account_id: UUID | None = None
+
+
+class YearEndCloseResult(ORMModel):
+    message: str
+    journal: JournalEntryRead
 
 
 
@@ -2038,10 +2102,12 @@ class ARInvoiceCreate(BaseModel):
 class APBillRead(ORMModel):
     bill_id: str
     purchase_order_id: str | None = None
+    po_number: str | None = None
     vendor_id: str
     supplier_invoice_id: int | None = None
     source_type: str | None = None
     source_order_id: str | None = None
+    reference_po_number: str | None = None
     amount: Decimal
     status: str
     approval_status: str = 'DRAFT'
@@ -2112,6 +2178,7 @@ class BankAccountRead(ORMModel):
     display_name: str | None = None
     is_default: bool = False
     is_active: bool = True
+    book_balance: Decimal | None = None
 
 
 class BankAccountCreate(BaseModel):
@@ -2136,6 +2203,40 @@ class BankAccountUpdate(BaseModel):
     gl_account_id: UUID | None = None
     is_default: bool | None = None
     is_active: bool | None = None
+
+
+class BankTransferRead(ORMModel):
+    id: int
+    from_account_id: str
+    to_account_id: str
+    from_account_name: str | None = None
+    to_account_name: str | None = None
+    amount: Decimal
+    transfer_date: date
+    reference_number: str | None = None
+    status: str = "DRAFT"
+    approval_status: str = "DRAFT"
+    current_approval_step: int | None = None
+    journal_entry_id: UUID | None = None
+    created_at: datetime | None = None
+
+
+class BankTransferCreate(BaseModel):
+    from_account_id: str = Field(min_length=1, max_length=50)
+    to_account_id: str = Field(min_length=1, max_length=50)
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    transfer_date: date
+    reference_number: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def accounts_must_differ(self):
+        if (self.from_account_id or "").strip() == (self.to_account_id or "").strip():
+            raise ValueError("From account and to account must be different")
+        return self
+
+
+class BankTransferUpdate(BankTransferCreate):
+    pass
 
 
 class CashTransactionRead(ORMModel):
@@ -2804,6 +2905,11 @@ class SupplierInvoiceCreate(BaseModel):
     )
     source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER", "NON_PO"] | None = None
     source_order_id: str | None = Field(default=None, max_length=50)
+    reference_po_number: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Optional tracking PO for Non-PO invoices. Does not 3-way match.",
+    )
     vendor_id: str | None = Field(default=None, max_length=50)
     vendor_invoice_number: str | None = Field(default=None, max_length=100)
     invoice_date: date | None = None
@@ -2851,6 +2957,7 @@ class SupplierInvoiceRead(BaseModel):
     invoice_type: str
     source_type: str
     source_order_id: str | None = None
+    reference_po_number: str | None = None
     vendor_invoice_number: str | None = None
     invoice_date: date
     due_date: date

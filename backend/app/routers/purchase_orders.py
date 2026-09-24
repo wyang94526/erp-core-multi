@@ -4,6 +4,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -166,11 +167,17 @@ def list_purchase_orders(
     skip: int = 0,
     limit: int = 100,
     sco_number: str | None = None,
+    approval_status: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[PurchaseOrder]:
     query = db.query(PurchaseOrder).options(selectinload(PurchaseOrder.items))
     if sco_number and sco_number.strip():
         query = query.filter(PurchaseOrder.sco_number == sco_number.strip())
+    if approval_status and approval_status.strip():
+        query = query.filter(
+            func.upper(func.coalesce(PurchaseOrder.approval_status, "DRAFT"))
+            == approval_status.strip().upper()
+        )
     rows = (
         query.order_by(PurchaseOrder.created_at.desc())
         .offset(skip)

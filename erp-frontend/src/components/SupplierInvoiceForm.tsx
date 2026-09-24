@@ -23,6 +23,20 @@ import GoodsReceiptLookup from './GoodsReceiptLookup'
 type InvoiceCategory = 'PO' | 'NON_PO'
 type NonPoType = 'EXPENSE' | 'LANDED_COST'
 
+function normalizeCategoryParam(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/_/g, '-')
+}
+
+function isLockedNonPoCategory(value: string | null | undefined): boolean {
+  const raw = normalizeCategoryParam(value)
+  return raw === 'non-po' || raw === 'nonpo'
+}
+
+function invoiceCategoryFromSearch(categoryParam: string | null | undefined): InvoiceCategory {
+  if (isLockedNonPoCategory(categoryParam)) return 'NON_PO'
+  return 'PO'
+}
+
 type DistRow = {
   key: string
   gl_account_id: string
@@ -49,17 +63,19 @@ export function SupplierInvoiceForm() {
     | 'PURCHASE_ORDER'
     | 'SUBCONTRACT_ORDER'
   const initialSourceOrderId = searchParams.get('source_order_id') || ''
-  const categoryParam = (searchParams.get('category') || '').toLowerCase()
+  const categoryParam = searchParams.get('category')
+  const lockedNonPo = isLockedNonPoCategory(categoryParam)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const [category, setCategory] = useState<InvoiceCategory>(
-    initialSourceOrderId && categoryParam !== 'non-po' ? 'PO' : 'NON_PO',
+  const [category, setCategory] = useState<InvoiceCategory>(() =>
+    invoiceCategoryFromSearch(categoryParam),
   )
   const [sourceType, setSourceType] = useState<'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER'>(
     initialSourceType === 'SUBCONTRACT_ORDER' ? 'SUBCONTRACT_ORDER' : 'PURCHASE_ORDER',
   )
   const [sourceOrderId, setSourceOrderId] = useState(initialSourceOrderId)
+  const [referencePoNumber, setReferencePoNumber] = useState('')
   const [nonPoType, setNonPoType] = useState<NonPoType>('EXPENSE')
   const [vendorId, setVendorId] = useState('')
   const [vendorInvoiceNumber, setVendorInvoiceNumber] = useState('')
@@ -76,6 +92,10 @@ export function SupplierInvoiceForm() {
   const [submitMode, setSubmitMode] = useState<'draft' | 'submit'>('submit')
 
   const isNonPo = category === 'NON_PO'
+
+  useEffect(() => {
+    setCategory(invoiceCategoryFromSearch(categoryParam))
+  }, [categoryParam])
 
   const poQuery = useQuery({
     queryKey: ['purchaseOrders', sourceOrderId],
@@ -98,6 +118,20 @@ export function SupplierInvoiceForm() {
     queryKey: ['paymentTerms'],
     queryFn: () => paymentTermsService.list(),
   })
+
+  const referencePoQuery = useQuery({
+    queryKey: ['purchaseOrders', 'reference-lookup', 'APPROVED'],
+    queryFn: () =>
+      purchaseOrderService.listPurchaseOrders(0, 200, { approval_status: 'APPROVED' }),
+    enabled: isNonPo,
+  })
+  const approvedReferencePos = useMemo(
+    () =>
+      (referencePoQuery.data || []).filter(
+        (po) => (po.approval_status || '').toUpperCase() === 'APPROVED',
+      ),
+    [referencePoQuery.data],
+  )
 
   const accountsQuery = useQuery({
     queryKey: ['chartOfAccounts', 'invoice-form'],
@@ -243,7 +277,8 @@ export function SupplierInvoiceForm() {
       const created = await vendorInvoiceService.create({
         invoice_type: nonPoType,
         source_type: 'NON_PO',
-        source_order_id: sourceOrderId || null,
+        source_order_id: null,
+        reference_po_number: referencePoNumber.trim() || null,
         vendor_id: vendorId,
         vendor_invoice_number: vendorInvoiceNumber || null,
         invoice_date: invoiceDate || null,
@@ -307,12 +342,52 @@ export function SupplierInvoiceForm() {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as InvoiceCategory)}
-            style={inputStyle}
+            disabled={lockedNonPo}
+            style={{
+              ...inputStyle,
+              ...(lockedNonPo ? disabledInputStyle : null),
+            }}
+            title={
+              lockedNonPo
+                ? 'This page was opened as a Non-PO invoice. Category cannot be changed.'
+                : undefined
+            }
           >
             <option value="PO">PO-Based</option>
             <option value="NON_PO">Non-PO</option>
           </select>
         </label>
+
+        {!isNonPo ? (
+          <>
+            <label style={{ ...labelStyle, marginTop: 16 }}>
+              Source type
+              <select
+                value={sourceType}
+                onChange={(e) =>
+                  setSourceType(e.target.value as 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER')
+                }
+                disabled={Boolean(initialSourceOrderId)}
+                style={{
+                  ...inputStyle,
+                  ...(initialSourceOrderId ? disabledInputStyle : null),
+                }}
+              >
+                <option value="PURCHASE_ORDER">Purchase Order</option>
+                <option value="SUBCONTRACT_ORDER">Subcontract Order</option>
+              </select>
+            </label>
+            <label style={{ ...labelStyle, marginTop: 16 }}>
+              {orderLabel} number
+              <input
+                value={sourceOrderId}
+                onChange={(e) => setSourceOrderId(e.target.value.trim())}
+                style={inputStyle}
+                placeholder={sourceType === 'SUBCONTRACT_ORDER' ? 'SCO-…' : 'PU62-…'}
+              />
+            </label>
+          </>
+        ) : null}
 
         {isNonPo ? (
           <>
@@ -408,13 +483,24 @@ export function SupplierInvoiceForm() {
                 />
               </label>
               <label style={labelStyle}>
-                Related PO / SCO (optional)
+                Reference PO (For Tracking)
                 <input
-                  value={sourceOrderId}
-                  onChange={(e) => setSourceOrderId(e.target.value)}
+                  list="non-po-reference-po-options"
+                  value={referencePoNumber}
+                  onChange={(e) => setReferencePoNumber(e.target.value.trim())}
                   style={inputStyle}
-                  placeholder="Optional reference"
+                  placeholder="Optional — PU62-…"
                 />
+                <datalist id="non-po-reference-po-options">
+                  {approvedReferencePos.map((po) => (
+                    <option key={po.po_number} value={po.po_number}>
+                      {po.supplier_name || po.supplier_id} · Approved
+                    </option>
+                  ))}
+                </datalist>
+                <span style={{ fontSize: 12, color: 'var(--muted, #666)', fontWeight: 400, display: 'block', marginTop: 6 }}>
+                  Optional. Only approved purchase orders can be linked for tracking. This does not 3-way match or pull PO lines.
+                </span>
               </label>
             </div>
 
@@ -530,7 +616,7 @@ export function SupplierInvoiceForm() {
                           goods_receipt_id: receipt ? String(receipt.id) : '',
                         })
                         if (receipt?.source_order_id) {
-                          setSourceOrderId(receipt.source_order_id)
+                          setReferencePoNumber(receipt.source_order_id)
                         }
                       }}
                     />
@@ -579,34 +665,10 @@ export function SupplierInvoiceForm() {
             </div>
           </>
         ) : !sourceOrderId ? (
-          <>
-            <p style={{ fontSize: 13, color: 'var(--text)' }}>
-              Enter the purchase or subcontract order to 3-way match. For freight, rent, or other
-              vouchers without a PO, switch to Non-PO.
-            </p>
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              Source type
-              <select
-                value={sourceType}
-                onChange={(e) =>
-                  setSourceType(e.target.value as 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER')
-                }
-                style={inputStyle}
-              >
-                <option value="PURCHASE_ORDER">Purchase Order</option>
-                <option value="SUBCONTRACT_ORDER">Subcontract Order</option>
-              </select>
-            </label>
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              {orderLabel} number
-              <input
-                value={sourceOrderId}
-                onChange={(e) => setSourceOrderId(e.target.value.trim())}
-                style={inputStyle}
-                placeholder={sourceType === 'SUBCONTRACT_ORDER' ? 'SCO-…' : 'PU62-…'}
-              />
-            </label>
-          </>
+          <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 16 }}>
+            Enter the purchase or subcontract order to 3-way match. For freight, rent, or other
+            vouchers without a PO, switch to Non-PO.
+          </p>
         ) : loading ? (
           <div>Loading order…</div>
         ) : (
@@ -768,6 +830,11 @@ const inputStyle: React.CSSProperties = {
   fontSize: 14,
   width: '100%',
   boxSizing: 'border-box',
+}
+const disabledInputStyle: React.CSSProperties = {
+  opacity: 0.7,
+  cursor: 'not-allowed',
+  backgroundColor: 'var(--bg-muted, #f5f5f5)',
 }
 const twoColStyle: React.CSSProperties = {
   display: 'grid',

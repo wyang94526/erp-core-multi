@@ -215,6 +215,13 @@ export const NAV_CATEGORIES: NavCategory[] = [
             permission: 'cash:view',
             matchPrefixes: ['/cash-management/bank-accounts'],
           },
+          {
+            kind: 'link',
+            label: 'Bank Transfers',
+            to: '/bank-transfers',
+            permission: 'cash:view',
+            matchPrefixes: ['/bank-transfers'],
+          },
         ],
       },
       {
@@ -265,6 +272,14 @@ export const NAV_CATEGORIES: NavCategory[] = [
             permission: 'journal:view',
             end: true,
             icon: 'calendar-check',
+          },
+          {
+            kind: 'link',
+            label: 'Year-End Close',
+            to: '/general-ledger/year-end-close',
+            permission: 'journal:view',
+            end: true,
+            icon: 'calendar-range',
           },
         ],
       },

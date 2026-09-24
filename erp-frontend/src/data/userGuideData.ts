@@ -626,6 +626,44 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
   },
   {
+    id: 'finance-close',
+    module: 'finance',
+    title: 'Month-End and Year-End Close',
+    routeMatch: ['/general-ledger/month-end-close', '/general-ledger/year-end-close'],
+    summary:
+      'Both close screens generate a Draft journal that must be submitted and approved. Month-End Close zeros that month’s P&L into 3353. Year-End Close moves remaining P&L and current-period net income into 3350 retained earnings.',
+    steps: [
+      'Each month, including December, open General Ledger → Month-End Close and select the period.',
+      'Review the proposed lines (P&L to Equity 3353). Operational journals post when they are approved; they are not batch-posted here.',
+      'Click Generate Closing Journal. The journal is Draft / DRAFT with reference MEC-YYYY-MM. Submit it for approval.',
+      'When the fiscal year is ready, open Year-End Close. Approve any remaining Month-End Close journals first.',
+      'Generate the YEC-YYYY journal (P&L and 3353 to 3350), then submit it for approval.',
+    ],
+    callouts: [
+      {
+        kind: 'important',
+        text: 'Neither Month-End Close nor Year-End Close posts immediately. The auto-generated journal must go through the journal approval workflow.',
+      },
+      {
+        kind: 'tip',
+        text: 'You can generate a close journal before the period ends; it stays Draft until approved.',
+      },
+    ],
+    faqs: [
+      {
+        question: 'Can I use Month-End Close instead of Year-End Close in December?',
+        answer:
+          'Run Month-End Close for December to move that month’s P&L into 3353. Year-End Close is still required to transfer current-period net income into retained earnings (3350).',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'Generate Closing Journal is disabled',
+        fix: 'Approve remaining operational journals so they post, confirm posted P&L exists for that period, and delete any existing MEC-YYYY-MM or YEC-YYYY draft if you need to regenerate.',
+      },
+    ],
+  },
+  {
     id: 'finance-reports',
     module: 'finance',
     title: 'Financial Reports',
@@ -652,7 +690,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'Why is the Balance Sheet missing net income in equity?',
         answer:
-          'Current-year net income is shown as a plug under Equity until you close the year into retained earnings.',
+          'Current-year net income is shown as a plug under Equity until Year-End Close is approved and the closing journal posts to retained earnings.',
       },
     ],
     troubleshooting: [

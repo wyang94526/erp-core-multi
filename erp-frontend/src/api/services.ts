@@ -33,11 +33,17 @@ import type {
   APBillDetail,
   BankAccount,
   BankAccountWrite,
+  BankTransfer,
+  BankTransferWrite,
   CashTransaction,
   JournalEntry,
   JournalEntryCreatePayload,
   JournalBulkImportPayload,
   JournalBulkImportResult,
+  MonthEndClosePreview,
+  MonthEndCloseResult,
+  YearEndClosePreview,
+  YearEndCloseResult,
   ChartOfAccount,
   ChartOfAccountCreate,
   PostingRule,
@@ -554,6 +560,10 @@ export const fulfillmentService = {
   ): Promise<ItemFulfillment> {
     return apiClient.patch<ItemFulfillment>(`/api/v1/fulfillments/${id}/status`, data);
   },
+
+  remove(id: number): Promise<void> {
+    return apiClient.delete(`/api/v1/fulfillments/${id}`);
+  },
 };
 
 // ==========================================
@@ -629,6 +639,7 @@ export const vendorInvoiceService = {
     invoice_type?: 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | null;
     source_type?: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | 'NON_PO' | null;
     source_order_id?: string | null;
+    reference_po_number?: string | null;
     vendor_id?: string | null;
     vendor_invoice_number?: string | null;
     invoice_date?: string | null;
@@ -821,10 +832,15 @@ export const purchaseOrderService = {
   async listPurchaseOrders(
     skip: number = 0,
     limit: number = 100,
-    filters?: { sco_number?: string }
+    filters?: { sco_number?: string; approval_status?: string }
   ): Promise<PurchaseOrder[]> {
     const rows = await apiClient.get<PurchaseOrder[]>('/api/v1/purchase-orders', {
-      params: { skip, limit, sco_number: filters?.sco_number || undefined },
+      params: {
+        skip,
+        limit,
+        sco_number: filters?.sco_number || undefined,
+        approval_status: filters?.approval_status || undefined,
+      },
     });
     return rows.map(mapPurchaseOrderFromApi);
   },
@@ -2003,6 +2019,10 @@ export const bankAccountService = {
     });
   },
 
+  async listAccounts(activeOnly = true): Promise<BankAccount[]> {
+    return this.getBankAccounts(activeOnly);
+  },
+
   async getBankAccount(bankAccountId: string): Promise<BankAccount> {
     return apiClient.get<BankAccount>(
       `/api/v1/bank-accounts/${encodeURIComponent(bankAccountId)}`,
@@ -2022,6 +2042,32 @@ export const bankAccountService = {
 
   async createAccount(data: BankAccountWrite): Promise<BankAccount> {
     return this.createBankAccount(data);
+  },
+};
+
+export const bankTransferService = {
+  async list(): Promise<BankTransfer[]> {
+    return apiClient.get<BankTransfer[]>('/api/v1/bank-transfers');
+  },
+
+  async get(transferId: number): Promise<BankTransfer> {
+    return apiClient.get<BankTransfer>(`/api/v1/bank-transfers/${transferId}`);
+  },
+
+  async create(data: BankTransferWrite): Promise<BankTransfer> {
+    return apiClient.post<BankTransfer>('/api/v1/bank-transfers', data);
+  },
+
+  async update(transferId: number, data: BankTransferWrite): Promise<BankTransfer> {
+    return apiClient.patch<BankTransfer>(`/api/v1/bank-transfers/${transferId}`, data);
+  },
+
+  async post(transferId: number): Promise<BankTransfer> {
+    return apiClient.post<BankTransfer>(`/api/v1/bank-transfers/${transferId}/post`);
+  },
+
+  async remove(transferId: number): Promise<void> {
+    await apiClient.delete(`/api/v1/bank-transfers/${transferId}`);
   },
 };
 
@@ -2123,24 +2169,26 @@ export const journalEntryService = {
     await apiClient.delete(`/api/v1/journal-entries/${entryId}`);
   },
 
-  async previewMonthEndClose(): Promise<{
-    period: string;
-    ready: JournalEntry[];
-    held: JournalEntry[];
-  }> {
-    return apiClient.get('/api/v1/journal-entries/month-end-close');
+  async previewMonthEndClose(period: string): Promise<MonthEndClosePreview> {
+    return apiClient.get('/api/v1/journal-entries/month-end-close', {
+      params: { period },
+    });
   },
 
-  /**
-   * Trigger the batch Month-End Close posting process
-   * (flips any Draft journal entries to Posted).
-   */
-  async runMonthEndClose(): Promise<{
-    message: string;
-    entries_posted: number;
-    journal_entry_ids: string[];
-  }> {
-    return apiClient.post('/api/v1/journal-entries/month-end-close');
+  async runMonthEndClose(period: string): Promise<MonthEndCloseResult> {
+    return apiClient.post('/api/v1/journal-entries/month-end-close', { period });
+  },
+
+  async previewYearEndClose(fiscalYear: number): Promise<YearEndClosePreview> {
+    return apiClient.get('/api/v1/journal-entries/year-end-close', {
+      params: { fiscal_year: fiscalYear },
+    });
+  },
+
+  async runYearEndClose(fiscalYear: number): Promise<YearEndCloseResult> {
+    return apiClient.post('/api/v1/journal-entries/year-end-close', {
+      fiscal_year: fiscalYear,
+    });
   },
 };
 

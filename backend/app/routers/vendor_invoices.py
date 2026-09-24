@@ -70,6 +70,7 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         invoice_type=payload.invoice_type,
         source_type=payload.source_type,
         source_order_id=payload.source_order_id,
+        reference_po_number=payload.reference_po_number,
         vendor_id=payload.vendor_id,
         vendor_invoice_number=payload.vendor_invoice_number,
         invoice_date=payload.invoice_date,
