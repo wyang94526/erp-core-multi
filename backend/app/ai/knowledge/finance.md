@@ -27,3 +27,8 @@ Permissions: `ar_invoice:view`, `ap_bill:view`, `cash:view`, `journal:view`, `re
 ## Financial reports
 Finance → Reports & Analytics → Financial Reports (`/financial-reports`).
 Statements (Balance Sheet, P&L, Cash Flow), AR/AP aging, trial balance, fixed-asset schedule, cash forecast, budget vs actual, and bank reconciliation. Permission `report:view`.
+
+Ask live numbers with `get_financial_report`, not this file:
+- "Show me the Income Statement for the month June 2026"
+- "Balance sheet as of June 2026"
+- "Trial balance for 2026-06"

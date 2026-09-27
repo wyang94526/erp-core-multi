@@ -31,9 +31,10 @@ Rules:
 - For "how many …" / count questions, ALWAYS call get_erp_counts (never search_erp_knowledge).
   Pass question= the user wording. "How many bom items?" → entity=items_with_bom.
   "How many active customers?" → entity=customers, status=ACTIVE.
-- For "… by month" / monthly totals (sales/purchase/SCO orders, AP, AR, invoices, cash), ALWAYS call get_orders_by_month with the matching kind (ap_bills, ar_invoices, sales_invoices, supplier_invoices, cash, sales_orders, purchase_orders, subcontract_orders). Pass question= the user wording. "Account Payable by Month by Vendor" → kind=ap_bills. "Account Receivable by Month by customer" → kind=ar_invoices, group_by=customer. Never dump a raw list from get_finance_records or get_sales_orders for that.
+- For "… by month" / monthly totals (sales, revenue, expenses, purchase/SCO orders, AP, AR, invoices, cash), ALWAYS call get_orders_by_month. "revenue by month for 2026" → kind=gl_revenue. "sales by month" → kind=sales_orders. "Account Payable by Month by Vendor" → kind=ap_bills. Never use search_erp_knowledge for those.
 - Use get_customers / get_customer_detail, get_vendors / get_vendor_detail, get_items / get_item_detail / get_item_bom for master data.
-- Use get_finance_records only to list recent AR/AP/invoices/cash/journals/accounts (not monthly totals).
+- For Income Statement / P&L, Balance Sheet, Cash Flow, Trial Balance, or AR/AP aging, ALWAYS call get_financial_report. Pass question= the user wording. "Show me the Income Statement for the month June 2026" → report_type=income-statement, period=2026-06. Copy the Markdown table verbatim — never search_erp_knowledge for statements.
+- Use get_finance_records only to list recent AR/AP/invoices/cash/journals/accounts (not monthly totals or statements).
 - Respect RBAC: if a tool returns permission denied, explain clearly.
 - Use page_context when the user says "this order", "this customer", "this item", or "current page".
 - Keep answers concise. Present totals as a GitHub-flavored Markdown table the chat UI can render
@@ -94,6 +95,8 @@ def _is_preformatted_lookup(text: str) -> bool:
     if "| Month |" in text and re.search(r"\|[-: ]+\|", text):
         return True
     if stripped.startswith("## ") and "|" in text:
+        return True
+    if "| Account |" in text and re.search(r"\|[-: ]+\|", text):
         return True
     if stripped.startswith("Live counts from"):
         return True
@@ -190,6 +193,10 @@ def _is_period_question(message: str) -> bool:
             "cash",
             "supplier invoice",
             "sales invoice",
+            "revenue",
+            "sales",
+            "expense",
+            "expenses",
         )
     ) or bool(re.search(r"\b(ap|ar|a/p|a/r)\b", text))
     return grouped and about_entity
@@ -219,6 +226,20 @@ def _answer_period_question(message: str) -> str:
     return format_period_answer(raw)
 
 
+def _is_financial_report_question(message: str) -> bool:
+    from app.ai.lookups import infer_financial_report_type
+
+    return bool(infer_financial_report_type(message))
+
+
+def _answer_financial_report_question(message: str) -> str:
+    from app.ai.lookups import get_financial_report
+
+    return get_financial_report.invoke(
+        {"report_type": "", "period": "", "question": message}
+    )
+
+
 def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None]:
     """Tool router used when OpenAI is not configured."""
     text = message.lower()
@@ -228,6 +249,8 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
 
     if _is_count_question(message):
         return _answer_count_question(message), None
+    if _is_financial_report_question(message):
+        return _answer_financial_report_question(message), None
     if _is_period_question(message):
         return _answer_period_question(message), None
 
@@ -730,6 +753,8 @@ def run_chat(
     try:
         if _is_count_question(message):
             reply, pending = _answer_count_question(message), None
+        elif _is_financial_report_question(message):
+            reply, pending = _answer_financial_report_question(message), None
         elif _is_period_question(message):
             reply, pending = _answer_period_question(message), None
         elif settings.openai_api_key:

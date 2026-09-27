@@ -157,7 +157,7 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
           {messages.map((m) => (
             <div key={m.id} className={`ai-bubble ai-bubble-${m.role}`}>
               {m.role === 'assistant' ? (
-                <SimpleMarkdown content={m.content} />
+                <SimpleMarkdown content={m.content} onInternalNavigate={onClose} />
               ) : (
                 <p>{m.content}</p>
               )}

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import json
 import re
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from fastapi import HTTPException
 from langchain_core.tools import tool
 from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import joinedload, selectinload
@@ -30,6 +32,7 @@ from app.models import (
     ItemBOMHeader,
     ItemFulfillment,
     JournalEntry,
+    LedgerPosting,
     PurchaseOrder,
     SalesInvoice,
     SalesOrder,
@@ -789,6 +792,10 @@ def infer_period_kind(question: str) -> str:
         return "purchase_orders"
     if "subcontract" in text or "sco" in text:
         return "subcontract_orders"
+    if re.search(r"\brevenue\b", text) or "sales revenue" in text:
+        return "gl_revenue"
+    if re.search(r"\bexpenses?\b", text):
+        return "gl_expense"
     return "sales_orders"
 
 
@@ -839,6 +846,92 @@ def get_erp_counts(entity: str = "", status: str = "", question: str = "") -> st
     return format_count_answer(_json(result))
 
 
+def _gl_totals_by_month(db, user: User, kind_key: str, year_filter: int) -> str:
+    """Posted G/L Revenue or Expense totals grouped by journal period."""
+    from app.services.financial_reports import signed_balance
+
+    denied = _require_any(user, "report:view", "journal:view")
+    if denied:
+        return denied
+
+    account_type = "revenue" if kind_key == "gl_revenue" else "expense"
+    title = "Revenue by month" if kind_key == "gl_revenue" else "Expenses by month"
+    note = (
+        "Posted journals only. Amounts are G/L Revenue accounts, not sales-order totals."
+        if kind_key == "gl_revenue"
+        else "Posted journals only. Amounts are G/L Expense accounts."
+    )
+    query = (
+        db.query(
+            JournalEntry.period,
+            func.coalesce(func.sum(LedgerPosting.debit), 0),
+            func.coalesce(func.sum(LedgerPosting.credit), 0),
+            func.count(func.distinct(JournalEntry.id)),
+        )
+        .join(LedgerPosting, LedgerPosting.entry_id == JournalEntry.id)
+        .join(ChartOfAccount, ChartOfAccount.id == LedgerPosting.account_id)
+        .filter(func.lower(func.coalesce(JournalEntry.posting_status, "Posted")) == "posted")
+        .filter(func.lower(ChartOfAccount.account_type) == account_type)
+        .filter(JournalEntry.period.isnot(None))
+    )
+    if year_filter:
+        query = query.filter(JournalEntry.period.like(f"{year_filter:04d}-%"))
+        title = f"{title} ({year_filter})"
+    rows = query.group_by(JournalEntry.period).order_by(JournalEntry.period).all()
+
+    by_key: dict[str, dict[str, Any]] = {}
+    total_count = 0
+    total_amount = Decimal("0.00")
+    for period, debit, credit, count in rows:
+        key = str(period or "")
+        if len(key) < 7:
+            continue
+        amount = signed_balance(account_type, debit, credit)
+        total_count += int(count or 0)
+        total_amount += amount
+        try:
+            label = date(int(key[:4]), int(key[5:7]), 1).strftime("%b %Y")
+        except (TypeError, ValueError):
+            label = key
+        by_key[key] = {
+            "month": key,
+            "label": label,
+            "order_count": int(count or 0),
+            "total_amount": str(amount.quantize(Decimal("0.01"))),
+        }
+
+    if year_filter:
+        months = [
+            by_key.get(
+                f"{year_filter:04d}-{month:02d}",
+                {
+                    "month": f"{year_filter:04d}-{month:02d}",
+                    "label": date(year_filter, month, 1).strftime("%b %Y"),
+                    "order_count": 0,
+                    "total_amount": "0.00",
+                },
+            )
+            for month in range(1, 13)
+        ]
+    else:
+        months = list(by_key.values())
+
+    return format_period_answer(
+        _json(
+            {
+                "kind": kind_key,
+                "title": title,
+                "count_label": "Journals",
+                "year": year_filter or None,
+                "order_count": total_count,
+                "total_amount": str(total_amount.quantize(Decimal("0.01"))),
+                "months": months,
+                "note": note,
+            }
+        )
+    )
+
+
 @tool
 def get_orders_by_month(
     kind: str = "sales_orders",
@@ -854,8 +947,11 @@ def get_orders_by_month(
     "Account Payable by Month by Vendor", "cash by month". Never use get_finance_records
     or get_sales_orders for by-month questions — those only list recent rows.
 
+    Use for "revenue by month" (kind=gl_revenue, posted G/L) and "sales by month"
+    (kind=sales_orders). Never use search_erp_knowledge for those.
+
     kind: sales_orders | purchase_orders | subcontract_orders | ap_bills | ar_invoices |
-    sales_invoices | supplier_invoices | cash
+    sales_invoices | supplier_invoices | cash | gl_revenue | gl_expense
     group_by: optional vendor | customer (also inferred from question, e.g. "by vendor").
     year: optional 4-digit year filter (0 = all years).
     Pass question= the user's wording so the kind and grouping can be inferred.
@@ -885,6 +981,11 @@ def get_orders_by_month(
         "sales_invoice": "sales_invoices",
         "supplier_invoice": "supplier_invoices",
         "cash_transactions": "cash",
+        "revenue": "gl_revenue",
+        "gl_revenue": "gl_revenue",
+        "expense": "gl_expense",
+        "expenses": "gl_expense",
+        "gl_expense": "gl_expense",
     }
     kind_key = aliases.get(kind_key, kind_key)
 
@@ -893,6 +994,9 @@ def get_orders_by_month(
         ym = re.search(r"\b(20\d{2})\b", question)
         if ym:
             year_filter = int(ym.group(1))
+
+    if kind_key in ("gl_revenue", "gl_expense"):
+        return _gl_totals_by_month(ctx.db, ctx.user, kind_key, year_filter)
 
     join_supplier_invoice = False
     count_col = None
@@ -1100,6 +1204,339 @@ def get_orders_by_month(
             }
         )
     )
+
+
+MONTH_NAMES = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sept": 9,
+    "sep": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+
+REPORT_TYPE_ALIASES: list[tuple[str, tuple[str, ...]]] = [
+    ("cash-flow-forecast", ("cash flow forecast", "cash forecast")),
+    (
+        "income-statement",
+        (
+            "income statement",
+            "profit and loss",
+            "profit & loss",
+            "p and l",
+            "p & l",
+            "p& l",
+            "p &l",
+            "p&l",
+            "p/l",
+            "pnl",
+        ),
+    ),
+    ("balance-sheet", ("balance sheet", "statement of financial position")),
+    ("cash-flow", ("cash flow statement", "statement of cash flows", "cashflow statement", "cash flow")),
+    ("ar-aging", ("ar aging", "receivable aging", "accounts receivable aging")),
+    ("ap-aging", ("ap aging", "payable aging", "accounts payable aging")),
+    ("trial-balance", ("trial balance",)),
+    ("fixed-asset-schedule", ("fixed asset", "fixed-asset", "asset schedule")),
+    ("budget-vs-actual", ("budget vs", "budget versus", "budget vs actual")),
+    ("bank-reconciliation", ("bank rec", "bank reconciliation")),
+]
+
+
+def infer_financial_report_type(question: str) -> str:
+    """Map wording onto a financial-report catalog id, or empty if not a report."""
+    text = re.sub(r"&\s*", "&", (question or "").lower())
+    text = re.sub(r"\s+", " ", text)
+    for report_id, needles in REPORT_TYPE_ALIASES:
+        if any(needle in text for needle in needles):
+            return report_id
+    if any(phrase in text for phrase in ("financial report", "financial statement", "financial statements")):
+        return "income-statement"
+    return ""
+
+
+def parse_financial_report_period(question: str) -> dict[str, Any]:
+    """Extract period / date range kwargs from wording such as 'June 2026'."""
+    text = question or ""
+    lower = text.lower()
+    month_alt = "|".join(sorted(MONTH_NAMES, key=len, reverse=True))
+
+    iso = re.search(r"\b(20\d{2})[-/](0?[1-9]|1[0-2])\b", text)
+    if iso:
+        return {"period": f"{int(iso.group(1)):04d}-{int(iso.group(2)):02d}"}
+
+    named = re.search(rf"\b({month_alt})\.?\s*,?\s*(20\d{{2}})\b", lower)
+    if named:
+        return {"period": f"{int(named.group(2)):04d}-{MONTH_NAMES[named.group(1).rstrip('.')]:02d}"}
+
+    year_first = re.search(rf"\b(20\d{{2}})\s+({month_alt})\b", lower)
+    if year_first:
+        return {
+            "period": f"{int(year_first.group(1)):04d}-{MONTH_NAMES[year_first.group(2)]:02d}"
+        }
+
+    quarter = re.search(r"\bq([1-4])\s*(?:of\s+)?(20\d{2})\b", lower)
+    if quarter:
+        qtr = int(quarter.group(1))
+        year = int(quarter.group(2))
+        start_month = (qtr - 1) * 3 + 1
+        end_month = start_month + 2
+        return {
+            "date_from": date(year, start_month, 1),
+            "date_to": date(year, end_month, monthrange(year, end_month)[1]),
+            "fiscal_year": year,
+        }
+
+    year_m = re.search(r"\b(20\d{2})\b", text)
+    if year_m:
+        year = int(year_m.group(1))
+        return {
+            "date_from": date(year, 1, 1),
+            "date_to": date(year, 12, 31),
+            "fiscal_year": year,
+        }
+    return {}
+
+
+def posted_pnl_months(db) -> list[dict[str, Any]]:
+    """Posted Revenue/Expense totals grouped by journal period."""
+    from app.services.financial_reports import signed_balance
+
+    rows = (
+        db.query(
+            JournalEntry.period,
+            ChartOfAccount.account_type,
+            func.coalesce(func.sum(LedgerPosting.debit), 0),
+            func.coalesce(func.sum(LedgerPosting.credit), 0),
+        )
+        .join(LedgerPosting, LedgerPosting.entry_id == JournalEntry.id)
+        .join(ChartOfAccount, ChartOfAccount.id == LedgerPosting.account_id)
+        .filter(func.lower(func.coalesce(JournalEntry.posting_status, "Posted")) == "posted")
+        .filter(func.lower(ChartOfAccount.account_type).in_(["revenue", "expense"]))
+        .filter(JournalEntry.period.isnot(None))
+        .group_by(JournalEntry.period, ChartOfAccount.account_type)
+        .order_by(JournalEntry.period)
+        .all()
+    )
+    by_period: dict[str, dict[str, Any]] = {}
+    for period, account_type, debit, credit in rows:
+        key = str(period or "")
+        if not key:
+            continue
+        bucket = by_period.setdefault(
+            key, {"period": key, "revenue": Decimal("0.00"), "expense": Decimal("0.00")}
+        )
+        amount = signed_balance(account_type, debit, credit)
+        if (account_type or "").lower() == "revenue":
+            bucket["revenue"] += amount
+        else:
+            bucket["expense"] += amount
+    out: list[dict[str, Any]] = []
+    for key, bucket in by_period.items():
+        revenue = Decimal(str(bucket["revenue"]))
+        expense = Decimal(str(bucket["expense"]))
+        if revenue == 0 and expense == 0:
+            continue
+        try:
+            label = date(int(key[:4]), int(key[5:7]), 1).strftime("%b %Y")
+        except (TypeError, ValueError):
+            label = key
+        out.append(
+            {
+                "period": key,
+                "label": label,
+                "revenue": revenue,
+                "expense": expense,
+                "net_income": revenue - expense,
+            }
+        )
+    return out
+
+
+def _income_statement_is_empty(payload: dict[str, Any]) -> bool:
+    summary = payload.get("summary") or {}
+    keys = ("revenue", "cogs", "operating_expenses", "net_income")
+    return all(Decimal(str(summary.get(key) or 0)) == 0 for key in keys)
+
+
+def format_financial_report_answer(raw: str | dict[str, Any]) -> str:
+    """Turn a financial-report payload into a Markdown table the chat UI can render."""
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return raw
+        if stripped.startswith("Permission denied") or stripped.startswith("## "):
+            return raw
+        try:
+            data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return raw
+    else:
+        data = raw
+    if not isinstance(data, dict):
+        return str(raw)
+    if isinstance(data.get("error"), str):
+        return data["error"]
+
+    title = str(data.get("title") or "Financial report")
+    subtitle = str(data.get("subtitle") or "")
+    columns = data.get("columns") or []
+    rows = data.get("rows") or []
+    empty_period = bool(data.get("empty_period"))
+    lines = [f"## {title}", ""]
+    if empty_period:
+        lines.append(
+            "**No posted P&L activity in this date range.** Only Posted journals are included."
+        )
+        lines.append("")
+    if subtitle:
+        lines.append(subtitle)
+        lines.append("")
+
+    if not columns:
+        return "\n".join(lines).rstrip()
+
+    headers = [str(col.get("label") or col.get("key") or "") for col in columns]
+    aligns: list[str] = []
+    for col in columns:
+        fmt = str(col.get("format") or "")
+        align = str(col.get("align") or "")
+        if fmt == "number" or align == "right":
+            aligns.append("---:")
+        else:
+            aligns.append(":---")
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join(aligns) + " |")
+
+    for row in rows:
+        cells = row.get("cells") or {}
+        emphasis = str(row.get("emphasis") or "normal")
+        indent = int(row.get("indent") or 0)
+        values: list[str] = []
+        for index, col in enumerate(columns):
+            key = str(col.get("key") or "")
+            fmt = str(col.get("format") or "text")
+            value = cells.get(key)
+            if index == 0 and isinstance(value, str) and indent:
+                value = f"{' ' * indent}{value}"
+            if value is None or value == "":
+                rendered = ""
+            elif fmt == "number":
+                rendered = _money(value)
+            else:
+                rendered = str(value)
+            if emphasis in {"section", "total", "net", "negative"} and rendered:
+                rendered = f"**{rendered}**"
+            values.append(rendered)
+        lines.append("| " + " | ".join(values) + " |")
+
+    notes = data.get("notes") or []
+    if notes:
+        lines.append("")
+        for note in notes:
+            lines.append(f"_{note}_")
+    other_periods = data.get("other_periods") or []
+    if other_periods:
+        lines.append("")
+        lines.append("Posted P&L is in:")
+        lines.append("")
+        lines.append("| Month | Revenue | Expenses | Net Income |")
+        lines.append("| :--- | ---: | ---: | ---: |")
+        for row in other_periods:
+            lines.append(
+                f"| {row.get('label') or row.get('period')} | {_money(row.get('revenue'))} | "
+                f"{_money(row.get('expense'))} | {_money(row.get('net_income'))} |"
+            )
+        labels = ", ".join(str(row.get("label") or row.get("period")) for row in other_periods)
+        years = sorted(
+            {str(row.get("period") or "")[:4] for row in other_periods if str(row.get("period") or "")[:4].isdigit()}
+        )
+        year_bit = f" or the year {years[0]}" if len(years) == 1 else ""
+        lines.append("")
+        lines.append(f"Ask for {labels}{year_bit} to see those totals.")
+    elif empty_period:
+        lines.append("")
+        lines.append("There is no posted P&L in any month yet. Approve and post journals, then ask again.")
+
+    report_type = str(data.get("report_type") or "")
+    if report_type:
+        filters = data.get("filters") or {}
+        period = str(filters.get("period") or "")
+        path = f"/financial-reports/{report_type}"
+        if re.match(r"^\d{4}-(0[1-9]|1[0-2])$", period):
+            path = f"{path}?period={period}"
+        lines.append("")
+        lines.append(f"[Open the full report]({path})")
+    return "\n".join(lines).rstrip()
+
+
+@tool
+def get_financial_report(report_type: str = "", period: str = "", question: str = "") -> str:
+    """Generate a live financial statement from posted journal entries.
+
+    ALWAYS use this for Income Statement / P&L, Balance Sheet, Cash Flow,
+    Trial Balance, AR/AP aging, or "financial report for June 2026".
+    Do NOT use search_erp_knowledge or get_finance_records for these — those
+    only return process docs or recent document lists.
+
+    report_type: income-statement | balance-sheet | cash-flow | trial-balance |
+    ar-aging | ap-aging | fixed-asset-schedule | cash-flow-forecast |
+    budget-vs-actual | bank-reconciliation
+    period: YYYY-MM (June 2026 → 2026-06). Leave empty to infer from question.
+    Pass question= the user's wording so type and month/year can be inferred.
+    Returns Markdown — copy it verbatim; do not wrap in a code fence.
+    """
+    from app.services.financial_reports import get_financial_report as build_report
+
+    ctx = get_ai_context()
+    denied = _require_any(ctx.user, "report:view")
+    if denied:
+        return denied
+
+    report_id = (report_type or "").strip().lower()
+    if question.strip() and not report_id:
+        report_id = infer_financial_report_type(question)
+    if not report_id:
+        report_id = "income-statement"
+
+    kwargs: dict[str, Any] = {}
+    if question.strip():
+        kwargs.update(parse_financial_report_period(question))
+    if period.strip():
+        kwargs["period"] = period.strip()
+        kwargs.pop("date_from", None)
+        kwargs.pop("date_to", None)
+
+    try:
+        payload = build_report(ctx.db, report_id, **kwargs)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        return f"Could not generate that report: {detail}"
+    if report_id == "income-statement" and _income_statement_is_empty(payload):
+        requested = str((payload.get("filters") or {}).get("period") or "")
+        payload["empty_period"] = True
+        payload["other_periods"] = [
+            row for row in posted_pnl_months(ctx.db) if row.get("period") != requested
+        ]
+    return format_financial_report_answer(payload)
 
 
 @tool
@@ -1717,4 +2154,5 @@ LOOKUP_TOOLS = [
     get_fulfillments,
     get_goods_receipts,
     get_finance_records,
+    get_financial_report,
 ]

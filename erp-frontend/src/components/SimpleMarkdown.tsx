@@ -5,6 +5,8 @@
  *  Lightweight Markdown renderer for AI chat replies (no extra deps).
  */
 
+import type { MouseEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AiMonthTrendChart, {
   type AiMonthTrendPoint,
   type AiMonthTrendSpec,
@@ -35,6 +37,10 @@ function escapeHtml(text: string): string {
 
 function inlineFormat(text: string): string {
   let html = escapeHtml(text)
+  html = html.replace(
+    /\[([^\]]+)\]\((\/[^)\s]+|https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2">$1</a>',
+  )
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
@@ -310,10 +316,28 @@ function splitContent(content: string): ContentPart[] {
   return parts
 }
 
-export default function SimpleMarkdown({ content }: { content: string }) {
+export default function SimpleMarkdown({
+  content,
+  onInternalNavigate,
+}: {
+  content: string
+  onInternalNavigate?: (href: string) => void
+}) {
+  const navigate = useNavigate()
   const parts = splitContent(content)
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as HTMLElement).closest('a')
+    if (!anchor) return
+    const href = anchor.getAttribute('href')
+    if (!href || !href.startsWith('/') || href.startsWith('//')) return
+    event.preventDefault()
+    navigate(href)
+    onInternalNavigate?.(href)
+  }
+
   return (
-    <div className="ai-markdown">
+    <div className="ai-markdown" onClick={handleClick}>
       {parts.map((part, index) =>
         part.type === 'chart' ? (
           <AiMonthTrendChart key={`chart-${index}`} spec={part.spec} />

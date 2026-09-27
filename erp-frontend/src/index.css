@@ -1094,6 +1094,16 @@ code {
   height: 240px;
 }
 
+.ai-markdown a {
+  color: #1565c0;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.ai-markdown a:hover {
+  color: #0d47a1;
+}
+
 .ai-markdown code {
   font-size: 12px;
 }

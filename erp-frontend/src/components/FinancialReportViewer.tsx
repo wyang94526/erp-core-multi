@@ -5,8 +5,8 @@
  * Financial report viewer with global filters and PDF / CSV / Excel export.
  */
 
-import { useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { financialReportService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
@@ -28,14 +28,30 @@ import {
   pageTitleStyle,
 } from './dashboard/dashboardStyles'
 
+function filtersFromSearch(search: URLSearchParams): FinancialReportQuery {
+  const defaults = defaultReportFilters()
+  const period = (search.get('period') || '').trim()
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    return filtersFromPeriod(period, defaults)
+  }
+  return defaults
+}
+
 export default function FinancialReportViewer() {
   const { reportType } = useParams<{ reportType: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { hasPermission } = useAuth()
   const canView = hasPermission('report:view')
-  const [filters, setFilters] = useState<FinancialReportQuery>(() => defaultReportFilters())
-  const [applied, setApplied] = useState<FinancialReportQuery>(() => defaultReportFilters())
+  const [filters, setFilters] = useState<FinancialReportQuery>(() => filtersFromSearch(searchParams))
+  const [applied, setApplied] = useState<FinancialReportQuery>(() => filtersFromSearch(searchParams))
   const [exportFormat, setExportFormat] = useState<FinancialReportExportFormat>('pdf')
+
+  useEffect(() => {
+    const next = filtersFromSearch(searchParams)
+    setFilters(next)
+    setApplied(next)
+  }, [searchParams])
 
   const type = (reportType || '').trim()
 
