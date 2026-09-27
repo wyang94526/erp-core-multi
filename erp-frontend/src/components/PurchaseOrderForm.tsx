@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FileDown, Loader2 } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
@@ -26,6 +27,7 @@ import { POLineItemsTable } from './POLineItemsTable';
 import { POSummaryCard } from './POSummaryCard';
 import { POActionToolbar } from './POActionToolbar';
 import { ApprovalPanel } from './ApprovalPanel';
+import { DocumentRevisionPanel } from './DocumentRevisionPanel';
 import { GoodsReceiptHistoryTable } from './GoodsReceiptHistoryTable';
 import { useAuth } from '../context/AuthContext';
 
@@ -105,6 +107,7 @@ export function PurchaseOrderForm() {
   const [recalling, setRecalling] = useState(false);
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const { hasAnyPermission } = useAuth();
+  const queryClient = useQueryClient();
 
   const {
     state,
@@ -317,7 +320,7 @@ export function PurchaseOrderForm() {
     if (isExisting && !isPurchaseOrderEditable(state)) {
       throw new Error(
         purchaseOrderLockReason(state) ||
-          'Approved purchase orders cannot be modified directly. Use Recall / Reopen for Revision.',
+          'Approved purchase orders cannot be modified directly. Use Create Revision.',
       );
     }
     const payload = buildPayload(state as PurchaseOrder, status);
@@ -437,6 +440,8 @@ export function PurchaseOrderForm() {
 
   const handleApprovalChange = async () => {
     try {
+      await queryClient.invalidateQueries({ queryKey: ['purchase-orders', state.po_number, 'revisions'] })
+      await queryClient.invalidateQueries({ queryKey: ['purchase-orders', state.po_number, 'change-logs'] })
       const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
       setFullPO(withSupplierName(refreshed, suppliers));
       const next = (refreshed.approval_status || '').toUpperCase();
@@ -470,7 +475,7 @@ export function PurchaseOrderForm() {
     if (!state.po_number) return;
     if (
       !window.confirm(
-        'Recall this purchase order to Draft for revision? Receive Goods and Create Bill stay blocked until it is approved again.',
+        'Create a revision of this purchase order? The PO number stays the same. The current approved state is frozen, then you can edit and re-submit. Receive Goods and Create Bill stay blocked until it is approved again.',
       )
     ) {
       return;
@@ -479,13 +484,15 @@ export function PurchaseOrderForm() {
     setErrors({});
     setP2pError(null);
     try {
-      const updated = await purchaseOrderService.recallPurchaseOrder(state.po_number);
+      const updated = await purchaseOrderService.revisePurchaseOrder(state.po_number);
+      await queryClient.invalidateQueries({ queryKey: ['purchase-orders', state.po_number, 'revisions'] })
+      await queryClient.invalidateQueries({ queryKey: ['purchase-orders', state.po_number, 'change-logs'] })
       setFullPO(withSupplierName(updated, suppliers));
       setIsReadOnly(false);
-      setSuccessMessage(`Purchase order ${updated.po_number} recalled to Draft for revision.`);
+      setSuccessMessage(`Purchase order ${updated.po_number} reopened as Draft for revision ${updated.revision_number || ''}.`.trim());
     } catch (err) {
       setErrors({
-        form: err instanceof Error ? err.message : 'Failed to recall purchase order',
+        form: err instanceof Error ? err.message : 'Failed to create purchase order revision',
       });
     } finally {
       setRecalling(false);
@@ -577,7 +584,7 @@ export function PurchaseOrderForm() {
           <p style={pageSubStyle}>
             {isNew
               ? 'Enter vendor, line items, and notes, then save draft or submit for approval'
-              : `Viewing ${state.po_number}`}
+              : `Viewing ${state.po_number}${Number(state.revision_number || 0) > 0 ? ` · Rev ${state.revision_number}` : ''}`}
           </p>
         </div>
         <button
@@ -641,15 +648,15 @@ export function PurchaseOrderForm() {
           />
 
           {isExisting && isRecallableStatus && (
-            <div style={recallBarStyle} role="region" aria-label="Recall purchase order">
+            <div style={recallBarStyle} role="region" aria-label="Create purchase order revision">
               <div>
                 <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-                  Recall / Reopen for Revision
+                  Create Revision
                 </div>
                 <div style={{ fontSize: 13, color: canRecallAction ? 'var(--text)' : '#c62828' }}>
                   {canRecallAction
-                    ? 'Return this purchase order to Draft so you can revise lines and resubmit for approval.'
-                    : recallDisabledReason || 'Recall is not available for this purchase order.'}
+                    ? 'Keep this PO number. Freeze the approved snapshot, then edit and re-submit for approval.'
+                    : recallDisabledReason || 'Create Revision is not available for this purchase order.'}
                 </div>
               </div>
               <button
@@ -662,7 +669,7 @@ export function PurchaseOrderForm() {
                   cursor: canRecallAction && !recalling ? 'pointer' : 'not-allowed',
                 }}
               >
-                {recalling ? 'Recalling…' : 'Recall / Reopen for Revision'}
+                {recalling ? 'Opening revision…' : 'Create Revision'}
               </button>
             </div>
           )}
@@ -679,6 +686,16 @@ export function PurchaseOrderForm() {
               documentStatus={state.status}
             />
           )}
+
+          {isExisting ? (
+            <DocumentRevisionPanel
+              kind="purchase-orders"
+              documentId={state.po_number}
+              revisionNumber={state.revision_number}
+              listRevisions={purchaseOrderService.listRevisions}
+              listChangeLogs={purchaseOrderService.listChangeLogs}
+            />
+          ) : null}
 
           {isExisting && isApproved && (
             <div style={exportBarStyle}>

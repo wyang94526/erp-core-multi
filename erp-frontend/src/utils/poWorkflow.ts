@@ -4,7 +4,7 @@
  */
 
 export const PURCHASE_ORDER_LOCKED_EDIT_MESSAGE =
-  'Approved purchase orders cannot be modified directly. Use Recall / Reopen for Revision.'
+  'Approved purchase orders cannot be modified directly. Use Create Revision.'
 
 type PurchaseOrderLockFields = {
   status?: string | null
@@ -52,7 +52,7 @@ export function purchaseOrderLockReason(
     status === 'Submitted'
   ) {
     if (['PENDING_APPROVAL', 'SUBMITTED', 'PENDING'].includes(approval) || status === 'Submitted') {
-      return 'This purchase order is in approval. Use Recall / Reopen for Revision to edit.'
+      return 'This purchase order is in approval. Use Create Revision to edit.'
     }
     return PURCHASE_ORDER_LOCKED_EDIT_MESSAGE
   }

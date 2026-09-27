@@ -185,7 +185,7 @@ class ApprovalAuditLog(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED')",
+            "action IN ('SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED', 'REVISED')",
             name='chk_approval_audit_action',
         ),
     )
@@ -557,6 +557,8 @@ class SalesOrder(Base):
     status = Column(String(30), default='DRAFT')
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    revision_number = Column(Integer, nullable=False, server_default=text("0"))
+    root_document_id = Column(String(50), nullable=True)
     total_amount = Column(Numeric(12, 2), nullable=False)
     
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
@@ -852,6 +854,8 @@ class SubcontractOrder(Base):
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
     amendment_number = Column(Integer, nullable=False, server_default=text("0"))
+    revision_number = Column(Integer, nullable=False, server_default=text("0"))
+    root_document_id = Column(String(50), nullable=True)
     billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
 
     order_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
@@ -1170,6 +1174,8 @@ class PurchaseOrder(Base):
     status = Column(String(20), nullable=False, default='Draft')  # Draft, Submitted, Approved, Void
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    revision_number = Column(Integer, nullable=False, server_default=text("0"))
+    root_document_id = Column(String(50), nullable=True)
     billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
 
     shipping_fee = Column(Numeric(12, 2), nullable=False, default=0)
@@ -1774,3 +1780,47 @@ class DocumentSequence(Base):
     year_month = Column(String(6), primary_key=True)
     last_value = Column(Integer, nullable=False, server_default=text("0"))
     updated_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+
+class DocumentRevision(Base):
+    """Frozen header + lines snapshot for one SO / PO / SCO revision."""
+
+    __tablename__ = "document_revisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_type = Column(String(30), nullable=False)
+    document_id = Column(String(50), nullable=False)
+    revision_number = Column(Integer, nullable=False)
+    root_document_id = Column(String(50), nullable=False)
+    snapshot_json = Column(JSONB, nullable=False)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_type",
+            "document_id",
+            "revision_number",
+            name="uq_document_revisions_doc_rev",
+        ),
+    )
+
+    created_by = relationship("User")
+
+
+class DocumentChangeLog(Base):
+    """Field-level diffs written when a revised document is re-approved."""
+
+    __tablename__ = "document_change_logs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    document_type = Column(String(30), nullable=False)
+    document_id = Column(String(50), nullable=False)
+    revision_number = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    field_name = Column(String(120), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+    user = relationship("User")

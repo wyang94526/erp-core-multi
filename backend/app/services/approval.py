@@ -383,6 +383,9 @@ def _finalize_approved(
     on_approve = MODULE_CONFIG[canonical].get("on_approve")
     if on_approve:
         on_approve(db, doc)
+    from app.services.document_revisions import record_reapproval_change_logs
+
+    record_reapproval_change_logs(db, canonical=canonical, doc=doc, user=user)
     _record_audit(
         db,
         document_type=LEGACY_MODULES[canonical],
@@ -544,6 +547,9 @@ def approve_document(
     on_approve = MODULE_CONFIG[canonical].get("on_approve")
     if on_approve:
         on_approve(db, doc)
+    from app.services.document_revisions import record_reapproval_change_logs
+
+    record_reapproval_change_logs(db, canonical=canonical, doc=doc, user=user)
     db.commit()
     db.refresh(doc)
     return _doc_snapshot(
@@ -686,6 +692,85 @@ def require_approved(doc: Any, label: str = "Document") -> None:
         )
 
 
+def revise_document(
+    db: Session,
+    module: str,
+    document_id: str,
+    user: User,
+    comments: str | None = None,
+) -> dict[str, Any]:
+    """Freeze the approved document, keep the same number, and reopen as Draft."""
+    from app.services.document_revisions import (
+        REVISABLE_TYPES,
+        freeze_current_revision,
+        load_revisable_document,
+    )
+    from app.services.p2p import assert_can_recall_purchase_order
+    from app.services.subcontract import assert_can_amend_cost_sheet
+    from app.services.o2c import assert_can_revise_sales_order
+
+    canonical = normalize_module(module)
+    if canonical not in REVISABLE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Create Revision is only available for sales orders, purchase orders, and subcontract orders",
+        )
+
+    if canonical == "PURCHASE_ORDER":
+        _assert_any_permission(
+            user,
+            [SUBMIT_PERMISSION[canonical], APPROVE_PERMISSION[canonical]],
+        )
+    else:
+        _assert_permission(user, SUBMIT_PERMISSION[canonical])
+
+    doc = load_revisable_document(db, canonical, document_id)
+    if canonical == "SALES_ORDER":
+        assert_can_revise_sales_order(doc)
+    elif canonical == "PURCHASE_ORDER":
+        assert_can_recall_purchase_order(db, doc)
+    else:
+        assert_can_amend_cost_sheet(doc)
+
+    if not getattr(doc, "root_document_id", None):
+        doc.root_document_id = document_id
+
+    freeze_current_revision(db, canonical=canonical, doc=doc, user=user)
+    next_rev = int(getattr(doc, "revision_number", 0) or 0) + 1
+    doc.revision_number = next_rev
+    if canonical == "SUBCONTRACT_ORDER":
+        doc.amendment_number = int(getattr(doc, "amendment_number", 0) or 0) + 1
+    doc.approval_status = "DRAFT"
+    doc.current_approval_step = None
+    if canonical == "PURCHASE_ORDER" and getattr(doc, "status", None) != "Void":
+        doc.status = "Draft"
+
+    if canonical == "SUBCONTRACT_ORDER":
+        note = (comments or "").strip() or f"Revision {next_rev} / cost sheet amendment {doc.amendment_number}"
+        audit_action = "REVISED"
+        message = f"Reopened as Draft for revision {next_rev}"
+    elif canonical == "PURCHASE_ORDER":
+        note = (comments or "").strip() or f"Revision {next_rev}"
+        audit_action = "REVISED"
+        message = f"Reopened as Draft for revision {next_rev}"
+    else:
+        note = (comments or "").strip() or f"Revision {next_rev}"
+        audit_action = "REVISED"
+        message = f"Reopened as Draft for revision {next_rev}"
+
+    _record_audit(
+        db,
+        document_type=LEGACY_MODULES[canonical],
+        document_id=document_id,
+        action=audit_action,
+        user=user,
+        comments=note,
+    )
+    db.commit()
+    db.refresh(doc)
+    return _doc_snapshot(canonical, document_id, doc, message=message)
+
+
 def amend_subcontract_order(
     db: Session,
     document_id: str,
@@ -693,34 +778,7 @@ def amend_subcontract_order(
     comments: str | None = None,
 ) -> dict[str, Any]:
     """Reopen an approved SCO to Draft so the vendor cost sheet can be revised."""
-    from app.services.subcontract import assert_can_amend_cost_sheet
-
-    canonical = "SUBCONTRACT_ORDER"
-    _assert_permission(user, SUBMIT_PERMISSION[canonical])
-    doc = _load_document(db, canonical, document_id)
-    assert_can_amend_cost_sheet(doc)
-
-    next_rev = int(getattr(doc, "amendment_number", 0) or 0) + 1
-    doc.amendment_number = next_rev
-    doc.approval_status = "DRAFT"
-    doc.current_approval_step = None
-    note = (comments or "").strip() or f"Cost sheet amendment {next_rev}"
-    _record_audit(
-        db,
-        document_type=LEGACY_MODULES[canonical],
-        document_id=document_id,
-        action="AMENDED",
-        user=user,
-        comments=note,
-    )
-    db.commit()
-    db.refresh(doc)
-    return _doc_snapshot(
-        canonical,
-        document_id,
-        doc,
-        message=f"Reopened as Draft for cost sheet amendment {next_rev}",
-    )
+    return revise_document(db, "SUBCONTRACT_ORDER", document_id, user, comments)
 
 
 def recall_purchase_order(
@@ -730,35 +788,4 @@ def recall_purchase_order(
     comments: str | None = None,
 ) -> dict[str, Any]:
     """Return a submitted or approved PO to Draft without PATCH status conflicts."""
-    from app.services.p2p import assert_can_recall_purchase_order
-
-    canonical = "PURCHASE_ORDER"
-    _assert_any_permission(
-        user,
-        [SUBMIT_PERMISSION[canonical], APPROVE_PERMISSION[canonical]],
-    )
-    doc = _load_document(db, canonical, document_id)
-    assert_can_recall_purchase_order(db, doc)
-
-    doc.approval_status = "DRAFT"
-    doc.current_approval_step = None
-    if getattr(doc, "status", None) != "Void":
-        doc.status = "Draft"
-
-    note = (comments or "").strip() or "Recalled for revision"
-    _record_audit(
-        db,
-        document_type=LEGACY_MODULES[canonical],
-        document_id=document_id,
-        action="RECALLED",
-        user=user,
-        comments=note,
-    )
-    db.commit()
-    db.refresh(doc)
-    return _doc_snapshot(
-        canonical,
-        document_id,
-        doc,
-        message="Recalled to Draft for revision",
-    )
+    return revise_document(db, "PURCHASE_ORDER", document_id, user, comments)

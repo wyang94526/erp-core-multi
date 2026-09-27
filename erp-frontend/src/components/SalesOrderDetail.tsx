@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { FileDown, Loader2 } from 'lucide-react'
 import {
@@ -27,21 +27,26 @@ import {
 } from '../utils/soBilling'
 import {
   isSalesOrderEditable,
+  isSalesOrderRevisable,
   salesOrderEditPath,
   PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE,
   SALES_ORDER_LOCKED_EDIT_MESSAGE,
 } from '../utils/salesOrders'
 import { isSalesOrderFullyFulfilled } from '../utils/fulfillmentQty'
+import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
+import { DocumentRevisionPanel } from './DocumentRevisionPanel'
 
 export function SalesOrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { hasPermission } = useAuth()
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [lockWarning, setLockWarning] = useState<string | null>(null)
+  const [reviseError, setReviseError] = useState<string | null>(null)
 
   if (!id) {
     return (
@@ -79,6 +84,21 @@ export function SalesOrderDetail() {
     queryKey: ['scoSalesOrderLines', id],
     queryFn: () => subcontractOrderService.listSalesOrderLines(id!),
     enabled: Boolean(id),
+  })
+
+  const reviseMutation = useMutation({
+    mutationFn: () => salesOrderService.reviseSalesOrder(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesOrders', id] })
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-orders', id, 'revisions'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-orders', id, 'change-logs'] })
+      setReviseError(null)
+      navigate(salesOrderEditPath(id!))
+    },
+    onError: (err: Error) => {
+      setReviseError(err.message || 'Failed to create revision')
+    },
   })
 
   if (isLoading) {
@@ -207,7 +227,10 @@ export function SalesOrderDetail() {
       <header style={pageHeaderStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={pageTitleStyle}>Sales Order Details</h2>
-          <p style={pageSubStyle}>Viewing order {order.sales_order_id}</p>
+          <p style={pageSubStyle}>
+            Viewing order {order.sales_order_id}
+            {Number(order.revision_number || 0) > 0 ? ` · Rev ${order.revision_number}` : ''}
+          </p>
         </div>
         <button onClick={() => navigate('/sales-orders')} style={secondaryButtonStyle}>
           Back to Orders
@@ -222,6 +245,8 @@ export function SalesOrderDetail() {
         onStatusChange={() => {
           queryClient.invalidateQueries({ queryKey: ['salesOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+          queryClient.invalidateQueries({ queryKey: ['sales-orders', id, 'revisions'] })
+          queryClient.invalidateQueries({ queryKey: ['sales-orders', id, 'change-logs'] })
         }}
       />
 
@@ -230,6 +255,19 @@ export function SalesOrderDetail() {
           {lockWarning}
         </div>
       )}
+      {reviseError && (
+        <div style={lockWarningStyle} role="alert">
+          {reviseError}
+        </div>
+      )}
+
+      <DocumentRevisionPanel
+        kind="sales-orders"
+        documentId={order.sales_order_id}
+        revisionNumber={order.revision_number}
+        listRevisions={salesOrderService.listRevisions}
+        listChangeLogs={salesOrderService.listChangeLogs}
+      />
 
       {isApproved && (
         <div style={exportBarStyle}>
@@ -606,6 +644,25 @@ export function SalesOrderDetail() {
         >
           Create Invoice
         </button>
+        {isSalesOrderRevisable(order) && hasPermission('sales_order:submit') ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (reviseMutation.isPending) return
+              if (
+                !window.confirm(
+                  `Create a revision of ${order.sales_order_id}? The order number stays the same. The current approved state is frozen, then you can edit and re-submit for approval.`,
+                )
+              ) {
+                return
+              }
+              reviseMutation.mutate()
+            }}
+            style={{ ...primaryButtonStyle, backgroundColor: '#ef6c00' }}
+          >
+            {reviseMutation.isPending ? 'Opening revision…' : 'Create Revision'}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={requestEdit}

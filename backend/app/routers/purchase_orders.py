@@ -12,6 +12,9 @@ from app.database import get_db
 from app.deps.auth import get_current_user
 from app.models import Item, PurchaseOrder, PurchaseOrderItem, SubcontractOrder, SubcontractOrderComponent, Supplier, User
 from app.schemas import (
+    DocumentChangeLogRead,
+    DocumentRevisionRead,
+    DocumentReviseRequest,
     GoodsReceiptCreate,
     GoodsReceiptRead,
     PurchaseOrderCreate,
@@ -20,6 +23,7 @@ from app.schemas import (
     PurchaseOrderUpdate,
 )
 from app.services import approval, p2p
+from app.services.document_revisions import list_change_logs, list_revisions
 from app.services.document_sequences import DOC_PURCHASE_ORDER, generate_document_number
 from app.services.po_totals import apply_estimated_landed_unit_costs, apply_po_totals, requires_carrier_account
 from app.services.payment_terms import apply_payment_term_fields
@@ -208,6 +212,7 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     order_date = data.get("order_date") or date.today()
     data["order_date"] = order_date
     data["po_number"] = generate_document_number(db, DOC_PURCHASE_ORDER, order_date)
+    data["root_document_id"] = data["po_number"]
     items = payload.items
 
     po = PurchaseOrder(**data)
@@ -323,15 +328,16 @@ def update_purchase_order(
     return _load_po(db, po.po_number)
 
 
-@router.post("/{po_number}/recall", response_model=PurchaseOrderRead)
-def recall_purchase_order(
+@router.post("/{po_number}/revise", response_model=PurchaseOrderRead)
+def revise_purchase_order(
     po_number: str,
-    payload: PurchaseOrderRecallRequest | None = None,
+    payload: DocumentReviseRequest | PurchaseOrderRecallRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PurchaseOrder:
-    approval.recall_purchase_order(
+    approval.revise_document(
         db,
+        "PURCHASE_ORDER",
         po_number,
         user,
         comments=payload.comments if payload else None,
@@ -340,6 +346,30 @@ def recall_purchase_order(
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     return po
+
+
+@router.post("/{po_number}/recall", response_model=PurchaseOrderRead)
+def recall_purchase_order(
+    po_number: str,
+    payload: PurchaseOrderRecallRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PurchaseOrder:
+    return revise_purchase_order(po_number, payload, db, user)
+
+
+@router.get("/{po_number}/revisions", response_model=list[DocumentRevisionRead])
+def list_purchase_order_revisions(po_number: str, db: Session = Depends(get_db)) -> list:
+    if db.get(PurchaseOrder, po_number) is None:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return list_revisions(db, "PURCHASE_ORDER", po_number)
+
+
+@router.get("/{po_number}/change-logs", response_model=list[DocumentChangeLogRead])
+def list_purchase_order_change_logs(po_number: str, db: Session = Depends(get_db)) -> list:
+    if db.get(PurchaseOrder, po_number) is None:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return list_change_logs(db, "PURCHASE_ORDER", po_number)
 
 
 @router.post("/{po_number}/receive", response_model=GoodsReceiptRead, status_code=status.HTTP_201_CREATED)

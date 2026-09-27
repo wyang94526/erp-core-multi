@@ -1,16 +1,23 @@
 # @author: Wendy Yang
 # @date: 2026-09-19
 
-from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderItem
-from app.schemas import SalesOrderCreate, SalesOrderRead, SalesOrderUpdate
-from app.services import o2c
+from app.deps.auth import get_current_user
+from app.models import Customer, CustomerLocation, Item, SalesOrder, SalesOrderItem, User
+from app.schemas import (
+    DocumentChangeLogRead,
+    DocumentReviseRequest,
+    DocumentRevisionRead,
+    SalesOrderCreate,
+    SalesOrderRead,
+    SalesOrderUpdate,
+)
+from app.services import approval, o2c
+from app.services.document_revisions import list_change_logs, list_revisions
 from app.services.document_sequences import DOC_SALES_ORDER, generate_document_number
 from app.services.payment_terms import apply_payment_term_fields
 from app.services.item_types import validate_line_quantity
@@ -88,6 +95,7 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
     order_data["sales_order_id"] = generate_document_number(
         db, DOC_SALES_ORDER, payload.order_date
     )
+    order_data["root_document_id"] = order_data["sales_order_id"]
     order = SalesOrder(**order_data)
     customer = db.get(Customer, payload.customer_id)
     apply_payment_term_fields(
@@ -195,6 +203,41 @@ def update_sales_order(
     db.refresh(order)
     o2c.attach_sales_order_billing(db, [order])
     return order
+
+
+@router.post("/{order_id}/revise", response_model=SalesOrderRead)
+def revise_sales_order(
+    order_id: str,
+    payload: DocumentReviseRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SalesOrder:
+    approval.revise_document(
+        db,
+        "SALES_ORDER",
+        order_id,
+        user,
+        comments=payload.comments if payload else None,
+    )
+    order = db.get(SalesOrder, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales Order not found")
+    o2c.attach_sales_order_billing(db, [order])
+    return order
+
+
+@router.get("/{order_id}/revisions", response_model=list[DocumentRevisionRead])
+def list_sales_order_revisions(order_id: str, db: Session = Depends(get_db)) -> list:
+    if db.get(SalesOrder, order_id) is None:
+        raise HTTPException(status_code=404, detail="Sales Order not found")
+    return list_revisions(db, "SALES_ORDER", order_id)
+
+
+@router.get("/{order_id}/change-logs", response_model=list[DocumentChangeLogRead])
+def list_sales_order_change_logs(order_id: str, db: Session = Depends(get_db)) -> list:
+    if db.get(SalesOrder, order_id) is None:
+        raise HTTPException(status_code=404, detail="Sales Order not found")
+    return list_change_logs(db, "SALES_ORDER", order_id)
 
 # Note: No DELETE endpoint is provided in this router. 
 # "Deletions" must be handled by sending a PATCH request with {"status": "CANCELLED"}.

@@ -35,8 +35,8 @@ from app.services.item_types import catalog_item, skip_inventory_movement
 ACTIVE_SALES_INVOICE_STATUSES = ("DRAFT", "APPROVED", "PAID")
 _MONEY = Decimal("0.01")
 SALES_ORDER_LOCKED_EDIT_DETAIL = (
-    "Approved or Invoiced orders cannot be modified. "
-    "Please create a credit memo or change order instead."
+    "Approved or invoiced orders cannot be modified directly. "
+    "Use Create Revision to reopen this sales order."
 )
 _COMMITTED_FULFILLMENT_STATUSES = frozenset({"PICKED", "PACKED", "SHIPPED"})
 _EDITABLE_APPROVAL = frozenset({"DRAFT", "REJECTED"})
@@ -59,6 +59,34 @@ def sales_order_is_editable(order: SalesOrder) -> bool:
 def require_sales_order_editable(order: SalesOrder) -> None:
     if not sales_order_is_editable(order):
         raise HTTPException(status_code=409, detail=SALES_ORDER_LOCKED_EDIT_DETAIL)
+
+
+def sales_order_revise_blocker(order: SalesOrder) -> str | None:
+    approval = _normalize_so_flag(getattr(order, "approval_status", None) or "DRAFT")
+    status = _normalize_so_flag(getattr(order, "status", None))
+    invoice_status = _normalize_so_flag(getattr(order, "invoice_status", None))
+    if approval != "APPROVED":
+        return "Create Revision is only available after the sales order is approved."
+    if status in _LOCKED_STATUS or invoice_status == "FULLY_BILLED":
+        return "Cannot revise a shipped, fulfilled, or fully billed sales order."
+    return None
+
+
+def sales_order_can_revise(order: SalesOrder) -> bool:
+    return sales_order_revise_blocker(order) is None
+
+
+def assert_can_revise_sales_order(order: SalesOrder) -> None:
+    reason = sales_order_revise_blocker(order)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+
+def attach_sales_order_revise_flags(orders: list[SalesOrder]) -> None:
+    for order in orders:
+        reason = sales_order_revise_blocker(order)
+        order.can_revise = reason is None
+        order.revise_blocked_reason = reason
 
 
 def _money(value: Decimal | int | float | str | None) -> Decimal:
@@ -114,6 +142,7 @@ def attach_sales_order_billing(db: Session, orders: list[SalesOrder]) -> None:
         order.billed_amount = billed
         order.remaining_billable_amount = remaining
         order.invoice_status = invoice_status_label(order_total, billed)
+    attach_sales_order_revise_flags(orders)
 
 
 def assert_new_invoice_within_order_balance(

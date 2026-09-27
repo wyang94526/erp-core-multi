@@ -22,6 +22,7 @@ import { scoCanReceiveFinishedGoods, scoReceiveBlockedReason } from '../utils/sc
 import { useAuth } from '../context/AuthContext'
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
+import { DocumentRevisionPanel } from './DocumentRevisionPanel'
 import ScoCostSheet from './ScoCostSheet'
 import type { CalculatedComponentLine, MaterialIssue, SubcontractCharge, SubcontractOrder } from '../types'
 
@@ -163,6 +164,8 @@ export function SubcontractOrderDetail() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['subcontract-orders', id, 'revisions'] })
+      queryClient.invalidateQueries({ queryKey: ['subcontract-orders', id, 'change-logs'] })
       setShowAmendModal(false)
       const lines =
         updated.lines && updated.lines.length > 0
@@ -518,13 +521,15 @@ export function SubcontractOrderDetail() {
           <h2 style={pageTitleStyle}>Subcontract Order Details</h2>
           <p style={pageSubStyle}>
             Viewing SCO {sco.sco_number}
-            {amendmentNumber > 0 ? ` · Amendment ${amendmentNumber}` : ''}
+            {Number(sco.revision_number || amendmentNumber || 0) > 0
+              ? ` · Rev ${sco.revision_number || amendmentNumber}`
+              : ''}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {canAmend && !editingCostSheet && (
             <button type="button" onClick={() => setShowAmendModal(true)} style={amendButtonStyle}>
-              Amend cost sheet
+              Create Revision
             </button>
           )}
           {canEditCostSheet && !editingCostSheet && (
@@ -576,7 +581,17 @@ export function SubcontractOrderDetail() {
         onStatusChange={() => {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+          queryClient.invalidateQueries({ queryKey: ['subcontract-orders', id, 'revisions'] })
+          queryClient.invalidateQueries({ queryKey: ['subcontract-orders', id, 'change-logs'] })
         }}
+      />
+
+      <DocumentRevisionPanel
+        kind="subcontract-orders"
+        documentId={sco.sco_number}
+        revisionNumber={sco.revision_number || amendmentNumber}
+        listRevisions={subcontractOrderService.listRevisions}
+        listChangeLogs={subcontractOrderService.listChangeLogs}
       />
 
       {canEditCostSheet && !editingCostSheet && (
@@ -587,7 +602,7 @@ export function SubcontractOrderDetail() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--text)' }}>
               {isAmending
-                ? `Amendment ${amendmentNumber} is open. Update labor, shipping, and admin charges, then submit for approval. Linked purchase orders stay. Issue and receive stay locked until this amendment is approved. Do not create the subcontractor bill until then.`
+                ? `Revision ${sco.revision_number || amendmentNumber} is open. Update quantity, labor, shipping, and admin charges, then submit for approval. Linked purchase orders stay. Issue and receive stay locked until this revision is approved. Do not create the subcontractor bill until then.`
                 : `Approval is ${approvalStatus.replace(/_/g, ' ')}. Update labor, shipping, and admin charges before submitting for approval.`}
             </div>
           </div>
@@ -1529,13 +1544,13 @@ function AmendCostSheetModal({
         }}
       >
         <h3 id="amend-sco-title" style={{ margin: '0 0 8px', fontSize: 18, color: 'var(--text-h)' }}>
-          Amend cost sheet
+          Create Revision
         </h3>
         <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-          This starts amendment {amendmentNumber} on the same subcontract order. Approval returns to
-          Draft so you can update vendor charges and re-submit. Linked purchase orders stay. Issue
-          and receive can continue. Do not create a new subcontractor bill until the amendment is
-          approved. Existing bills are not changed automatically.
+          This starts revision {amendmentNumber} on the same subcontract order number. The approved
+          state is frozen. Approval returns to Draft so you can update quantity or vendor charges
+          and re-submit. Linked purchase orders stay. Do not create a new subcontractor bill until
+          the revision is approved. Existing bills are not changed automatically.
         </p>
         <textarea
           name="comments"
@@ -1562,7 +1577,7 @@ function AmendCostSheetModal({
               cursor: busy ? 'not-allowed' : 'pointer',
             }}
           >
-            {busy ? 'Opening amendment…' : 'Start amendment'}
+            {busy ? 'Opening revision…' : 'Create Revision'}
           </button>
         </div>
       </form>

@@ -1012,6 +1012,10 @@ class SalesOrderRead(ORMModel):
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    revision_number: int = 0
+    root_document_id: str | None = None
+    can_revise: bool = False
+    revise_blocked_reason: str | None = None
     total_amount: Decimal
     billed_amount: Decimal = Decimal("0.00")
     remaining_billable_amount: Decimal = Decimal("0.00")
@@ -1671,6 +1675,10 @@ class SubcontractOrderRead(ORMModel):
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
     amendment_number: int = 0
+    revision_number: int = 0
+    root_document_id: str | None = None
+    can_revise: bool = False
+    revise_blocked_reason: str | None = None
     billing_status: str = 'UNBILLED'
     order_date: date
     expected_return_date: date | None
@@ -1973,6 +1981,8 @@ class PurchaseOrderRead(ORMModel):
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    revision_number: int = 0
+    root_document_id: str | None = None
     billing_status: str = 'UNBILLED'
 
     shipping_fee: Decimal
@@ -1991,9 +2001,11 @@ class PurchaseOrderRead(ORMModel):
     created_at: datetime | None
     items: list[PurchaseOrderItemRead] = []
     can_recall: bool = False
+    can_revise: bool = False
     has_posted_receipts: bool = False
     has_supplier_invoices: bool = False
     recall_blocked_reason: str | None = None
+    revise_blocked_reason: str | None = None
     can_receive_goods: bool = False
     receive_blocked_reason: str | None = None
     can_create_bill: bool = False
@@ -2287,9 +2299,36 @@ ApprovalStatus = Literal[
     'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'
 ]
 ApprovalAction = Literal[
-    'SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED',
+    'SUBMITTED', 'APPROVED', 'REJECTED', 'DELEGATED', 'AMENDED', 'RECALLED', 'REVISED',
     'SUBMIT', 'APPROVE', 'DECLINE',
 ]
+
+
+class DocumentReviseRequest(BaseModel):
+    comments: str | None = Field(default=None, max_length=2000)
+
+
+class DocumentRevisionRead(ORMModel):
+    id: UUID
+    document_type: str
+    document_id: str
+    revision_number: int
+    root_document_id: str
+    snapshot_json: dict[str, Any]
+    created_by_user_id: UUID | None = None
+    created_at: datetime
+
+
+class DocumentChangeLogRead(ORMModel):
+    id: int
+    document_type: str
+    document_id: str
+    revision_number: int
+    user_id: UUID | None = None
+    field_name: str
+    old_value: str | None = None
+    new_value: str | None = None
+    created_at: datetime
 
 
 class ApprovalActionRequest(BaseModel):

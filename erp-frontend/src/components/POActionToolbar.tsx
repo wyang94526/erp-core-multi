@@ -112,8 +112,8 @@ export function POActionToolbar({
               disabled={!canRecall || isRecalling || isSubmitting}
               title={
                 canRecall
-                  ? 'Return this purchase order to Draft for revision'
-                  : recallDisabledReason || 'Recall is not available'
+                  ? 'Create a revision of this purchase order'
+                  : recallDisabledReason || 'Create Revision is not available'
               }
               style={{
                 ...buttonBaseStyle,
@@ -124,7 +124,7 @@ export function POActionToolbar({
                 opacity: canRecall ? 1 : 0.9,
               }}
             >
-              {isRecalling ? 'Recalling…' : 'Recall / Reopen for Revision'}
+              {isRecalling ? 'Opening revision…' : 'Create Revision'}
             </button>
             {!canRecall && recallDisabledReason ? (
               <span style={{ fontSize: 12, color: '#c62828', maxWidth: 360, textAlign: 'right' }}>

@@ -74,11 +74,11 @@ RECALLABLE_APPROVAL_STATUSES = frozenset({"APPROVED", "PENDING_APPROVAL", "SUBMI
 RECALLABLE_PO_STATUSES = frozenset({"Submitted", "Approved"})
 PURCHASE_ORDER_LOCKED_EDIT_DETAIL = (
     "Approved purchase orders cannot be modified directly. "
-    "Use Recall / Reopen for Revision."
+    "Use Create Revision."
 )
 _PO_IN_APPROVAL_EDIT_DETAIL = (
     "This purchase order is in approval. "
-    "Use Recall / Reopen for Revision to edit."
+    "Use Create Revision to edit."
 )
 _PO_RECEIPTS_EDIT_DETAIL = (
     "Posted goods receipts exist for this purchase order. "
@@ -286,6 +286,8 @@ def apply_po_recall_flags(
     po.has_supplier_invoices = has_invoices
     po.can_recall = blocked is None
     po.recall_blocked_reason = None if po.can_recall else blocked
+    po.can_revise = po.can_recall
+    po.revise_blocked_reason = po.recall_blocked_reason
     return po
 
 

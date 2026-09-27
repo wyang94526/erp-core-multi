@@ -69,6 +69,8 @@ import type {
   CalculateComponentsResponse,
   AuditLog,
   DocumentAttachment,
+  DocumentChangeLog,
+  DocumentRevision,
   DocumentType,
   CashPaymentPayload,
   CashPaymentMethod,
@@ -522,6 +524,20 @@ export const salesOrderService = {
       status: 'CANCELLED',
     });
   },
+
+  async reviseSalesOrder(orderId: string, comments?: string): Promise<SalesOrder> {
+    return apiClient.post<SalesOrder>(`/api/v1/sales-orders/${orderId}/revise`, {
+      comments: comments || null,
+    });
+  },
+
+  listRevisions(orderId: string) {
+    return apiClient.get<DocumentRevision[]>(`/api/v1/sales-orders/${orderId}/revisions`);
+  },
+
+  listChangeLogs(orderId: string) {
+    return apiClient.get<DocumentChangeLog[]>(`/api/v1/sales-orders/${orderId}/change-logs`);
+  },
 };
 
 // ==========================================
@@ -818,9 +834,13 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
     freight_terms: po.freight_terms || 'PREPAID_ON_PO',
     carrier_account: po.carrier_account || '',
     can_recall: Boolean(po.can_recall),
+    can_revise: Boolean(po.can_revise ?? po.can_recall),
+    revision_number: Number(po.revision_number || 0),
+    root_document_id: po.root_document_id || po.po_number,
     has_posted_receipts: Boolean(po.has_posted_receipts),
     has_supplier_invoices: Boolean(po.has_supplier_invoices),
     recall_blocked_reason: po.recall_blocked_reason || null,
+    revise_blocked_reason: po.revise_blocked_reason || po.recall_blocked_reason || null,
     can_receive_goods: po.can_receive_goods == null ? undefined : Boolean(po.can_receive_goods),
     receive_blocked_reason: po.receive_blocked_reason || null,
     can_create_bill: po.can_create_bill == null ? undefined : Boolean(po.can_create_bill),
@@ -955,10 +975,22 @@ export const purchaseOrderService = {
   },
 
   async recallPurchaseOrder(poNumber: string, comments?: string): Promise<PurchaseOrder> {
-    const po = await apiClient.post<PurchaseOrder>(`/api/v1/purchase-orders/${poNumber}/recall`, {
-      comments: comments || 'Recalled for revision',
+    return purchaseOrderService.revisePurchaseOrder(poNumber, comments || 'Recalled for revision');
+  },
+
+  async revisePurchaseOrder(poNumber: string, comments?: string): Promise<PurchaseOrder> {
+    const po = await apiClient.post<PurchaseOrder>(`/api/v1/purchase-orders/${poNumber}/revise`, {
+      comments: comments || 'Revision opened',
     });
     return mapPurchaseOrderFromApi(po);
+  },
+
+  listRevisions(poNumber: string) {
+    return apiClient.get<DocumentRevision[]>(`/api/v1/purchase-orders/${poNumber}/revisions`);
+  },
+
+  listChangeLogs(poNumber: string) {
+    return apiClient.get<DocumentChangeLog[]>(`/api/v1/purchase-orders/${poNumber}/change-logs`);
   },
 };
 
@@ -1305,9 +1337,24 @@ export const subcontractOrderService = {
     scoNumber: string,
     comments?: string,
   ): Promise<SubcontractOrder> {
-    return apiClient.post<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}/amend`, {
+    return subcontractOrderService.reviseSubcontractOrder(scoNumber, comments);
+  },
+
+  async reviseSubcontractOrder(
+    scoNumber: string,
+    comments?: string,
+  ): Promise<SubcontractOrder> {
+    return apiClient.post<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}/revise`, {
       comments: comments || null,
     });
+  },
+
+  listRevisions(scoNumber: string) {
+    return apiClient.get<DocumentRevision[]>(`/api/v1/subcontract-orders/${scoNumber}/revisions`);
+  },
+
+  listChangeLogs(scoNumber: string) {
+    return apiClient.get<DocumentChangeLog[]>(`/api/v1/subcontract-orders/${scoNumber}/change-logs`);
   },
 
   /**

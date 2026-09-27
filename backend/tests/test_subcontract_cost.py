@@ -55,7 +55,7 @@ def test_amend_allowed_only_when_approved_and_open():
 def test_fulfillment_requires_approval_including_during_amendment():
     from app.services.subcontract import SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
 
-    assert not previously_approved(SimpleNamespace(amendment_number=0))
+    assert not previously_approved(SimpleNamespace(amendment_number=0, revision_number=0))
     draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0, status="PLANNED")
     with pytest.raises(HTTPException) as blocked:
         assert_sco_fulfillment_allowed(draft, "issuing materials")

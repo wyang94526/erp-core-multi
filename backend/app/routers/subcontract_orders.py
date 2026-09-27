@@ -38,6 +38,9 @@ from app.schemas import (
     PreviewComponentsResponse,
     SalesOrderSubcontractAvailabilityRead,
     SubcontractChargeRead,
+    DocumentChangeLogRead,
+    DocumentRevisionRead,
+    DocumentReviseRequest,
     SubcontractOrderAmendRequest,
     SubcontractOrderCreate,
     SubcontractOrderLineCreate,
@@ -46,12 +49,14 @@ from app.schemas import (
     UnfulfilledScoComponentRead,
 )
 from app.services import approval, inventory
+from app.services.document_revisions import list_change_logs, list_revisions, resync_sco_bom_quantities
 from app.services.document_sequences import DOC_SUBCONTRACT_ORDER, generate_document_number
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
 from app.services.subcontract import (
     apply_line_charge_sheet,
+    attach_sco_revise_flags,
     assert_linked_sales_order_approved,
     assert_sco_fulfillment_allowed,
     assert_sco_receive_allowed,
@@ -70,7 +75,7 @@ _CLOSED_STATUSES = {"COMPLETED", "CANCELLED"}
 
 
 def _load_sco(db: Session, sco_number: str) -> SubcontractOrder | None:
-    return (
+    sco = (
         db.query(SubcontractOrder)
         .options(
             selectinload(SubcontractOrder.components),
@@ -85,6 +90,9 @@ def _load_sco(db: Session, sco_number: str) -> SubcontractOrder | None:
         .filter(SubcontractOrder.sco_number == sco_number)
         .first()
     )
+    if sco is not None:
+        attach_sco_revise_flags(sco)
+    return sco
 
 
 def _normalize_lines(payload: SubcontractOrderCreate) -> list[SubcontractOrderLineCreate]:
@@ -197,12 +205,15 @@ def list_subcontract_orders(
     )
     if sales_order_id:
         query = query.filter(SubcontractOrder.sales_order_id == sales_order_id)
-    return (
+    rows = (
         query.order_by(SubcontractOrder.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    for sco in rows:
+        attach_sco_revise_flags(sco)
+    return rows
 
 
 @router.get("/eligible-sales-orders", response_model=list[EligibleSalesOrderRead])
@@ -546,6 +557,7 @@ def create_subcontract_order(
         expected_return_date=payload.expected_return_date,
         notes=payload.notes,
     )
+    sco.root_document_id = sco.sco_number
 
     db.add(sco)
     db.flush()
@@ -779,6 +791,8 @@ def update_subcontract_order(
                 status_code=400,
                 detail="Cannot change quantity after materials have been issued",
             )
+        if sco.lines and len(sco.lines) == 1:
+            sco.lines[0].quantity_ordered = data["quantity_ordered"]
         if sco.sales_order_id and sco.lines:
             for line in sco.lines:
                 if line.so_item_id is None:
@@ -796,6 +810,9 @@ def update_subcontract_order(
     for key, value in data.items():
         setattr(sco, key, value)
 
+    if "quantity_ordered" in data:
+        resync_sco_bom_quantities(db, sco)
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -807,15 +824,16 @@ def update_subcontract_order(
     return _load_sco(db, sco.sco_number)
 
 
-@router.post("/{sco_number}/amend", response_model=SubcontractOrderRead)
-def amend_subcontract_order(
+@router.post("/{sco_number}/revise", response_model=SubcontractOrderRead)
+def revise_subcontract_order(
     sco_number: str,
-    payload: SubcontractOrderAmendRequest | None = None,
+    payload: DocumentReviseRequest | SubcontractOrderAmendRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SubcontractOrder:
-    approval.amend_subcontract_order(
+    approval.revise_document(
         db,
+        "SUBCONTRACT_ORDER",
         sco_number,
         user,
         comments=payload.comments if payload else None,
@@ -824,6 +842,30 @@ def amend_subcontract_order(
     if not sco:
         raise HTTPException(status_code=404, detail="Subcontract order not found")
     return sco
+
+
+@router.post("/{sco_number}/amend", response_model=SubcontractOrderRead)
+def amend_subcontract_order(
+    sco_number: str,
+    payload: SubcontractOrderAmendRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SubcontractOrder:
+    return revise_subcontract_order(sco_number, payload, db, user)
+
+
+@router.get("/{sco_number}/revisions", response_model=list[DocumentRevisionRead])
+def list_subcontract_order_revisions(sco_number: str, db: Session = Depends(get_db)) -> list:
+    if db.get(SubcontractOrder, sco_number) is None:
+        raise HTTPException(status_code=404, detail="Subcontract order not found")
+    return list_revisions(db, "SUBCONTRACT_ORDER", sco_number)
+
+
+@router.get("/{sco_number}/change-logs", response_model=list[DocumentChangeLogRead])
+def list_subcontract_order_change_logs(sco_number: str, db: Session = Depends(get_db)) -> list:
+    if db.get(SubcontractOrder, sco_number) is None:
+        raise HTTPException(status_code=404, detail="Subcontract order not found")
+    return list_change_logs(db, "SUBCONTRACT_ORDER", sco_number)
 
 
 @router.post(

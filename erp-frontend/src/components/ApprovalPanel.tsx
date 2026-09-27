@@ -140,7 +140,7 @@ export function ApprovalPanel({
   const runRecall = async () => {
     if (
       !window.confirm(
-        'Recall this purchase order to Draft for revision? Receive Goods and Create Bill stay blocked until it is approved again.',
+        'Create a revision of this purchase order? The PO number stays the same. Receive Goods and Create Bill stay blocked until it is approved again.',
       )
     ) {
       return
@@ -250,8 +250,8 @@ export function ApprovalPanel({
                 disabled={busy || !recallEnabled}
                 title={
                   recallEnabled
-                    ? 'Return this purchase order to Draft for revision'
-                    : recallDisabledReason || 'Recall is not available'
+                    ? 'Create a revision of this purchase order'
+                    : recallDisabledReason || 'Create Revision is not available'
                 }
                 style={{
                   ...btnStyle,
@@ -260,7 +260,7 @@ export function ApprovalPanel({
                 }}
                 onClick={() => void runRecall()}
               >
-                Recall / Reopen for Revision
+                Create Revision
               </button>
               {!recallEnabled && recallDisabledReason ? (
                 <span style={{ fontSize: 12, color: '#c62828' }}>{recallDisabledReason}</span>

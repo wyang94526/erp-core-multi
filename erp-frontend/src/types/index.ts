@@ -360,13 +360,36 @@ export interface ApprovalHistory {
   transaction_id?: string;
   step_number?: number | null;
   step_name?: string | null;
-  action: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DELEGATED' | 'AMENDED' | 'RECALLED' | string;
+  action: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DELEGATED' | 'AMENDED' | 'RECALLED' | 'REVISED' | string;
   performed_by_user_id?: string | null;
   actor_user_id?: string | null;
   actor_name?: string | null;
   comments: string | null;
   created_at: string;
   timestamp?: string;
+}
+
+export interface DocumentRevision {
+  id: string;
+  document_type: string;
+  document_id: string;
+  revision_number: number;
+  root_document_id: string;
+  snapshot_json: Record<string, unknown>;
+  created_by_user_id?: string | null;
+  created_at: string;
+}
+
+export interface DocumentChangeLog {
+  id: number;
+  document_type: string;
+  document_id: string;
+  revision_number: number;
+  user_id?: string | null;
+  field_name: string;
+  old_value?: string | null;
+  new_value?: string | null;
+  created_at: string;
 }
 
 export interface RoleBrief {
@@ -450,6 +473,10 @@ export interface SalesOrder {
   status: string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  revision_number?: number;
+  root_document_id?: string | null;
+  can_revise?: boolean;
+  revise_blocked_reason?: string | null;
   total_amount: number; // Decimal from backend
   billed_amount?: number;
   remaining_billable_amount?: number;
@@ -586,6 +613,8 @@ export interface PurchaseOrder {
   status: 'Draft' | 'Submitted' | 'Approved' | 'Void';
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  revision_number?: number;
+  root_document_id?: string | null;
   billing_status?: string;
   items: PurchaseOrderItem[];
   shipping_fee: number;
@@ -600,9 +629,11 @@ export interface PurchaseOrder {
   grand_total: number;
   notes?: string;
   can_recall?: boolean;
+  can_revise?: boolean;
   has_posted_receipts?: boolean;
   has_supplier_invoices?: boolean;
   recall_blocked_reason?: string | null;
+  revise_blocked_reason?: string | null;
   can_receive_goods?: boolean;
   receive_blocked_reason?: string | null;
   can_create_bill?: boolean;
@@ -814,6 +845,10 @@ export interface SubcontractOrder {
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
   amendment_number?: number;
+  revision_number?: number;
+  root_document_id?: string | null;
+  can_revise?: boolean;
+  revise_blocked_reason?: string | null;
   billing_status?: string;
   order_date: string;
   expected_return_date: string | null;

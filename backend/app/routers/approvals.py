@@ -101,6 +101,22 @@ def recall_transaction(
     )
 
 
+@router.post(
+    "/transactions/{type}/{document_id}/revise",
+    response_model=TransactionActionResult,
+)
+def revise_transaction(
+    type: str,
+    document_id: str,
+    payload: ApprovalActionRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return approval_service.revise_document(
+        db, type, document_id, user, _comments(payload)
+    )
+
+
 @router.get(
     "/transactions/{type}/{document_id}/approval-history",
     response_model=list[ApprovalHistoryRead],

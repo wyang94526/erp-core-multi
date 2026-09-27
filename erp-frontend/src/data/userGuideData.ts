@@ -303,13 +303,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'After approval, issue materials to the vendor when the kit is picked. Print the shipping document from that issue and send it with the kit.',
       'When finished goods return, record a receipt (Receipt ID + quantity). GRNI is posted for the value received.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you.',
-      'To change vendor charges after approval, open the SCO and click Amend cost sheet. Edit the sheet, then submit for approval again. Linked purchase orders stay on the same SCO.',
+      'To change vendor charges or finished-good quantity after approval, open the SCO and click Create Revision. Edit the sheet, then submit for approval again. The SCO number stays the same. Linked purchase orders stay on the same SCO.',
     ],
     callouts: [
       { kind: 'required', text: 'Assembly item must be flagged as a subcontract assembly (or outside processed) with a BOM.' },
       { kind: 'required', text: 'A linked Sales Order must already be approved. Draft sales orders cannot be selected or saved on the SCO.' },
       { kind: 'important', text: 'Status moves with materials issued and goods received. Do not invoice before a finished-goods receipt if you match to GRNI.' },
-      { kind: 'important', text: 'After approval, use Amend cost sheet to change vendor charges. Do not cancel and recreate the SCO if a Material PO is already linked.' },
+      { kind: 'important', text: 'After approval, use Create Revision to change vendor charges or quantity. Do not cancel and recreate the SCO if a Material PO is already linked.' },
     ],
     tips: [
       'Use Print shipping document on each material issue as the packing list for the subcontractor. The SCO PDF is the order/cost attachment.',
@@ -319,7 +319,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'How do I change the cost sheet after the SCO is approved?',
         answer:
-          'Do not cancel the SCO. Click Amend cost sheet, update the charges, and submit for approval again. Linked purchase orders stay. Issue and receive stay locked until the amendment is approved. Wait for re-approval before creating a new subcontractor bill.',
+          'Do not cancel the SCO. Click Create Revision, update the charges or quantity, and submit for approval again. Linked purchase orders stay. Issue and receive stay locked until the revision is approved. Wait for re-approval before creating a new subcontractor bill.',
       },
       {
         question: 'How do I track status?',
@@ -330,7 +330,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     troubleshooting: [
       {
         issue: 'Cannot edit the cost sheet on an approved SCO',
-        fix: 'Use Amend cost sheet (not Cancel). That reopens approval to Draft on the same SCO. Linked POs stay. Re-submit after you save the charges.',
+        fix: 'Use Create Revision (not Cancel). That freezes the approved snapshot and reopens Draft on the same SCO. Linked POs stay. Re-submit after you save the charges.',
       },
     ],
   },

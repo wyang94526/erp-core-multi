@@ -223,25 +223,34 @@ def compute_charge_sheet(charges: list[dict], quantity_ordered: int) -> dict:
 
 
 def previously_approved(sco) -> bool:
-    return int(getattr(sco, "amendment_number", 0) or 0) > 0
+    return int(getattr(sco, "amendment_number", 0) or 0) > 0 or int(
+        getattr(sco, "revision_number", 0) or 0
+    ) > 0
+
+
+def sco_revise_blocker(sco) -> str | None:
+    status = (getattr(sco, "status", None) or "").upper()
+    if status in CLOSED_SCO_STATUSES:
+        return f"Cannot revise a {status.lower()} subcontract order"
+    approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
+    if approval != AMENDABLE_APPROVAL:
+        return (
+            "Create Revision is only available after the subcontract order is approved. "
+            "While Draft or Rejected, edit the cost sheet directly."
+        )
+    return None
+
+
+def attach_sco_revise_flags(sco) -> None:
+    reason = sco_revise_blocker(sco)
+    sco.can_revise = reason is None
+    sco.revise_blocked_reason = reason
 
 
 def assert_can_amend_cost_sheet(sco) -> None:
-    status = (getattr(sco, "status", None) or "").upper()
-    if status in CLOSED_SCO_STATUSES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot amend a {status.lower()} subcontract order",
-        )
-    approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
-    if approval != AMENDABLE_APPROVAL:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Amend is only available after the subcontract order is approved. "
-                "While Draft or Rejected, edit the cost sheet directly."
-            ),
-        )
+    reason = sco_revise_blocker(sco)
+    if reason:
+        raise HTTPException(status_code=400, detail=reason)
 
 
 def assert_sco_fulfillment_allowed(sco, action_label: str = "this action") -> None:

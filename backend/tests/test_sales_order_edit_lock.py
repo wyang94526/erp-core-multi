@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.services.o2c import (
     SALES_ORDER_LOCKED_EDIT_DETAIL,
     require_sales_order_editable,
+    sales_order_can_revise,
     sales_order_is_editable,
 )
 
@@ -60,3 +61,16 @@ class SalesOrderEditLockTests(TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertEqual(ctx.exception.detail, SALES_ORDER_LOCKED_EDIT_DETAIL)
+        self.assertIn("Create Revision", SALES_ORDER_LOCKED_EDIT_DETAIL)
+
+    def test_approved_open_order_can_revise(self):
+        self.assertTrue(
+            sales_order_can_revise(
+                SimpleNamespace(status="APPROVED", approval_status="APPROVED", invoice_status="UNBILLED")
+            )
+        )
+        self.assertFalse(
+            sales_order_can_revise(
+                SimpleNamespace(status="APPROVED", approval_status="APPROVED", invoice_status="FULLY_BILLED")
+            )
+        )
