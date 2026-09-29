@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { z } from 'zod'
 import { bankAccountService, bankTransferService } from '../api/services'
 import { bankTransferPath, isBankTransferEditable } from '../utils/bankTransfers'
@@ -47,23 +47,29 @@ function buildTransferSchema(availableBalance: number | null) {
     )
 }
 
-type BankTransferFormValues = z.infer<typeof bankTransferSchema>
+type BankTransferFormValues = {
+  from_account_id: string
+  to_account_id: string
+  amount: number
+  transfer_date: string
+  reference_number?: string
+}
 
-function zodResolver<T extends z.ZodType>(schema: T): Resolver<z.infer<T>> {
-  return async (values) => {
+function zodResolver(schema: z.ZodType): Resolver<BankTransferFormValues> {
+  return (async (values) => {
     const parsed = schema.safeParse(values)
     if (parsed.success) {
-      return { values: parsed.data, errors: {} }
+      return { values: parsed.data as BankTransferFormValues, errors: {} }
     }
-    const errors: Record<string, { type: string; message: string }> = {}
+    const errors: FieldErrors<BankTransferFormValues> = {}
     for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? 'root')
+      const key = String(issue.path[0] ?? 'root') as keyof BankTransferFormValues
       if (!errors[key]) {
         errors[key] = { type: issue.code, message: issue.message }
       }
     }
     return { values: {}, errors }
-  }
+  }) as Resolver<BankTransferFormValues>
 }
 
 function todayIsoDate() {

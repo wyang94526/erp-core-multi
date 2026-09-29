@@ -264,7 +264,10 @@ function ARInvoices() {
         confirmLabel="Receive Payment"
         submitting={Boolean(pendingPay && payingId === pendingPay.invoice_id)}
         onCancel={() => setPendingPay(null)}
-        onConfirm={(choice) => pendingPay && void handleReceivePayment(pendingPay, choice)}
+        onConfirm={(choice) => {
+          if (!pendingPay) return
+          return handleReceivePayment(pendingPay, choice)
+        }}
       />
     </div>
   )

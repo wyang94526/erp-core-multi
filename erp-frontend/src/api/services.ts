@@ -8,6 +8,7 @@
 
 import { apiClient } from './client';
 import { parsePagedList, unwrapListRows, type PaginationMeta } from '../utils/pagination';
+import { normalizeItemType } from '../utils/itemTypes';
 import type {
   User,
   Customer,
@@ -84,7 +85,7 @@ function mapItem(raw: Record<string, unknown>): Item {
     customer_part_number: String(raw.customer_part_number ?? ''),
     description: (raw.description as string | null) ?? null,
     uom: raw.uom == null || String(raw.uom).trim() === '' ? '' : String(raw.uom),
-    item_type: String(raw.item_type || 'INVENTORY'),
+    item_type: normalizeItemType(raw.item_type as string | null | undefined),
     unit_price: (raw.unit_price as number | null | undefined) ?? null,
     on_hand_quantity: Number(raw.on_hand_quantity ?? 0),
     wip_quantity: Number(raw.wip_quantity ?? 0),
@@ -808,7 +809,7 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         sku: String(row.sku || ''),
         description: row.description == null ? '' : String(row.description),
         uom: row.uom == null ? '' : String(row.uom),
-        item_type: row.item_type ? String(row.item_type) : undefined,
+        item_type: row.item_type ? normalizeItemType(String(row.item_type)) : undefined,
         bom_header_id: row.bom_header_id == null ? null : Number(row.bom_header_id),
         sco_component_id: row.sco_component_id == null ? null : Number(row.sco_component_id),
         quantity: Number(row.quantity ?? 0),

@@ -406,8 +406,8 @@ export function POLineItemsTable({
                           onChange={(e) => {
                             if (amountOnly) {
                               updateRowFields(item.id, {
-                                unit_price: e.target.value,
-                                line_subtotal: e.target.value,
+                                unit_price: Number(e.target.value),
+                                line_subtotal: Number(e.target.value),
                               })
                             } else {
                               updateRow(item.id, 'unit_price', e.target.value)

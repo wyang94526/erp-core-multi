@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { approvalService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
+import type { ApprovalHistory, ApprovalStatus } from '../types'
 import { isRecallablePurchaseOrder } from '../utils/poWorkflow'
 import ApprovalActionModal from './ApprovalActionModal'
 

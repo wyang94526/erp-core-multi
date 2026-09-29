@@ -275,7 +275,10 @@ function APBills() {
         confirmLabel="Make Payment"
         submitting={Boolean(pendingPay && payingId === pendingPay.bill_id)}
         onCancel={() => setPendingPay(null)}
-        onConfirm={(choice) => pendingPay && void handleMakePayment(pendingPay, choice)}
+        onConfirm={(choice) => {
+          if (!pendingPay) return
+          return handleMakePayment(pendingPay, choice)
+        }}
       />
     </div>
   )

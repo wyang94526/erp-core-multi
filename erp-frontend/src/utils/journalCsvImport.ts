@@ -6,7 +6,7 @@
  */
 
 import Papa from 'papaparse'
-import type { ChartOfAccount, JournalBulkImportEntry, JournalCsvGroupError, JournalLineDraft } from '../types'
+import type { ChartOfAccount, JournalBulkImportEntry, JournalBulkImportLine, JournalCsvGroupError, JournalLineDraft } from '../types'
 
 const GROUP_KEYS = ['group id', 'group', 'journal ref', 'journal_ref', 'journal id', 'batch id']
 const REFERENCE_KEYS = ['reference', 'source document', 'voucher', 'voucher no']
@@ -173,7 +173,7 @@ export function groupJournalCsvRows(
       `Imported journal ${groupId}`
     const reference = cell(first, REFERENCE_KEYS) || (GROUP_KEYS.some((key) => cell(first, [key])) ? groupId : '')
 
-    const postings = []
+    const postings: JournalBulkImportLine[] = []
     const groupErrors: string[] = []
     groupRows.forEach((row, index) => {
       const accountCode = cell(row, ACCOUNT_KEYS)

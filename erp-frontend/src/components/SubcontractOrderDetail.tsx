@@ -101,7 +101,7 @@ export function SubcontractOrderDetail() {
       issue_id: string
       issue_date?: string
       notes?: string
-      lines: Array<{ component_item_id: string; quantity_issued: number }>
+      lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }>
     }) => subcontractOrderService.issueMaterials(id, data),
     onSuccess: (updated) => {
       const created = updated.material_issues?.find(
@@ -458,18 +458,17 @@ export function SubcontractOrderDetail() {
       return
     }
 
-    const lines = sco.components
-      .map((component) => {
-        const key = `${component.sco_line_id || 'line'}:${component.component_item_id}`
-        const qty = issueLines[key]
-        if (!qty || Number(qty) <= 0) return null
-        return {
-          component_item_id: component.component_item_id,
-          quantity_issued: Number(qty),
-          sco_line_id: component.sco_line_id || undefined,
-        }
+    const lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }> = []
+    for (const component of sco.components) {
+      const key = `${component.sco_line_id || 'line'}:${component.component_item_id}`
+      const qty = issueLines[key]
+      if (!qty || Number(qty) <= 0) continue
+      lines.push({
+        component_item_id: component.component_item_id,
+        quantity_issued: Number(qty),
+        sco_line_id: component.sco_line_id || undefined,
       })
-      .filter((line): line is { component_item_id: string; quantity_issued: number; sco_line_id?: number } => line != null)
+    }
 
     if (lines.length === 0) {
       setFormErrors({ issue: 'Enter a quantity for at least one component' })

@@ -28,7 +28,7 @@ export const DEFAULT_COST_COMPONENTS: Omit<SubcontractCharge, 'line_no' | 'cost_
 ]
 
 export function defaultCostSheet(): SubcontractCharge[] {
-  const rows = DEFAULT_COST_COMPONENTS.map((row, index) => ({
+  const rows: SubcontractCharge[] = DEFAULT_COST_COMPONENTS.map((row, index) => ({
     line_no: index + 1,
     name: row.name,
     detail_explanation: row.detail_explanation,

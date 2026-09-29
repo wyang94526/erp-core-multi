@@ -8,7 +8,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { goodsReceiptService } from '../api/services'
-import type { GoodsReceipt, GoodsReceiptJournal, JournalEntry } from '../types'
+import type { GoodsReceiptJournal, JournalEntry } from '../types'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
 import { billDetailHref, cashReferenceLinkStyle, sourceOrderHref } from '../utils/cashReference'
 import {
