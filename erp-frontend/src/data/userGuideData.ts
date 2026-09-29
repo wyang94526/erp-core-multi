@@ -78,7 +78,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Open Home → User Guide, or the User Guide link at the bottom of the left sidebar.',
       'Use the search box to filter topics, steps, and FAQs instantly.',
       'Browse by module in the left column, then expand Step-by-step, Tips, FAQs, and Common Issues.',
-      'On any operational screen, click Help in the top bar (next to AI Assistant) or press Ctrl/⌘ + / to open a drawer of articles tagged for that route.',
+      'On any operational screen, click Help in the top bar (next to AI Assistant) or press Ctrl/⌘ + / to open a drawer of articles tagged for that route. Ask the assistant for live P&L, Balance Sheet, or “by month” totals; it can link you to the full report.',
       'Open Process Workflows (/help/workflows) for Order-to-Cash, Subcontract-to-Pay (including fulfilling the customer SO), Procure-to-Pay, and period-close checklists with jump links into each screen.',
       'Callout badges mark Tips, Important notes, and Required Fields. Screenshots show the live screens for each step.',
     ],
@@ -91,6 +91,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'Why does Help show more than one article?',
         answer:
           'Some screens participate in more than one workflow (for example Purchase Orders and Overseas Vendor Orders). Read the one that matches the task you are doing.',
+      },
+      {
+        question: 'What can I ask the AI Assistant?',
+        answer:
+          'Live counts, order and AP/AR totals by month, and posted financial statements (Income Statement / P&L, Balance Sheet, Cash Flow, Trial Balance, aging). Example: “Show me the Income Statement for June 2026”. Empty months list other periods that already have posted P&L. Use Open the full report to open Financial Reports.',
       },
     ],
     troubleshooting: [
@@ -123,7 +128,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Use the left sidebar accordion: only one top-level module stays open at a time.',
-      'The AI Assistant (top right) can count and look up live records across the whole ERP (customers, items/BOMs, orders, inventory, finance), using the page you are on as context. Ask “purchase orders by month”, “account receivable by month”, or “account payable by month by vendor” for a table plus a trend chart.',
+      'The AI Assistant (top right) can count and look up live records, and it can open posted financial statements. Ask “Income Statement for June 2026”, “P&L for September 2026”, or “Balance Sheet as of 2026-09”. Use “Open the full report” to jump to Financial Reports with that period. “Revenue by month” is posted G/L revenue; “sales by month” is sales-order totals.',
     ],
     faqs: [
       {
@@ -135,6 +140,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'Where do system notifications appear?',
         answer:
           'Urgent work is summarized in the dashboard greeting. Operational “notifications” also show as filtered lists (pending approvals, overdue AR, reorder alerts) when you click a KPI.',
+      },
+      {
+        question: 'Can the AI Assistant show a P&L?',
+        answer:
+          'Yes. Ask “Income Statement for June 2026” or “P&L for September 2026”. The assistant uses posted journals (not document RAG). If that month is empty, it lists other months that already have posted P&L. Open the full report opens Financial Reports for that period. “Revenue by month” is G/L revenue; “sales by month” is sales-order totals.',
       },
     ],
     troubleshooting: [
@@ -164,10 +174,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Add item lines by searching the internal part number. Customer P/N fills from the item master and can be overridden.',
       'Save as Draft, then Submit for approval if your workflow requires it.',
       'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. A sales order cannot be billed past its total; voiding an invoice releases that amount.',
+      'To change an approved order that is not yet shipped, fulfilled, or fully billed, click Create Revision. The PU61 number stays the same. The approved snapshot is frozen, then you edit and re-submit for approval. Revision history and field-level change logs appear on the detail page after re-approval.',
     ],
     callouts: [
       { kind: 'required', text: 'Customer, at least one ship-to, and at least one order line are required before submit.' },
       { kind: 'important', text: 'Fulfillment and invoicing are separate steps. Shipping does not automatically create the AR invoice.' },
+      { kind: 'important', text: 'Create Revision is blocked once the sales order is shipped, fulfilled, invoiced, or fully billed. Use a credit memo or a new sales order instead of overwriting billed quantities.' },
     ],
     tips: [
       'You can print / PDF an order from the detail page for customer confirmation.',
@@ -177,7 +189,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'Can I edit an order after approval?',
         answer:
-          'Header and line changes may be locked depending on status. If the order is already fulfilling or invoiced, create a change with your manager rather than overwriting shipped quantities.',
+          'Not directly. Click Create Revision on the approved sales order (same PU61 number), edit the draft, then submit and approve again. If the order is already shipped, fulfilled, invoiced, or fully billed (for example PU61-26080001), Create Revision stays hidden — use a credit memo or a new sales order.',
       },
     ],
     troubleshooting: [
@@ -188,6 +200,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Item does not appear when adding a line',
         fix: 'Type the internal part number in the line lookup (it searches item ID, customer P/N, and description). Confirm the item exists under Inventory → Items.',
+      },
+      {
+        issue: 'Create Revision is missing on an approved sales order',
+        fix: 'Check status and billing. Shipped, fulfilled, invoiced, or fully billed orders cannot be revised. You also need sales_order:submit.',
       },
     ],
   },
@@ -213,10 +229,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Submit for approval. Approvers follow the purchasing workflow (amount bands).',
       'When the PO is Approved, open it and click Receive Goods to post a receipt (GRNI).',
       'Create a Supplier Invoice / Bill against received quantities under Finance → Supplier Invoices.',
+      'To change an approved or in-approval PO before any posted receipt or supplier invoice, click Create Revision. The PU62 number stays the same. The last approved snapshot is frozen, the PO returns to Draft, and Receive Goods / Create Bill stay blocked until it is approved again. Revision history and field changes appear on the PO after re-approval.',
     ],
     callouts: [
       { kind: 'required', text: 'Vendor and at least one line item are required to submit (empty lines are allowed only on Draft).' },
       { kind: 'important', text: '3rd-party freight must not appear on the goods vendor bill. Confirm Freight Payment Terms before submit; carrier account is required when freight is collect or routing.' },
+      { kind: 'important', text: 'Create Revision is blocked once posted goods receipts or supplier invoices exist. Do not overwrite received or billed quantities on the same PO.' },
     ],
     tips: [
       'Use PDF print for vendor confirmation.',
@@ -228,6 +246,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         answer:
           'On the approved PO, billing status appears near the Receive Goods action. Unbilled receipts feed the supplier invoice form.',
       },
+      {
+        question: 'How do I change an approved purchase order?',
+        answer:
+          'Click Create Revision (same PU62 number), edit lines or header, then submit for approval again. Recall / Amend still work; they now run this same revision path. You need po:submit_for_approval or po:approve.',
+      },
     ],
     troubleshooting: [
       {
@@ -236,7 +259,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       },
       {
         issue: 'Receive Goods is disabled',
-        fix: 'The PO must be Approved (approval_status APPROVED). Draft or pending POs cannot receive.',
+        fix: 'The PO must be Approved (approval_status APPROVED). Draft, pending, or revised-but-not-reapproved POs cannot receive.',
+      },
+      {
+        issue: 'Create Revision is disabled',
+        fix: 'Posted goods receipts or supplier invoices lock the PO. Voided POs cannot be revised. After a revision is opened, receive and bill stay blocked until the PO is approved again.',
       },
     ],
   },
@@ -574,8 +601,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
       '/accounts-payable',
       '/cash-management',
       '/bank-accounts',
-      '/chart-of-accounts',
-      '/general-ledger',
     ],
     summary:
       'Supplier invoices include PO/SCO 3-way match bills and Non-PO vouchers (freight, duty, rent, utilities). AP Aging & Payments shows what you owe.',
@@ -622,6 +647,102 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Invoice lines are zero',
         fix: 'Nothing unbilled remains. Receive goods on the PO/SCO, or check billing_status on the PO.',
+      },
+    ],
+  },
+  {
+    id: 'finance-bank-transfers',
+    module: 'finance',
+    title: 'Bank Transfers',
+    routeMatch: ['/bank-transfers'],
+    summary:
+      'Move cash between company bank accounts. The transfer stays Draft until it is approved; approval posts the journal using each bank’s mapped G/L account (not a posting-rule pair).',
+    steps: [
+      'Go to Finance & Accounting → Cash & Treasury Management → Bank Transfers → New.',
+      'Choose the from bank, to bank, amount, currency, and transfer date. Both banks must already exist under Bank Accounts with a G/L account mapped.',
+      'Save as Draft, then Submit for approval (same cash-submit / cash-approve permissions as other cash documents).',
+      'When the transfer is fully approved, the system posts a journal: debit the destination bank G/L, credit the source bank G/L.',
+      'Open the transfer detail to see status and the linked journal. Cash Management and Bank Account Detail then show the movement.',
+    ],
+    callouts: [
+      { kind: 'required', text: 'From bank and to bank must be different, and each needs a mapped G/L account before you can post.' },
+      { kind: 'important', text: 'Bank-transfer journals do not update posting rules. The accounts come from the Bank Account master.' },
+    ],
+    faqs: [
+      {
+        question: 'Why is the transfer still Draft after I generate it?',
+        answer:
+          'Like close journals, bank transfers go through approval. The cash movement and journal post only when approval_status is APPROVED.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'Cannot submit a transfer',
+        fix: 'Confirm both bank accounts exist, amounts are greater than zero, and you have cash:submit. If approval fails, check cash:approve and the bank-transfer workflow.',
+      },
+    ],
+  },
+  {
+    id: 'finance-journals',
+    module: 'finance',
+    title: 'Manual Journal Entry',
+    routeMatch: ['/general-ledger', '/general-ledger/journals'],
+    summary:
+      'Manual journals record accruals, corrections, and other GL adjustments. Auto-generated journals (bank transfer, close, GRNI, invoices) also appear in the ledger after they are approved.',
+    steps: [
+      'Go to Finance & Accounting → General Ledger & Setup → Manual Journal Entry (or open General Ledger and create a journal).',
+      'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
+      'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted).',
+      'Use General Ledger to filter by period, account, or reference (MEC-YYYY-MM, YEC-YYYY, transfer journals).',
+      'Do not rewrite posting rules when an auto-generated journal is created. Close journals read the MEC_CLOSE / YEC_CLOSE targets; bank transfers use each bank’s G/L.',
+    ],
+    callouts: [
+      { kind: 'required', text: 'Debits must equal credits before submit.' },
+      { kind: 'important', text: 'Draft journals do not affect trial balance, P&L, or financial reports. Approve them first.' },
+    ],
+    faqs: [
+      {
+        question: 'Should I change a posting rule when a journal is auto-generated?',
+        answer:
+          'No. Posting rules hold the account pairs users maintain. Generated journals read those rules (or the bank G/L / close targets) at post time. Edit Posting Rules only when the default accounts themselves should change.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'Journal will not post',
+        fix: 'Confirm lines balance, you have journal:submit / journal:approve, and a journal-entry workflow exists. Close and transfer journals must be approved like any other journal.',
+      },
+    ],
+  },
+  {
+    id: 'finance-posting-rules',
+    module: 'finance',
+    title: 'Posting Rules',
+    routeMatch: ['/posting-rules', '/chart-of-accounts'],
+    summary:
+      'Posting rules tell the engine which Chart of Accounts pair to use for operational events (sales invoice, GRNI, AP, cash, month-end and year-end close). Users maintain the accounts; the engine only reads them.',
+    steps: [
+      'Go to Finance & Accounting → General Ledger & Setup → Posting Rules.',
+      'Review each event (for example sales invoice revenue, PO goods receipt, supplier bill, MEC_CLOSE, YEC_CLOSE).',
+      'Set or change the debit and credit G/L accounts. Close rules store the P&L-clearing and retained-earnings targets (3353 / 3350).',
+      'Keep Chart of Accounts codes active before you point a rule at them (Finance → Chart of Accounts).',
+      'After you change a rule, new postings use the new pair. Already-posted journals are not rewritten.',
+    ],
+    callouts: [
+      { kind: 'important', text: 'Bank transfers do not use a posting-rule pair. They post to the G/L accounts mapped on the from/to Bank Account records.' },
+      { kind: 'tip', text: 'If a generated journal looks wrong, fix the posting rule (or bank G/L) first, then post the next document. Do not edit the rule “because a journal was generated.”' },
+    ],
+    faqs: [
+      {
+        question: 'Where is the Chart of Accounts?',
+        answer:
+          'Finance & Accounting → General Ledger & Setup → Chart of Accounts. Vendor AP account and bank G/L mappings should point at accounts that exist here.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'A posting fails with a missing account pair',
+        fix: 'Open Posting Rules, find the event, and set both debit and credit accounts. Confirm those codes exist and are active on the Chart of Accounts.',
       },
     ],
   },
@@ -676,6 +797,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Set As Of Date, Date Range, Period / Fiscal Year, and Currency. Branch is company-wide until a branch dimension is added.',
       'Click Generate Report. Amounts are right-aligned; section totals use a single underline and net values use a double underline.',
       'Export as PDF (print), CSV, or Excel. Aging rows link back to AR/AP workspaces; bank rows open Bank Account Detail.',
+      'From the AI Assistant you can ask for the same statements (“Income Statement for June 2026”, “P&L for September 2026”). Use Open the full report to land here with the period already set.',
     ],
     callouts: [
       { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L.' },
@@ -691,6 +813,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'Why is the Balance Sheet missing net income in equity?',
         answer:
           'Current-year net income is shown as a plug under Equity until Year-End Close is approved and the closing journal posts to retained earnings.',
+      },
+      {
+        question: 'Can the AI Assistant open these reports?',
+        answer:
+          'Yes. Ask for Income Statement / P&L, Balance Sheet, Cash Flow, or Trial Balance with a period (for example June 2026). The answer includes a live table and Open the full report, which opens this generator with ?period=YYYY-MM.',
       },
     ],
     troubleshooting: [

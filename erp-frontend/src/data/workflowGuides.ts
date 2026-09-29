@@ -41,7 +41,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'o2c-entry',
         title: 'Order Entry & Validation',
         navPath: 'Sales & Procurement ▸ Sales Orders',
-        body: 'Select the customer, verify credit terms, add line items, and confirm requested ship dates before submit. Bill-To and Ship-To load from the customer master.',
+        body: 'Select the customer, verify credit terms, add line items, and confirm requested ship dates before submit. Bill-To and Ship-To load from the customer master. After approval, use Create Revision to change the same PU61 number before the order is shipped, fulfilled, or fully billed.',
         links: [
           { label: 'Go to Sales Orders', to: '/sales-orders' },
           { label: 'New Sales Order', to: '/orders/new' },
@@ -122,7 +122,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'sco-approve',
         title: 'Approve the Subcontract Order',
         navPath: 'Manufacturing ▸ Subcontract Orders (detail)',
-        body: 'Submit and approve the SCO while it is still Planned / Draft. Approval is available immediately after save. Issue Materials stays locked until the SCO is approved.',
+        body: 'Submit and approve the SCO while it is still Planned / Draft. Approval is available immediately after save. Issue Materials stays locked until the SCO is approved. After approval, use Create Revision to change vendor charges or finished-good quantity on the same UP23 number; the approved snapshot is frozen and issue/receive stay locked until re-approval.',
         links: [
           { label: 'Open Subcontract Orders', to: '/subcontract-orders' },
         ],
@@ -194,7 +194,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'p2p-approve',
         title: 'PO Approval & Dispatch',
         navPath: 'Sales & Procurement ▸ Purchase Orders',
-        body: 'Submit the PO through the purchasing approval workflow (amount bands). After approval, transmit / PDF the order to the supplier.',
+        body: 'Submit the PO through the purchasing approval workflow (amount bands). After approval, transmit / PDF the order to the supplier. Use Create Revision to change the same PU62 number before any posted receipt or supplier invoice; receive and bill stay blocked until the revision is approved again.',
         links: [
           { label: 'Open Purchase Orders', to: '/purchase-orders' },
         ],
@@ -223,11 +223,12 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'p2p-pay',
         title: 'Payment Execution',
         navPath: 'Finance & Accounting ▸ Cash & Treasury Management',
-        body: 'Process disbursement by Check, ACH, or Wire. Overseas wires require beneficiary bank, SWIFT/BIC, and IBAN from the vendor remittance card.',
+        body: 'Process disbursement by Check, ACH, or Wire. Overseas wires require beneficiary bank, SWIFT/BIC, and IBAN from the vendor remittance card. To move cash between company banks, use Bank Transfers (approval posts the journal to each bank’s mapped G/L).',
         links: [
           { label: 'AP Aging & Payments', to: '/accounts-payable' },
           { label: 'Cash Management', to: '/cash-management' },
           { label: 'Bank Accounts', to: '/bank-accounts' },
+          { label: 'Bank Transfers', to: '/bank-transfers' },
         ],
       },
     ],
@@ -256,10 +257,12 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'close-journals',
         title: 'Post Adjusting Journal Entries',
         navPath: 'Finance & Accounting ▸ General Ledger',
-        body: 'Record accruals, prepaids, depreciation, and foreign-exchange gain/loss. Confirm account mapping on the Chart of Accounts before posting.',
+        body: 'Record accruals, prepaids, depreciation, and foreign-exchange gain/loss on Manual Journal Entry. Confirm account mapping on Chart of Accounts and Posting Rules before posting. Generated journals (close, bank transfer, GRNI) still require approval.',
         links: [
+          { label: 'Manual Journal Entry', to: '/general-ledger/journals/new' },
           { label: 'General Ledger', to: '/general-ledger' },
           { label: 'Chart of Accounts', to: '/chart-of-accounts' },
+          { label: 'Posting Rules', to: '/posting-rules' },
         ],
       },
       {
