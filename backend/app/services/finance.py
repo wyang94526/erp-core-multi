@@ -52,8 +52,18 @@ from app.models import (
 )
 from app.services.financial_reports import signed_balance
 from app.services.payment_terms import due_days_for, due_days_from_string
+from app.services.journal_source import (
+    SOURCE_AP_PAYMENT,
+    SOURCE_AR_PAYMENT,
+    SOURCE_BANK_TRANSFER,
+    SOURCE_SALES_CREDIT,
+    generated_journal_fields,
+    rule_id,
+)
 from app.services.posting_rules import (
+    EVENT_AP_PAYMENT,
     EVENT_AR_PAYMENT,
+    EVENT_BANK_TRANSFER,
     EVENT_GOODS_RECEIPT,
     EVENT_SALES_CREDIT,
     EVENT_SALES_INVOICE,
@@ -70,9 +80,11 @@ from app.services.posting_rules import (
     VARIANT_SETTLE,
     VARIANT_SUBCONTRACT,
     VARIANT_TAX,
+    VARIANT_TRANSFER,
     catalog_account,
     receipt_variant,
     resolve_posting_pair,
+    resolve_posting_rule,
 )
 
 # Catalog fallbacks — live posting uses posting_rules rows when present.
@@ -352,6 +364,9 @@ def _post_balanced_journal_entry(
     posting_date: date | None = None,
     posting_status: str | None = None,
     approval_status: str | None = None,
+    source_document_type: str,
+    source_record_id: str | int | UUID | None = None,
+    posting_rule_id: UUID | None = None,
 ) -> JournalEntry:
     """Create a balanced two-line journal.
 
@@ -371,6 +386,11 @@ def _post_balanced_journal_entry(
         current_approval_step=None,
         reference=(reference.strip() if reference else None) or None,
         posted_by_user_id=posted_by_user_id,
+        **generated_journal_fields(
+            source_document_type=source_document_type,
+            source_record_id=source_record_id,
+            posting_rule_id=posting_rule_id,
+        ),
     )
     db.add(entry)
     db.flush()
@@ -1037,6 +1057,9 @@ def ensure_transfer_journal(db: Session, transfer: BankTransfer) -> JournalEntry
     reference = loaded.reference_number or f"BTR-{loaded.id:06d}"
     from_label = bank_account_display(from_account) or from_account.bank_account_id
     to_label = bank_account_display(to_account) or to_account.bank_account_id
+    _to, _from, transfer_rule = resolve_posting_rule(
+        db, EVENT_BANK_TRANSFER, VARIANT_TRANSFER, None
+    )
     entry = _post_balanced_journal_entry(
         db,
         description=f"Bank transfer {reference} from {from_label} to {to_label}",
@@ -1045,6 +1068,9 @@ def ensure_transfer_journal(db: Session, transfer: BankTransfer) -> JournalEntry
         amount=amount,
         reference=reference,
         posting_date=loaded.transfer_date,
+        source_document_type=SOURCE_BANK_TRANSFER,
+        source_record_id=loaded.id,
+        posting_rule_id=rule_id(transfer_rule),
     )
     loaded.journal_entry_id = entry.id
     transfer.journal_entry_id = entry.id
@@ -1265,12 +1291,17 @@ def receive_payment(
     )
     db.add(transaction)
 
+    _cash, _ar, settle_rule = resolve_posting_rule(db, EVENT_AR_PAYMENT, VARIANT_SETTLE, None)
     _post_balanced_journal_entry(
         db,
         description=f"AR payment received for invoice {invoice.invoice_id}",
         debit_account=cash_account,
         credit_account=ar_account,
         amount=pay_amount,
+        reference=invoice.invoice_id,
+        source_document_type=SOURCE_AR_PAYMENT,
+        source_record_id=invoice.invoice_id,
+        posting_rule_id=rule_id(settle_rule),
     )
 
     invoice.status = "Paid" if pay_amount >= invoice.amount else "Partial"
@@ -1333,12 +1364,19 @@ def make_payment(
     )
     db.add(transaction)
 
+    _cash, _ap, settle_rule = resolve_posting_rule(
+        db, EVENT_AP_PAYMENT, VARIANT_SETTLE, bill.vendor or db.get(Supplier, bill.vendor_id)
+    )
     _post_balanced_journal_entry(
         db,
         description=f"AP payment made for bill {bill.bill_id}",
         debit_account=ap_account,
         credit_account=cash_account,
         amount=pay_amount,
+        reference=bill.bill_id,
+        source_document_type=SOURCE_AP_PAYMENT,
+        source_record_id=bill.bill_id,
+        posting_rule_id=rule_id(settle_rule),
     )
 
     bill.status = "Paid" if pay_amount >= bill.amount else "Partial"
@@ -1631,7 +1669,7 @@ def create_ar_credit_memo(db: Session, invoice: ARInvoice) -> dict:
     if credit_amount <= 0:
         raise HTTPException(status_code=400, detail="Nothing remaining to credit on this invoice")
 
-    revenue, rule_ar = resolve_posting_pair(
+    revenue, rule_ar, credit_rule = resolve_posting_rule(
         db, EVENT_SALES_CREDIT, VARIANT_CREDIT_MEMO, None
     )
     ar_account = resolve_ar_account_for_settlement(db, invoice.invoice_id) or rule_ar
@@ -1641,6 +1679,10 @@ def create_ar_credit_memo(db: Session, invoice: ARInvoice) -> dict:
         debit_account=revenue,
         credit_account=ar_account,
         amount=credit_amount,
+        reference=invoice.invoice_id,
+        source_document_type=SOURCE_SALES_CREDIT,
+        source_record_id=invoice.invoice_id,
+        posting_rule_id=rule_id(credit_rule),
     )
     invoice.status = "Paid"
     db.flush()

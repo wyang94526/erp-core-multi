@@ -27,11 +27,13 @@ EVENT_AR_PAYMENT = "AR_PAYMENT"
 EVENT_AP_PAYMENT = "AP_PAYMENT"
 EVENT_MONTH_END_CLOSE = "MONTH_END_CLOSE"
 EVENT_YEAR_END_CLOSE = "YEAR_END_CLOSE"
+EVENT_BANK_TRANSFER = "BANK_TRANSFER"
 
 VARIANT_MATERIALS = "MATERIALS"
 VARIANT_SUBCONTRACT = "SUBCONTRACT"
 VARIANT_EXPENSE = "EXPENSE"
 VARIANT_GRNI_CLEAR = "GRNI_CLEAR"
+VARIANT_GRNI_ACCRUAL = "GRNI_ACCRUAL"
 VARIANT_PPV_UNFAVORABLE = "PPV_UNFAVORABLE"
 VARIANT_PPV_FAVORABLE = "PPV_FAVORABLE"
 VARIANT_TAX = "TAX"
@@ -39,7 +41,13 @@ VARIANT_LANDED_COST = "LANDED_COST"
 VARIANT_REVENUE = "REVENUE"
 VARIANT_SETTLE = "SETTLE"
 VARIANT_CREDIT_MEMO = "CREDIT_MEMO"
+VARIANT_TRANSFER = "TRANSFER"
 VARIANT_CLOSE = "CLOSE"
+VARIANT_PREPAY = "PREPAY"
+VARIANT_ACCRUAL = "ACCRUAL"
+VARIANT_DEPRECIATION = "DEPRECIATION"
+VARIANT_FX_REVAL = "FX_REVAL"
+VARIANT_NI_CLEAR = "NI_CLEAR"
 
 PARTY_TRADE = "TRADE"
 PARTY_RELATED = "RELATED"
@@ -54,6 +62,7 @@ EVENT_LABELS = {
     EVENT_AP_PAYMENT: "Vendor payment",
     EVENT_MONTH_END_CLOSE: "Month-end close",
     EVENT_YEAR_END_CLOSE: "Year-end close",
+    EVENT_BANK_TRANSFER: "Bank transfer",
 }
 
 VARIANT_LABELS = {
@@ -61,6 +70,7 @@ VARIANT_LABELS = {
     VARIANT_SUBCONTRACT: "Subcontract processing",
     VARIANT_EXPENSE: "Non-stock / service",
     VARIANT_GRNI_CLEAR: "Clear GR/IR to AP",
+    VARIANT_GRNI_ACCRUAL: "GRNI accrual (cutoff)",
     VARIANT_PPV_UNFAVORABLE: "Price variance (invoice higher)",
     VARIANT_PPV_FAVORABLE: "Price variance (invoice lower)",
     VARIANT_TAX: "Tax / freight",
@@ -68,7 +78,13 @@ VARIANT_LABELS = {
     VARIANT_REVENUE: "Revenue",
     VARIANT_SETTLE: "Settle open item",
     VARIANT_CREDIT_MEMO: "Reverse revenue",
-    VARIANT_CLOSE: "Closing journal target",
+    VARIANT_TRANSFER: "Move cash between banks",
+    VARIANT_CLOSE: "P&L to retained earnings",
+    VARIANT_PREPAY: "Amortize prepayments",
+    VARIANT_ACCRUAL: "Accrue expenses",
+    VARIANT_DEPRECIATION: "Depreciation",
+    VARIANT_FX_REVAL: "Currency revaluation",
+    VARIANT_NI_CLEAR: "Clear current-period NI",
 }
 
 PARTY_LABELS = {
@@ -404,32 +420,130 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "sort_order": 141,
     },
     {
-        "rule_code": "MEC_CLOSE",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_CLOSE,
+        "rule_code": "BANK_TRANSFER",
+        "event_code": EVENT_BANK_TRANSFER,
+        "variant": VARIANT_TRANSFER,
         "party_scope": PARTY_ANY,
-        "name": "Month-end close — P&L to current-period net income",
-        "debit_code": "4110001",
-        "debit_name": "Sales Revenue",
-        "debit_type": "Revenue",
-        "credit_code": "3353",
-        "credit_name": "Net income or loss for current period-BS",
-        "credit_type": "Equity",
+        "name": "Bank transfer — cash to cash (live lines use each bank’s G/L)",
+        "debit_code": "1103",
+        "debit_name": "Cash in Banks",
+        "debit_type": "Asset",
+        "credit_code": "1101",
+        "credit_name": "Cash on Hand",
+        "credit_type": "Asset",
+        "sort_order": 150,
+    },
+    {
+        "rule_code": "MEC_GRNI_ACCRUAL_TRADE",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_GRNI_ACCRUAL,
+        "party_scope": PARTY_TRADE,
+        "name": "Month-end — GRNI accrual (trade)",
+        "debit_code": "1313",
+        "debit_name": "Half-finished Goods",
+        "debit_type": "Asset",
+        "credit_code": "2172",
+        "credit_name": "Accounts Payable - General provisional",
+        "credit_type": "Liability",
         "sort_order": 200,
+    },
+    {
+        "rule_code": "MEC_GRNI_ACCRUAL_RELATED",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_GRNI_ACCRUAL,
+        "party_scope": PARTY_RELATED,
+        "name": "Month-end — GRNI accrual (related party)",
+        "debit_code": "1313",
+        "debit_name": "Half-finished Goods",
+        "debit_type": "Asset",
+        "credit_code": "2182",
+        "credit_name": "Accounts Payable - GR/IR - related parties",
+        "credit_type": "Liability",
+        "sort_order": 201,
+    },
+    {
+        "rule_code": "MEC_PREPAY",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_PREPAY,
+        "party_scope": PARTY_ANY,
+        "name": "Month-end — amortize prepayments",
+        "debit_code": "5190",
+        "debit_name": "Purchase Expenses",
+        "debit_type": "Expense",
+        "credit_code": "1251",
+        "credit_name": "Prepaid expenses",
+        "credit_type": "Asset",
+        "sort_order": 202,
+    },
+    {
+        "rule_code": "MEC_ACCRUAL",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_ACCRUAL,
+        "party_scope": PARTY_ANY,
+        "name": "Month-end — accrue expenses",
+        "debit_code": "5190",
+        "debit_name": "Purchase Expenses",
+        "debit_type": "Expense",
+        "credit_code": "2179",
+        "credit_name": "Accrued expenses",
+        "credit_type": "Liability",
+        "sort_order": 203,
+    },
+    {
+        "rule_code": "MEC_DEPRECIATION",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_DEPRECIATION,
+        "party_scope": PARTY_ANY,
+        "name": "Month-end — depreciation",
+        "debit_code": "5601",
+        "debit_name": "Depreciation expense",
+        "debit_type": "Expense",
+        "credit_code": "1569",
+        "credit_name": "Accumulated depreciation",
+        "credit_type": "Asset",
+        "sort_order": 204,
+    },
+    {
+        "rule_code": "MEC_FX_REVAL",
+        "event_code": EVENT_MONTH_END_CLOSE,
+        "variant": VARIANT_FX_REVAL,
+        "party_scope": PARTY_ANY,
+        "name": "Month-end — currency revaluation (reverse for a gain)",
+        "debit_code": "7181",
+        "debit_name": "Foreign exchange loss",
+        "debit_type": "Expense",
+        "credit_code": "1103",
+        "credit_name": "Cash in Banks",
+        "credit_type": "Asset",
+        "sort_order": 205,
     },
     {
         "rule_code": "YEC_CLOSE",
         "event_code": EVENT_YEAR_END_CLOSE,
         "variant": VARIANT_CLOSE,
         "party_scope": PARTY_ANY,
-        "name": "Year-end close — current-period NI to retained earnings",
+        "name": "Year-end close — P&L to retained earnings",
+        "debit_code": "4110001",
+        "debit_name": "Sales Revenue",
+        "debit_type": "Revenue",
+        "credit_code": "3350",
+        "credit_name": "Retained earnings-unappropriated (or accumulated deficit)",
+        "credit_type": "Equity",
+        "sort_order": 210,
+    },
+    {
+        "rule_code": "YEC_NI_CLEAR",
+        "event_code": EVENT_YEAR_END_CLOSE,
+        "variant": VARIANT_NI_CLEAR,
+        "party_scope": PARTY_ANY,
+        "name": "Year-end close — clear current-period NI into retained earnings",
         "debit_code": "3353",
         "debit_name": "Net income or loss for current period-BS",
         "debit_type": "Equity",
         "credit_code": "3350",
         "credit_name": "Retained earnings-unappropriated (or accumulated deficit)",
         "credit_type": "Equity",
-        "sort_order": 210,
+        "sort_order": 211,
     },
 )
 
@@ -518,13 +632,13 @@ def _pick_rule(rows: list[PostingRule], party_scope: str) -> PostingRule | None:
     return by_party.get(PARTY_ANY)
 
 
-def resolve_posting_pair(
+def resolve_posting_rule(
     db: Session,
     event_code: str,
     variant: str,
     supplier: Supplier | None = None,
-) -> tuple[ChartOfAccount, ChartOfAccount]:
-    """Debit and credit accounts for an automated posting action."""
+) -> tuple[ChartOfAccount, ChartOfAccount, PostingRule | None]:
+    """Debit/credit accounts plus the posting_rules row used for the pair."""
     ensure_default_posting_rules(db)
     party = party_scope_for(supplier) if supplier is not None else PARTY_TRADE
     if event_code in {
@@ -533,6 +647,7 @@ def resolve_posting_pair(
         EVENT_AR_PAYMENT,
         EVENT_MONTH_END_CLOSE,
         EVENT_YEAR_END_CLOSE,
+        EVENT_BANK_TRANSFER,
     }:
         party = PARTY_ANY
     rows = (
@@ -550,7 +665,7 @@ def resolve_posting_pair(
     )
     rule = _pick_rule(rows, party)
     if rule is not None and rule.debit_account is not None and rule.credit_account is not None:
-        return rule.debit_account, rule.credit_account
+        return rule.debit_account, rule.credit_account, rule
 
     spec = find_default_rule(event_code, variant, party)
     if spec is None:
@@ -560,12 +675,36 @@ def resolve_posting_pair(
         )
     debit = _ensure_account(db, spec["debit_code"], spec["debit_name"], spec["debit_type"])
     credit = _ensure_account(db, spec["credit_code"], spec["credit_name"], spec["credit_type"])
+    fallback = (
+        db.query(PostingRule)
+        .filter(PostingRule.rule_code == spec["rule_code"])
+        .first()
+    )
+    return debit, credit, fallback
+
+
+def resolve_posting_pair(
+    db: Session,
+    event_code: str,
+    variant: str,
+    supplier: Supplier | None = None,
+) -> tuple[ChartOfAccount, ChartOfAccount]:
+    """Debit and credit accounts for an automated posting action."""
+    debit, credit, _rule = resolve_posting_rule(db, event_code, variant, supplier)
     return debit, credit
+
+
+def resolve_close_rule(
+    db: Session, event_code: str
+) -> tuple[ChartOfAccount, ChartOfAccount, PostingRule | None]:
+    """Debit/credit targets and rule row for month-end or year-end close."""
+    return resolve_posting_rule(db, event_code, VARIANT_CLOSE)
 
 
 def resolve_close_pair(db: Session, event_code: str) -> tuple[ChartOfAccount, ChartOfAccount]:
     """Debit/credit targets for month-end or year-end close journals."""
-    return resolve_posting_pair(db, event_code, VARIANT_CLOSE)
+    debit, credit, _rule = resolve_close_rule(db, event_code)
+    return debit, credit
 
 
 def serialize_posting_rule(rule: PostingRule) -> dict[str, Any]:
@@ -608,6 +747,7 @@ def list_posting_rules(db: Session) -> list[dict[str, Any]]:
             joinedload(PostingRule.debit_account),
             joinedload(PostingRule.credit_account),
         )
+        .filter(PostingRule.is_active.is_(True))
         .order_by(PostingRule.sort_order, PostingRule.rule_code)
         .all()
     )

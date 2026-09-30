@@ -4,11 +4,21 @@
  */
 
 import { useEffect, type CSSProperties } from 'react'
-import type { JournalEntry, LedgerPosting } from '../types'
-import { shortJournalId } from '../utils/journalEntries'
+import { Link } from 'react-router-dom'
+import type { JournalEntry, LedgerPosting, PostingRule } from '../types'
+import {
+  inferredPostingRule,
+  isSystemJournal,
+  postingRuleDisplay,
+  postingRulePath,
+  shortJournalId,
+  sourceDocumentLabel,
+  sourceDocumentPath,
+} from '../utils/journalEntries'
 
 type JournalEntryViewModalProps = {
   entry: JournalEntry | null
+  rules?: PostingRule[]
   onClose: () => void
 }
 
@@ -27,7 +37,7 @@ function formatAmount(value: number | string | null | undefined) {
   return money(n)
 }
 
-export function JournalEntryViewModal({ entry, onClose }: JournalEntryViewModalProps) {
+export function JournalEntryViewModal({ entry, rules = [], onClose }: JournalEntryViewModalProps) {
   useEffect(() => {
     if (!entry) return
     const onKey = (event: KeyboardEvent) => {
@@ -57,7 +67,11 @@ export function JournalEntryViewModal({ entry, onClose }: JournalEntryViewModalP
             <h2 id="journal-view-title" style={titleStyle}>
               Journal {shortJournalId(entry.id)}
             </h2>
-            <p style={hintStyle}>Read-only view. Posted and approved journals cannot be modified.</p>
+            <p style={hintStyle}>
+              {isSystemJournal(entry)
+                ? 'System-generated journal. Reverse it from the source document.'
+                : 'Read-only view. Posted and approved journals cannot be modified.'}
+            </p>
           </div>
           <button type="button" style={closeBtn} onClick={onClose}>
             Close
@@ -81,6 +95,46 @@ export function JournalEntryViewModal({ entry, onClose }: JournalEntryViewModalP
             <dt style={dtStyle}>Reference</dt>
             <dd style={ddStyle}>{entry.reference || '—'}</dd>
           </div>
+          {isSystemJournal(entry) && (
+            <>
+              <div>
+                <dt style={dtStyle}>Source</dt>
+                <dd style={ddStyle}>
+                  {(() => {
+                    const href = sourceDocumentPath(entry.source_document_type, entry.source_record_id)
+                    const label = `${sourceDocumentLabel(entry.source_document_type)}${
+                      entry.source_record_id ? ` ${entry.source_record_id}` : ''
+                    }`
+                    return href ? (
+                      <Link to={href} style={linkStyle}>
+                        {label}
+                      </Link>
+                    ) : (
+                      label
+                    )
+                  })()}
+                </dd>
+              </div>
+              <div>
+                <dt style={dtStyle}>Posting Rule</dt>
+                <dd style={ddStyle}>
+                  {(() => {
+                    const rule = inferredPostingRule(entry, rules)
+                    const label = postingRuleDisplay(entry, rules)
+                    const href = postingRulePath(rule?.id || entry.posting_rule_id)
+                    if (!label) return '—'
+                    return href ? (
+                      <Link to={href} style={linkStyle} title={rule?.name || entry.posting_rule_name || label}>
+                        {label}
+                      </Link>
+                    ) : (
+                      label
+                    )
+                  })()}
+                </dd>
+              </div>
+            </>
+          )}
           <div style={{ gridColumn: '1 / -1' }}>
             <dt style={dtStyle}>Description</dt>
             <dd style={ddStyle}>{entry.description || '—'}</dd>
@@ -227,6 +281,12 @@ const ddStyle: CSSProperties = {
   margin: 0,
   fontSize: '14px',
   color: '#212121',
+}
+
+const linkStyle: CSSProperties = {
+  color: '#1565c0',
+  fontWeight: 600,
+  textDecoration: 'underline',
 }
 
 const sectionTitle: CSSProperties = {

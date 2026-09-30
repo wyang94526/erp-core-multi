@@ -314,10 +314,30 @@ class JournalEntry(Base):
     posting_status = Column(String(20), nullable=False, server_default=text("'Posted'"))  # 'Draft' or 'Posted'
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
+    is_system_generated = Column(Boolean, nullable=False, server_default=text("false"))
+    source_document_type = Column(String(40), nullable=True)
+    source_record_id = Column(String(80), nullable=True)
+    posting_rule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("posting_rules.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Relationships
     user = relationship("User")
     postings = relationship("LedgerPosting", back_populates="entry")
+    posting_rule = relationship("PostingRule")
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_document_type IS NULL OR source_document_type IN ("
+            "'GOODS_RECEIPT', 'SUPPLIER_INVOICE', 'SALES_INVOICE', 'SALES_CREDIT', "
+            "'AR_PAYMENT', 'AP_PAYMENT', 'BANK_TRANSFER', 'MONTH_END_CLOSE', 'YEAR_END_CLOSE'"
+            ")",
+            name="chk_journal_entries_source_document_type",
+        ),
+        Index("ix_journal_entries_source_document", "source_document_type", "source_record_id"),
+    )
 
 
 
@@ -1675,7 +1695,7 @@ class SupplierInvoice(Base):
             name="chk_supplier_invoice_source_type",
         ),
         CheckConstraint(
-            "status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'CANCELLED')",
+            "status IN ('DRAFT', 'PENDING_APPROVAL', 'REJECTED', 'APPROVED', 'PAID', 'CANCELLED')",
             name="chk_supplier_invoice_status",
         ),
     )

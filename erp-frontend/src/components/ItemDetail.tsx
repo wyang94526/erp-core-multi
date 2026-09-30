@@ -11,11 +11,25 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Pencil } from 'lucide-react'
 import { itemService, itemBomService } from '../api/services'
 import type { Item } from '../types'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
 import { BomVersionToolbar } from './BomVersionToolbar'
-import { itemTypeLabel } from '../utils/itemTypes'
+import { itemTypeLabel, normalizeItemType } from '../utils/itemTypes'
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 export function ItemDetail() {
   const { id } = useParams<{ id: string }>()
@@ -145,7 +159,7 @@ export function ItemDetail() {
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
           <p>Error loading item</p>
-          <button onClick={() => navigate('/items')} style={secondaryButtonStyle}>
+          <button type="button" onClick={() => navigate('/items')} style={headerButtonStyle}>
             Back to Items
           </button>
         </div>
@@ -162,18 +176,51 @@ export function ItemDetail() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Item Details</h2>
-          <p style={pageSubStyle}>Viewing {item.item_id}</p>
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>{item.item_id}</h1>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <span style={{ ...badgeStyle, ...itemTypeBadgeColors(item.item_type) }}>
+              {itemTypeLabel(item.item_type)}
+            </span>
+            {item.is_purchase_item ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#e3f2fd', color: '#1565c0' }}>Purchase</span>
+            ) : null}
+            {item.is_raw_material ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#fff3e0', color: '#e65100' }}>Raw material</span>
+            ) : null}
+            {item.is_subcontract_assembly || item.is_outside_processed ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#f3e5f5', color: '#7b1fa2' }}>
+                Subcontract assembly
+              </span>
+            ) : null}
+          </div>
+          <p style={documentPageSubStyle}>
+            {item.customer_part_number ? `${item.customer_part_number}` : 'Item master'}
+            {item.description ? ` · ${item.description}` : ''}
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={() => navigate(`/items/${item.item_id}/edit`)} style={secondaryButtonStyle}>
-            Edit Item
-          </button>
-          <button onClick={() => navigate('/items')} style={secondaryButtonStyle}>
-            Back to Items
-          </button>
+        <div style={headerActionsStyle}>
+          <div style={actionRowStyle}>
+            <HoverTip label="Edit this item">
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => navigate(`/items/${item.item_id}/edit`)}
+              >
+                <Pencil size={15} />
+                Edit
+              </button>
+            </HoverTip>
+          </div>
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the items list">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/items')}>
+                <ArrowLeft size={15} />
+                Items
+              </button>
+            </HoverTip>
+          </div>
         </div>
       </header>
 
@@ -256,7 +303,7 @@ export function ItemDetail() {
             onSelect={setSelectedBomHeaderId}
           />
         ) : null}
-        <p style={{ ...pageSubStyle, marginBottom: '16px' }}>
+        <p style={{ ...documentPageSubStyle, marginBottom: '16px' }}>
           Raw materials/components required to build one unit of this item. Used to
           automatically calculate requirements when creating a Subcontract Order.
         </p>
@@ -412,35 +459,18 @@ function formatCurrency(value: number | null | undefined): string {
   }).format(value)
 }
 
+function itemTypeBadgeColors(itemType?: string | null): { backgroundColor: string; color: string } {
+  const kind = normalizeItemType(itemType)
+  if (kind === 'SERVICE') return { backgroundColor: '#e3f2fd', color: '#1565c0' }
+  if (kind === 'NON_INVENTORY') return { backgroundColor: '#fff3e0', color: '#e65100' }
+  return { backgroundColor: '#e8f5e9', color: '#2e7d32' }
+}
+
 const containerStyle: React.CSSProperties = {
   padding: '24px',
   maxWidth: '1000px',
   margin: '0 auto',
   textAlign: 'left',
-}
-
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
 }
 
 const cardStyle: React.CSSProperties = {
@@ -570,31 +600,6 @@ const directoryActionButtonStyle: React.CSSProperties = {
   fontSize: '11px',
   fontWeight: 'bold',
   transition: 'background-color 0.2s',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

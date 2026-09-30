@@ -6,13 +6,27 @@
  * View / Edit open a dedicated Bank Account Detail / form page.
  */
 
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { bankAccountService } from '../api/services'
 import type { BankAccount } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { bankAccountPath, bankAccountTypeLabel, bankGlDisplay } from '../utils/bankAccounts'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const BANK_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'active', label: 'Active' },
+      { value: 'inactive', label: 'Inactive' },
+    ],
+  },
+]
 
 function BankAccounts() {
   const navigate = useNavigate()
@@ -40,7 +54,25 @@ function BankAccounts() {
     }
   }, [])
 
-  const { items: sortedAccounts, requestSort, sortConfig } = useSortableData(accounts, {
+  const { values } = useListFilterParams(BANK_FILTERS)
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      if (values.status === 'active' && account.is_active === false) return false
+      if (values.status === 'inactive' && account.is_active !== false) return false
+      return matchesSearch(
+        values.q,
+        account.bank_name,
+        account.account_name,
+        account.account_number,
+        account.account_number_masked,
+        account.account_type,
+        account.currency,
+        bankGlDisplay(account),
+      )
+    })
+  }, [accounts, values.q, values.status])
+
+  const { items: sortedAccounts, requestSort, sortConfig } = useSortableData(filteredAccounts, {
     columnTypes: {
       is_active: 'string',
     },
@@ -65,6 +97,27 @@ function BankAccounts() {
           + Add Bank Account
         </button>
       </header>
+
+      <ListFilterBar
+        fields={BANK_FILTERS}
+        searchPlaceholder="Search bank, account, G/L…"
+        exportCount={filteredAccounts.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('bank-accounts'),
+            ['Bank Name', 'Account Name', 'Account Number', 'Account Type', 'Currency', 'Mapped G/L', 'Status'],
+            filteredAccounts.map((account) => [
+              account.bank_name,
+              account.account_name,
+              account.account_number_masked || account.account_number,
+              bankAccountTypeLabel(account.account_type),
+              account.currency || 'USD',
+              bankGlDisplay(account),
+              account.is_active === false ? 'Inactive' : 'Active',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {loading ? (

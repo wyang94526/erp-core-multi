@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import LedgerPosting
+from app.models import JournalEntry, LedgerPosting
+from app.services.journal_source import assert_journal_mutable
 from app.schemas import LedgerPostingCreate, LedgerPostingRead, LedgerPostingUpdate
 from app.services.accounting import (
     ensure_account_exists,
@@ -21,6 +22,12 @@ router = APIRouter(prefix="/ledger-postings", tags=["ledger-postings"])
 
 def _reload_entry_postings(db: Session, entry_id: UUID) -> list[LedgerPosting]:
     return db.query(LedgerPosting).filter(LedgerPosting.entry_id == entry_id).all()
+
+
+def _assert_entry_mutable(db: Session, entry_id: UUID) -> None:
+    entry = db.get(JournalEntry, entry_id)
+    if entry is not None:
+        assert_journal_mutable(entry)
 
 
 @router.get("", response_model=list[LedgerPostingRead])
@@ -39,6 +46,7 @@ def list_ledger_postings(
 @router.post("", response_model=LedgerPostingRead, status_code=status.HTTP_201_CREATED)
 def create_ledger_posting(payload: LedgerPostingCreate, db: Session = Depends(get_db)) -> LedgerPosting:
     ensure_journal_entry_exists(db, payload.entry_id)
+    _assert_entry_mutable(db, payload.entry_id)
     ensure_account_exists(db, payload.account_id)
     validate_posting_amounts(payload.debit, payload.credit)
 
@@ -75,6 +83,7 @@ def update_ledger_posting(
     posting = db.get(LedgerPosting, posting_id)
     if not posting:
         raise HTTPException(status_code=404, detail="Ledger posting not found")
+    _assert_entry_mutable(db, posting.entry_id)
 
     data = payload.model_dump(exclude_unset=True)
     if "entry_id" in data:
@@ -107,6 +116,7 @@ def delete_ledger_posting(posting_id: UUID, db: Session = Depends(get_db)) -> No
     posting = db.get(LedgerPosting, posting_id)
     if not posting:
         raise HTTPException(status_code=404, detail="Ledger posting not found")
+    _assert_entry_mutable(db, posting.entry_id)
 
     entry_id = posting.entry_id
     db.delete(posting)

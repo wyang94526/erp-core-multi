@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { FileDown, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileDown, Loader2, Mail, PackageCheck, Receipt, RotateCcw } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt } from '../types';
@@ -29,7 +29,39 @@ import { POActionToolbar } from './POActionToolbar';
 import { ApprovalPanel } from './ApprovalPanel';
 import { DocumentRevisionPanel } from './DocumentRevisionPanel';
 import { GoodsReceiptHistoryTable } from './GoodsReceiptHistoryTable';
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  disabledActionStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles';
 import { useAuth } from '../context/AuthContext';
+
+const money = (n: number | null | undefined, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0);
+
+function poStatusColors(status: string): { bg: string; text: string } {
+  const map: Record<string, { bg: string; text: string }> = {
+    Draft: { bg: '#f5f5f5', text: '#616161' },
+    DRAFT: { bg: '#f5f5f5', text: '#616161' },
+    Submitted: { bg: '#fff3e0', text: '#e65100' },
+    PENDING_APPROVAL: { bg: '#fff3e0', text: '#e65100' },
+    Approved: { bg: '#e8f5e9', text: '#2e7d32' },
+    APPROVED: { bg: '#e3f2fd', text: '#1565c0' },
+    REJECTED: { bg: '#ffebee', text: '#c62828' },
+    Void: { bg: '#ffebee', text: '#c62828' },
+    CANCELLED: { bg: '#ffebee', text: '#c62828' },
+  };
+  return map[status] || { bg: '#f5f5f5', text: '#616161' };
+}
 
 function roundTo(value: number, places: number) {
   const factor = 10 ** places;
@@ -533,6 +565,33 @@ export function PurchaseOrderForm() {
     }
   };
 
+  const handleEmailVendor = async () => {
+    const listed = suppliers.find((s) => s.supplier_id === state.supplier_id);
+    let email = (listed?.contact_email || '').trim();
+    if (!email && state.supplier_id) {
+      try {
+        const vendor = await vendorService.getVendor(state.supplier_id);
+        email = (vendor.contact_email || '').trim();
+      } catch {
+        email = '';
+      }
+    }
+    if (!email) {
+      setExportError('No vendor email on file. Add a contact email on the vendor.');
+      return;
+    }
+    await handleExportVendorPdf();
+    const subject = encodeURIComponent(`Purchase order ${state.po_number} from Grand-Tek Technology USA`);
+    const body = encodeURIComponent(
+      [
+        `Please find purchase order ${state.po_number} for ${money(state.grand_total)}.`,
+        '',
+        'The purchase order PDF was downloaded so you can attach it to this email.',
+      ].join('\n'),
+    );
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
+  };
+
   const handleReceiveAllGoods = async () => {
     if (!state.po_number || !state.items.length) return;
     if (!canReceivePoGoods(state)) {
@@ -576,24 +635,141 @@ export function PurchaseOrderForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>
-            {isNew ? 'Create Purchase Order' : 'Purchase Order Details'}
-          </h2>
-          <p style={pageSubStyle}>
-            {isNew
-              ? 'Enter vendor, line items, and notes, then save draft or submit for approval'
-              : `Viewing ${state.po_number}${Number(state.revision_number || 0) > 0 ? ` · Rev ${state.revision_number}` : ''}`}
-          </p>
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>
+            {isNew ? 'Create Purchase Order' : state.po_number || 'Purchase Order'}
+          </h1>
+          {isExisting ? (
+            <>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <span style={{ ...badgeStyle, backgroundColor: poStatusColors(state.status).bg, color: poStatusColors(state.status).text }}>
+                  {state.status}
+                </span>
+                <span
+                  style={{
+                    ...badgeStyle,
+                    backgroundColor: poStatusColors(state.approval_status || 'DRAFT').bg,
+                    color: poStatusColors(state.approval_status || 'DRAFT').text,
+                  }}
+                >
+                  {(state.approval_status || 'DRAFT').replace(/_/g, ' ')}
+                </span>
+                {state.billing_status ? (
+                  <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#37474f' }}>
+                    {String(state.billing_status).replace(/_/g, ' ')}
+                  </span>
+                ) : null}
+                {Number(state.revision_number || 0) > 0 ? (
+                  <span style={{ ...badgeStyle, backgroundColor: '#fff3e0', color: '#e65100' }}>
+                    Rev {state.revision_number}
+                  </span>
+                ) : null}
+              </div>
+              <p style={documentPageSubStyle}>
+                {state.supplier_id}
+                {state.supplier_name ? ` · ${state.supplier_name}` : ''}
+                {state.sco_number ? ` · ${state.sco_number}` : ''}
+              </p>
+            </>
+          ) : (
+            <p style={documentPageSubStyle}>
+              Enter vendor, line items, and notes, then save draft or submit for approval
+            </p>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => navigate('/purchase-orders')}
-          style={secondaryButtonStyle}
-        >
-          ← Back to Purchase Orders
-        </button>
+        <div style={headerActionsStyle}>
+          {isExisting ? (
+            <div style={actionRowStyle}>
+              <HoverTip label="Download or print this purchase order as a PDF">
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={() => void handleExportVendorPdf()}
+                  disabled={exportingPdf}
+                >
+                  {exportingPdf ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <FileDown size={15} />}
+                  PDF
+                </button>
+              </HoverTip>
+              <HoverTip label="Email this purchase order to the vendor. The PDF downloads first so you can attach it.">
+                <button type="button" style={secondaryButtonStyle} onClick={() => void handleEmailVendor()}>
+                  <Mail size={15} />
+                  Email vendor
+                </button>
+              </HoverTip>
+              {isApproved ? (
+                <>
+                  <HoverTip
+                    label={
+                      canReceivePoGoods(state)
+                        ? 'Post a goods receipt for remaining quantity'
+                        : receiveGoodsBlockedReason(state) || 'Receive goods is not available'
+                    }
+                  >
+                    <button
+                      type="button"
+                      style={{ ...secondaryButtonStyle, ...disabledActionStyle(canReceivePoGoods(state) && !receivingGoods) }}
+                      disabled={receivingGoods || !canReceivePoGoods(state)}
+                      onClick={() => void handleReceiveAllGoods()}
+                    >
+                      {receivingGoods ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <PackageCheck size={15} />}
+                      {receivingGoods ? 'Receiving…' : 'Receive Goods'}
+                    </button>
+                  </HoverTip>
+                  <HoverTip
+                    label={
+                      canCreatePoBill(state)
+                        ? 'Create a supplier invoice from unbilled receipts'
+                        : createBillBlockedReason(state) || 'Create bill is not available'
+                    }
+                  >
+                    <button
+                      type="button"
+                      style={{ ...secondaryButtonStyle, ...disabledActionStyle(canCreatePoBill(state)) }}
+                      disabled={!canCreatePoBill(state)}
+                      onClick={() =>
+                        navigate(
+                          `/supplier-invoices/new?source_type=PURCHASE_ORDER&source_order_id=${encodeURIComponent(state.po_number)}`,
+                        )
+                      }
+                    >
+                      <Receipt size={15} />
+                      Create Bill
+                    </button>
+                  </HoverTip>
+                </>
+              ) : null}
+              {isRecallableStatus ? (
+                <HoverTip
+                  label={
+                    canRecallAction
+                      ? 'Keep this PO number. Freeze the approved snapshot, then edit and re-submit for approval.'
+                      : recallDisabledReason || 'Create Revision is not available'
+                  }
+                >
+                  <button
+                    type="button"
+                    style={{ ...secondaryButtonStyle, ...disabledActionStyle(canRecallAction && !recalling && !isSubmitting) }}
+                    disabled={!canRecallAction || recalling || isSubmitting}
+                    onClick={() => void handleRecallPO()}
+                  >
+                    {recalling ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={15} />}
+                    {recalling ? 'Opening…' : 'Create Revision'}
+                  </button>
+                </HoverTip>
+              ) : null}
+            </div>
+          ) : null}
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the purchase order list">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/purchase-orders')}>
+                <ArrowLeft size={15} />
+                Purchase Orders
+              </button>
+            </HoverTip>
+          </div>
+        </div>
       </header>
 
       {successMessage && (
@@ -628,6 +804,16 @@ export function PurchaseOrderForm() {
           )}
         </div>
       )}
+      {exportError && (
+        <div style={errorAlertStyle} role="alert">
+          <span>⚠️ {exportError}</span>
+        </div>
+      )}
+      {p2pError && (
+        <div style={errorAlertStyle} role="alert">
+          <span>⚠️ {p2pError}</span>
+        </div>
+      )}
 
       <>
           <POActionToolbar
@@ -640,39 +826,12 @@ export function PurchaseOrderForm() {
             onReset={handleResetForm}
             isSubmitting={isSubmitting}
             hasValidationError={hasValidationError}
-            showRecall={isRecallableStatus}
+            showRecall={false}
             canRecall={canRecallAction}
             recallDisabledReason={recallDisabledReason}
             onRecall={() => void handleRecallPO()}
             isRecalling={recalling}
           />
-
-          {isExisting && isRecallableStatus && (
-            <div style={recallBarStyle} role="region" aria-label="Create purchase order revision">
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-                  Create Revision
-                </div>
-                <div style={{ fontSize: 13, color: canRecallAction ? 'var(--text)' : '#c62828' }}>
-                  {canRecallAction
-                    ? 'Keep this PO number. Freeze the approved snapshot, then edit and re-submit for approval.'
-                    : recallDisabledReason || 'Create Revision is not available for this purchase order.'}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleRecallPO()}
-                disabled={!canRecallAction || recalling || isSubmitting}
-                style={{
-                  ...exportButtonStyle,
-                  backgroundColor: canRecallAction ? '#ef6c00' : '#9e9e9e',
-                  cursor: canRecallAction && !recalling ? 'pointer' : 'not-allowed',
-                }}
-              >
-                {recalling ? 'Opening revision…' : 'Create Revision'}
-              </button>
-            </div>
-          )}
 
           {isExisting && (
             <ApprovalPanel
@@ -696,140 +855,6 @@ export function PurchaseOrderForm() {
               listChangeLogs={purchaseOrderService.listChangeLogs}
             />
           ) : null}
-
-          {isExisting && isApproved && (
-            <div style={exportBarStyle}>
-              <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-                  Vendor purchase attachment
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text)' }}>
-                  Download a printable PDF for the approved purchase order.
-                </div>
-                {exportError && (
-                  <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
-                    {exportError}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleExportVendorPdf}
-                disabled={exportingPdf}
-                style={{
-                  ...exportButtonStyle,
-                  opacity: exportingPdf ? 0.75 : 1,
-                  cursor: exportingPdf ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {exportingPdf ? (
-                  <>
-                    <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                    Preparing PDF…
-                  </>
-                ) : (
-                  <>
-                    <FileDown size={16} />
-                    Export Vendor PDF
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {isExisting && isApproved && (
-            <div style={{ ...exportBarStyle, marginTop: 12 }}>
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-                  Procure-to-Pay
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text)' }}>
-                  Receive goods (posts GRNI), then create a supplier invoice / bill.
-                  {state.billing_status ? ` Billing: ${state.billing_status}` : ''}
-                </div>
-                {p2pError && (
-                  <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
-                    {p2pError}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <span
-                  title={
-                    canReceivePoGoods(state)
-                      ? 'Post a goods receipt for remaining quantity'
-                      : receiveGoodsBlockedReason(state) || undefined
-                  }
-                  style={{
-                    display: 'inline-block',
-                    cursor: canReceivePoGoods(state) && !receivingGoods ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!canReceivePoGoods(state) || receivingGoods) return
-                    void handleReceiveAllGoods()
-                  }}
-                  disabled={receivingGoods || !canReceivePoGoods(state)}
-                  aria-disabled={receivingGoods || !canReceivePoGoods(state)}
-                  aria-label={
-                    canReceivePoGoods(state)
-                      ? 'Receive Goods'
-                      : `Receive Goods. ${receiveGoodsBlockedReason(state) || ''}`
-                  }
-                  style={{
-                    ...exportButtonStyle,
-                    backgroundColor: canReceivePoGoods(state) ? '#2e7d32' : '#9e9e9e',
-                    opacity: receivingGoods || !canReceivePoGoods(state) ? 0.75 : 1,
-                    cursor: canReceivePoGoods(state) && !receivingGoods ? 'pointer' : 'not-allowed',
-                    pointerEvents: canReceivePoGoods(state) ? 'auto' : 'none',
-                  }}
-                >
-                  {receivingGoods ? 'Receiving…' : 'Receive Goods'}
-                </button>
-                </span>
-                <span
-                  title={
-                    canCreatePoBill(state)
-                      ? 'Create a supplier invoice from unbilled receipts'
-                      : createBillBlockedReason(state) || undefined
-                  }
-                  style={{
-                    display: 'inline-block',
-                    cursor: canCreatePoBill(state) ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!canCreatePoBill(state)) return
-                    navigate(
-                      `/supplier-invoices/new?source_type=PURCHASE_ORDER&source_order_id=${encodeURIComponent(state.po_number)}`,
-                    )
-                  }}
-                  disabled={!canCreatePoBill(state)}
-                  aria-disabled={!canCreatePoBill(state)}
-                  aria-label={
-                    canCreatePoBill(state)
-                      ? 'Create Bill / Supplier Invoice'
-                      : `Create Bill / Supplier Invoice. ${createBillBlockedReason(state) || ''}`
-                  }
-                  style={{
-                    ...exportButtonStyle,
-                    backgroundColor: canCreatePoBill(state) ? '#6a1b9a' : '#9e9e9e',
-                    opacity: canCreatePoBill(state) ? 1 : 0.75,
-                    cursor: canCreatePoBill(state) ? 'pointer' : 'not-allowed',
-                    pointerEvents: canCreatePoBill(state) ? 'auto' : 'none',
-                  }}
-                >
-                  Create Bill / Supplier Invoice
-                </button>
-                </span>
-              </div>
-            </div>
-          )}
 
           <div style={documentAreaStyle}>
             <div style={headerSummaryRowStyle}>
@@ -904,6 +929,7 @@ export function PurchaseOrderForm() {
             />
           </div>
         </>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -913,41 +939,6 @@ const containerStyle: React.CSSProperties = {
   maxWidth: '1200px',
   margin: '0 auto',
   textAlign: 'left',
-};
-
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-};
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-};
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  backgroundColor: 'var(--bg)',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '13px',
-  fontFamily: 'inherit',
 };
 
 const successAlertStyle: React.CSSProperties = {
@@ -1016,43 +1007,6 @@ const receiptsHintStyle: React.CSSProperties = {
   margin: '0 0 12px',
   fontSize: 13,
   color: 'var(--text)',
-};
-
-const exportBarStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 16,
-  flexWrap: 'wrap',
-  padding: '16px 18px',
-  marginBottom: 16,
-  borderRadius: 10,
-  border: '1px solid rgba(147, 51, 234, 0.28)',
-  background:
-    'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
-  boxShadow: 'var(--shadow)',
-};
-
-const recallBarStyle: React.CSSProperties = {
-  ...exportBarStyle,
-  border: '1px solid rgba(239, 108, 0, 0.35)',
-  background:
-    'linear-gradient(135deg, rgba(239, 108, 0, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
-};
-
-const exportButtonStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '11px 18px',
-  backgroundColor: '#9333ea',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  fontSize: 14,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-  whiteSpace: 'nowrap',
 };
 
 const notesLabelStyle: React.CSSProperties = {

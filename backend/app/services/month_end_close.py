@@ -1,11 +1,10 @@
 # @author: Wendy Yang
 # @date: 2026-09-24
 
-"""Month-end close: generate a Draft P&L → current-period NI journal.
+"""Month-end close: review period activity and post adjustment journals.
 
-Approved operational journals post through their own workflow. This flow
-creates the monthly closing journal as Draft / DRAFT so it must be
-submitted and approved before P&L moves to Equity 3353.
+Revenue and expense stay open and keep accumulating through the year.
+P&L is closed into retained earnings only by Year-End Close.
 """
 
 from __future__ import annotations
@@ -20,18 +19,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.services.accounting import normalize_journal_period
-from app.services.financial_reports import ZERO, _account_balances
-from app.services.posting_rules import EVENT_MONTH_END_CLOSE, resolve_close_pair
-from app.services.year_end_close import (
-    GENERATED_APPROVAL_STATUS,
-    GENERATED_POSTING_STATUS,
-    CloseLine,
-    build_closing_lines,
-)
+from app.services.financial_reports import ZERO, _account_balances, money
+from app.services.posting_rules import EVENT_MONTH_END_CLOSE, list_posting_rules
 
 MEC_REFERENCE_PREFIX = "MEC-"
 NI_PREFERRED_CODE = "3353"
 NI_NAME_MARKERS = ("current period", "current year")
+MONTH_END_NO_PNL_CLOSE = (
+    "Month-end close does not generate a P&L closing journal. "
+    "Post adjustment journals (GRNI cutoff, prepayments, accruals, depreciation, "
+    "or currency revaluation) and leave revenue and expense balances "
+    "to accumulate. Use Year-End Close to close P&L into retained earnings."
+)
 
 
 def month_end_reference(period: str) -> str:
@@ -69,11 +68,6 @@ def resolve_current_period_ni(
                 detail="Current-period net income account must be an Equity account",
             )
         return match
-
-    if db is not None:
-        _source, target = resolve_close_pair(db, EVENT_MONTH_END_CLOSE)
-        if (target.account_type or "").strip().lower() == "equity":
-            return next((row for row in accounts if row.id == target.id), target)
 
     equity = [row for row in accounts if (row.account_type or "").strip().lower() == "equity"]
     preferred = next((row for row in equity if (row.account_code or "") == NI_PREFERRED_CODE), None)
@@ -127,6 +121,24 @@ def _drafts_in_period(db: Session, period: str) -> list[JournalEntry]:
     )
 
 
+def _period_pnl_totals(db: Session, start: date, end: date, currency: str) -> tuple:
+    pnl = [
+        item
+        for item in _account_balances(db, date_from=start, date_to=end, currency=currency)
+        if (item.account_type or "").strip().lower() in {"revenue", "expense"}
+    ]
+    revenue_total = ZERO
+    expense_total = ZERO
+    for item in pnl:
+        kind = (item.account_type or "").strip().lower()
+        signed = item.signed
+        if kind == "revenue":
+            revenue_total = money(revenue_total + signed)
+        elif kind == "expense":
+            expense_total = money(expense_total + signed)
+    return revenue_total, expense_total, money(revenue_total - expense_total)
+
+
 def preview_month_end_close(
     db: Session,
     *,
@@ -141,34 +153,14 @@ def preview_month_end_close(
     target = None
     try:
         target = resolve_current_period_ni(
-            accounts, account_id=current_period_ni_account_id, db=db
+            accounts, account_id=current_period_ni_account_id
         )
-    except HTTPException as exc:
-        blockers.append(str(exc.detail))
+    except HTTPException:
+        target = None
 
-    pnl = [
-        item
-        for item in _account_balances(db, date_from=start, date_to=end, currency=currency)
-        if (item.account_type or "").strip().lower() in {"revenue", "expense"}
-    ]
-    lines: list[CloseLine] = []
-    revenue_total = ZERO
-    expense_total = ZERO
-    net_income = ZERO
-    if target is not None:
-        lines, revenue_total, expense_total, net_income = build_closing_lines(
-            pnl, target, close_period
-        )
-    if not lines:
-        blockers.append(f"No posted P&L activity to close for {close_period}.")
-
-    existing = find_month_end_journal(db, close_period)
-    if existing is not None:
-        blockers.append(
-            f"A month-end close journal already exists for {close_period} "
-            f"({existing.approval_status or 'DRAFT'} / {existing.posting_status or 'Draft'}). "
-            "Submit or delete that journal instead of generating another."
-        )
+    revenue_total, expense_total, net_income = _period_pnl_totals(
+        db, start, end, currency
+    )
 
     drafts = _drafts_in_period(db, close_period)
     ready = [row for row in drafts if (row.approval_status or "").upper() == "APPROVED"]
@@ -176,11 +168,26 @@ def preview_month_end_close(
     if ready:
         blockers.append(
             f"{len(ready)} approved draft journal(s) in {close_period} are not posted. "
-            "Approve remaining journals so they post before month-end close."
+            "Approve remaining journals so they post before you finish month-end adjustments."
         )
 
     today = datetime.utcnow().date()
     period_still_open = today <= end
+    adjustment_rules = [
+        {
+            "id": row["id"],
+            "rule_code": row["rule_code"],
+            "name": row["name"],
+            "variant": row["variant"],
+            "variant_label": row["variant_label"],
+            "debit_account_code": row["debit_account_code"],
+            "debit_account_name": row["debit_account_name"],
+            "credit_account_code": row["credit_account_code"],
+            "credit_account_name": row["credit_account_name"],
+        }
+        for row in list_posting_rules(db)
+        if row["event_code"] == EVENT_MONTH_END_CLOSE
+    ]
     return {
         "period": close_period,
         "close_date": end,
@@ -198,22 +205,12 @@ def preview_month_end_close(
         "revenue_total": revenue_total,
         "expense_total": expense_total,
         "net_income": net_income,
-        "lines": [
-            {
-                "account_id": line.account_id,
-                "account_code": line.account_code,
-                "account_name": line.account_name,
-                "account_type": line.account_type,
-                "debit": line.debit,
-                "credit": line.credit,
-                "description": line.description,
-            }
-            for line in lines
-        ],
+        "lines": [],
+        "adjustment_rules": adjustment_rules,
         "ready": ready,
         "held": held,
-        "existing_journal": existing,
-        "can_run": not blockers,
+        "existing_journal": find_month_end_journal(db, close_period),
+        "can_run": False,
         "blockers": blockers,
     }
 
@@ -226,37 +223,4 @@ def run_month_end_close(
     current_period_ni_account_id: UUID | None = None,
     currency: str = "USD",
 ) -> JournalEntry:
-    preview = preview_month_end_close(
-        db,
-        period=period,
-        current_period_ni_account_id=current_period_ni_account_id,
-        currency=currency,
-    )
-    if not preview["can_run"]:
-        raise HTTPException(status_code=400, detail=preview["blockers"][0])
-
-    close_period = preview["period"]
-    entry = JournalEntry(
-        description=f"Month-end close {close_period} — close P&L to current-period net income",
-        posted_by_user_id=user.id,
-        posting_date=preview["close_date"],
-        period=close_period,
-        reference=month_end_reference(close_period),
-        posting_status=GENERATED_POSTING_STATUS,
-        approval_status=GENERATED_APPROVAL_STATUS,
-        current_approval_step=None,
-    )
-    for line in preview["lines"]:
-        entry.postings.append(
-            LedgerPosting(
-                account_id=line["account_id"],
-                debit=line["debit"],
-                credit=line["credit"],
-                currency=currency,
-                description=line["description"],
-            )
-        )
-    db.add(entry)
-    db.flush()
-    loaded = find_month_end_journal(db, close_period)
-    return loaded or entry
+    raise HTTPException(status_code=400, detail=MONTH_END_NO_PNL_CLOSE)

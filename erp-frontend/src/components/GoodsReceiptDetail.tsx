@@ -22,6 +22,17 @@ import {
   toJournalEntry,
 } from '../utils/goodsReceipts'
 import { shortJournalId } from '../utils/journalEntries'
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+} from '../utils/documentPageStyles'
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return '—'
@@ -95,16 +106,16 @@ export function GoodsReceiptDetail() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>{detail.receipt_number}</h1>
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>{detail.receipt_number}</h1>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             <span style={{ ...badgeStyle, backgroundColor: badge.bg, color: badge.text }}>{statusKey}</span>
             <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#37474f' }}>
               {sourceLabel(detail.source_type)}
             </span>
           </div>
-          <p style={pageSubStyle}>
+          <p style={documentPageSubStyle}>
             Receipt of goods against {sourceLabel(detail.source_type).toLowerCase()}{' '}
             {sourceHref ? (
               <Link to={sourceHref} style={cashReferenceLinkStyle}>
@@ -118,10 +129,16 @@ export function GoodsReceiptDetail() {
               : null}
           </p>
         </div>
-        <button type="button" style={headerButtonStyle} onClick={() => navigate(backHref)}>
-          <ArrowLeft size={15} />
-          {sourceHref ? `Back to ${detail.source_order_id}` : 'Back'}
-        </button>
+        <div style={headerActionsStyle}>
+          <div style={actionRowStyle}>
+            <HoverTip label={sourceHref ? `Back to ${detail.source_order_id}` : 'Go back'}>
+              <button type="button" style={headerButtonStyle} onClick={() => navigate(backHref)}>
+                <ArrowLeft size={15} />
+                {sourceHref ? `Back to ${detail.source_order_id}` : 'Back'}
+              </button>
+            </HoverTip>
+          </div>
+        </div>
       </header>
 
       <section style={cardStyle}>
@@ -333,18 +350,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: 24,
-  borderBottom: '1px solid var(--border, #ddd)',
-  paddingBottom: 16,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  flexWrap: 'wrap',
-  gap: 12,
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h, #212121)' }
-const pageSubStyle: CSSProperties = { margin: '8px 0 0', fontSize: 14, color: 'var(--text, #616161)' }
 const cardStyle: CSSProperties = {
   backgroundColor: 'var(--bg, #fff)',
   border: '1px solid var(--border, #ddd)',
@@ -393,21 +398,6 @@ const theadRowStyle: CSSProperties = {
 const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--border, #eee)' }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h, #212121)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text, #424242)', verticalAlign: 'middle' }
-const badgeStyle: CSSProperties = { padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700 }
-const headerButtonStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '7px 12px',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h, #212121)',
-  border: '1px solid var(--border, #ddd)',
-}
 const linkButtonStyle: CSSProperties = {
   background: 'none',
   border: 'none',

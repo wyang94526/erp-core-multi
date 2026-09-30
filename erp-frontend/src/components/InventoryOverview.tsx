@@ -12,6 +12,7 @@ import { inventoryService } from '../api/services'
 import type { InventoryStockItem, StockStatus } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -62,15 +63,22 @@ export function InventoryOverview() {
   const filteredStock = useMemo(() => {
     return stock.filter((s) => {
       if (values.status !== 'ALL' && s.status !== values.status) return false
-      if (values.view === 'alerts') {
-        return s.status === 'Low Stock' || s.status === 'Out of Stock'
+      if (values.view === 'alerts' && s.status !== 'Low Stock' && s.status !== 'Out of Stock') {
+        return false
       }
       if (values.view === 'allocated') {
-        return Number(s.allocated_quantity) > 0
+        if (Number(s.allocated_quantity) <= 0) return false
       }
-      return true
+      return matchesSearch(
+        values.q,
+        s.item_id,
+        s.description,
+        s.status,
+        s.primary_warehouse_code,
+        s.primary_bin_code,
+      )
     })
-  }, [stock, values.status, values.view])
+  }, [stock, values.status, values.view, values.q])
 
   const alertCounts = useMemo(() => {
     const low = stock.filter((s) => s.status === 'Low Stock').length
@@ -225,7 +233,28 @@ export function InventoryOverview() {
         </div>
       </div>
 
-      <ListFilterBar fields={INVENTORY_FILTERS} />
+      <ListFilterBar
+        fields={INVENTORY_FILTERS}
+        searchPlaceholder="Search item, warehouse, bin…"
+        exportCount={filteredStock.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('inventory'),
+            ['Product', 'On-Hand', 'Allocated', 'On-Order', 'ATP', 'Reorder Pt', 'Status', 'Warehouse', 'Bin'],
+            filteredStock.map((row) => [
+              row.item_id,
+              row.on_hand_quantity,
+              row.allocated_quantity,
+              row.on_order_quantity,
+              row.available_to_promise,
+              row.reorder_point,
+              row.status,
+              row.primary_warehouse_code,
+              row.primary_bin_code,
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {filteredStock.length === 0 ? (

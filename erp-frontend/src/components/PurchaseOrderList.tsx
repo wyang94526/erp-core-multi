@@ -10,11 +10,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { purchaseOrderService, vendorService } from '../api/services'
 import type { PurchaseOrder, Supplier } from '../types'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isPurchaseOrderEditable, purchaseOrderLockReason } from '../utils/poWorkflow'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import {
+  matchesDeliveryDate,
+  matchesRelativeDate,
+  type DeliveryDateFilter,
+  type RelativeDateFilter,
+} from '../utils/listDateFilters'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -22,6 +29,38 @@ import ListFilterBar, {
 } from './ListFilterBar'
 
 const PO_FILTERS: FilterField[] = [
+  {
+    key: 'po_type',
+    label: 'Type',
+    options: [
+      { value: 'ALL', label: 'All types' },
+      { value: 'MATERIAL', label: 'Material' },
+      { value: 'SUBCONTRACT', label: 'Subcontract' },
+    ],
+  },
+  {
+    key: 'order_date',
+    label: 'Order date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'last_quarter', label: 'Last quarter' },
+      { value: 'ytd', label: 'YTD' },
+    ],
+  },
+  {
+    key: 'delivery',
+    label: 'Expected delivery',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'this_week', label: 'This week' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'next_30', label: 'Next 30 days' },
+    ],
+  },
   {
     key: 'status',
     label: 'Status',
@@ -53,13 +92,15 @@ export function PurchaseOrderList() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [skip, setSkip] = useState(0)
-  const [searchFilter, setSearchFilter] = useState('')
   const limit = 10
   const listLimit = 100
   const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
     useListFilterParams(PO_FILTERS)
   const approvalFilter = values.approval === 'ALL' ? null : values.approval
   const statusParam = values.status === 'ALL' ? null : values.status
+  const typeFilter = values.po_type === 'ALL' ? null : values.po_type
+  const orderDateFilter = (values.order_date || 'all') as RelativeDateFilter
+  const deliveryFilter = (values.delivery || 'all') as DeliveryDateFilter
 
   const {
     data: purchaseOrders = [],
@@ -85,7 +126,6 @@ export function PurchaseOrderList() {
   }, [suppliers])
 
   const filteredOrders = useMemo(() => {
-    const q = searchFilter.trim().toLowerCase()
     return purchaseOrders.filter((po) => {
       if (approvalFilter) {
         const approval = (po.approval_status || 'DRAFT').toUpperCase()
@@ -96,19 +136,35 @@ export function PurchaseOrderList() {
       } else if (statusParam && statusParam !== 'open') {
         if (po.status.toLowerCase() !== statusParam.toLowerCase()) return false
       }
-      if (!q) return true
-      const supplierName =
-        po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
-      return (
-        po.po_number.toLowerCase().includes(q) ||
-        supplierName.toLowerCase().includes(q) ||
-        po.status.toLowerCase().includes(q) ||
-        (po.po_type || '').toLowerCase().includes(q) ||
-        (po.sco_number || '').toLowerCase().includes(q) ||
-        (po.approval_status || '').toLowerCase().includes(q)
+      if (typeFilter && (po.po_type || 'MATERIAL') !== typeFilter) return false
+      if (!matchesRelativeDate(po.order_date, orderDateFilter)) return false
+      if (!matchesDeliveryDate(po.expected_delivery_date, deliveryFilter)) return false
+      const supplierName = po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id
+      return matchesSearch(
+        values.q,
+        po.po_number,
+        supplierName,
+        po.supplier_id,
+        po.status,
+        po.po_type,
+        po.sco_number,
+        po.approval_status,
       )
     })
-  }, [purchaseOrders, searchFilter, supplierNameById, approvalFilter, statusParam])
+  }, [
+    purchaseOrders,
+    supplierNameById,
+    approvalFilter,
+    statusParam,
+    typeFilter,
+    orderDateFilter,
+    deliveryFilter,
+    values.q,
+  ])
+
+  useEffect(() => {
+    setSkip(0)
+  }, [approvalFilter, statusParam, typeFilter, orderDateFilter, deliveryFilter, values.q])
 
   const pageRows = filteredOrders.slice(skip, skip + limit)
 
@@ -196,19 +252,29 @@ export function PurchaseOrderList() {
         />
       ) : null}
 
-      <ListFilterBar fields={PO_FILTERS} />
+      <ListFilterBar
+        fields={PO_FILTERS}
+        searchPlaceholder="Search PO #, supplier, type, SCO #…"
+        exportCount={filteredOrders.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('purchase-orders'),
+            ['PO Number', 'Type', 'Supplier', 'Order Date', 'Expected Delivery', 'Total', 'Status', 'Approval'],
+            filteredOrders.map((po) => [
+              po.po_number,
+              po.po_type,
+              po.supplier_name || supplierNameById[po.supplier_id] || po.supplier_id,
+              po.order_date,
+              po.expected_delivery_date,
+              po.grand_total,
+              po.status,
+              po.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
-        <div style={dashboardHeaderStyle}>
-          <input
-            type="text"
-            placeholder="Search by PO#, Supplier, Status..."
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            style={searchInputStyle}
-            aria-label="Filter purchase orders"
-          />
-        </div>
 
         {filteredOrders.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No purchase orders found.</div>
@@ -439,23 +505,6 @@ const dashboardSectionStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '24px',
   boxShadow: 'var(--shadow)',
-}
-
-const dashboardHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'flex-end',
-  marginBottom: '16px',
-}
-
-const searchInputStyle: React.CSSProperties = {
-  width: '100%',
-  maxWidth: '320px',
-  padding: '8px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  fontSize: '13px',
-  fontFamily: 'inherit',
-  boxSizing: 'border-box',
 }
 
 const directoryTableStyle: React.CSSProperties = {

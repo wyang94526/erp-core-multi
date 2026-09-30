@@ -20,6 +20,9 @@ export type FilterField = {
 
 type ListFilterBarProps = {
   fields: FilterField[]
+  searchPlaceholder?: string
+  onExport?: () => void
+  exportCount?: number
   /** Optional extra content on the right of the filter row */
   trailing?: ReactNode
 }
@@ -29,7 +32,9 @@ export function useListFilterParams(fields: FilterField[]) {
   const fromDashboard = searchParams.get('from') === 'dashboard'
   const metric = (searchParams.get('metric') || '') as MetricDrillKey | ''
 
-  const values: Record<string, string> = {}
+  const values: Record<string, string> = {
+    q: searchParams.get('q') || '',
+  }
   for (const field of fields) {
     const allValue = field.allValue ?? 'ALL'
     values[field.key] = searchParams.get(field.key) || allValue
@@ -37,7 +42,7 @@ export function useListFilterParams(fields: FilterField[]) {
 
   const updateParam = (key: string, value: string) => {
     const field = fields.find((f) => f.key === key)
-    const allValue = field?.allValue ?? 'ALL'
+    const allValue = field?.allValue ?? (key === 'q' ? '' : 'ALL')
     const next = new URLSearchParams(searchParams)
     if (!value || value === allValue) next.delete(key)
     else next.set(key, value)
@@ -53,10 +58,12 @@ export function useListFilterParams(fields: FilterField[]) {
     setSearchParams(next, { replace: true })
   }
 
-  const hasActiveFilters = fields.some((field) => {
-    const allValue = field.allValue ?? 'ALL'
-    return (searchParams.get(field.key) || allValue) !== allValue
-  })
+  const hasActiveFilters =
+    Boolean((searchParams.get('q') || '').trim()) ||
+    fields.some((field) => {
+      const allValue = field.allValue ?? 'ALL'
+      return (searchParams.get(field.key) || allValue) !== allValue
+    })
 
   const metricTitle =
     (metric && METRIC_PAGE_TITLES[metric]) || 'Filtered from Dashboard'
@@ -105,11 +112,29 @@ export function DashboardContextBanner({
   )
 }
 
-export default function ListFilterBar({ fields, trailing }: ListFilterBarProps) {
+export default function ListFilterBar({
+  fields,
+  searchPlaceholder = 'Search…',
+  onExport,
+  exportCount,
+  trailing,
+}: ListFilterBarProps) {
   const { values, updateParam, clearFilters, hasActiveFilters } = useListFilterParams(fields)
+  const canExport = Boolean(onExport) && (exportCount ?? 0) > 0
 
   return (
     <div style={filtersBarStyle}>
+      <label htmlFor="filter-q" style={{ ...filterFieldStyle, flex: '2 1 220px', maxWidth: 320 }}>
+        <span style={filterLabelStyle}>Search</span>
+        <input
+          id="filter-q"
+          type="search"
+          value={values.q || ''}
+          onChange={(e) => updateParam('q', e.target.value)}
+          placeholder={searchPlaceholder}
+          style={filterInputStyle}
+        />
+      </label>
       {fields.map((field) => {
         const allValue = field.allValue ?? 'ALL'
         const selectId = `filter-${field.key}`
@@ -131,14 +156,35 @@ export default function ListFilterBar({ fields, trailing }: ListFilterBarProps) 
           </label>
         )
       })}
-      {hasActiveFilters ? (
-        <div style={filterClearWrapStyle}>
+      <div style={filterClearWrapStyle}>
+        {hasActiveFilters ? (
           <button type="button" onClick={clearFilters} style={ghostBtnStyle}>
             Clear filters
           </button>
-        </div>
-      ) : null}
-      {trailing}
+        ) : null}
+        {onExport ? (
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={!canExport}
+            title={
+              canExport
+                ? `Export ${exportCount} row${exportCount === 1 ? '' : 's'} matching current filters`
+                : 'No rows match the current filters'
+            }
+            style={{
+              ...ghostBtnStyle,
+              background: canExport ? '#1565c0' : '#fff',
+              color: canExport ? '#fff' : '#90a4ae',
+              borderColor: canExport ? '#1565c0' : 'var(--border)',
+              cursor: canExport ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Export CSV
+          </button>
+        ) : null}
+        {trailing}
+      </div>
     </div>
   )
 }
@@ -186,9 +232,15 @@ const filterSelectStyle: CSSProperties = {
   cursor: 'pointer',
 }
 
+const filterInputStyle: CSSProperties = {
+  ...filterSelectStyle,
+  cursor: 'text',
+}
+
 const filterClearWrapStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'flex-end',
+  gap: 8,
   paddingBottom: 1,
   marginLeft: 'auto',
 }

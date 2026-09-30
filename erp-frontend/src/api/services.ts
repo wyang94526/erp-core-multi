@@ -686,8 +686,41 @@ export const vendorInvoiceService = {
     return apiClient.post<SupplierInvoice>('/api/v1/vendor-invoices', data);
   },
 
+  update(
+    id: number,
+    data: {
+      invoice_type?: 'LANDED_COST' | 'EXPENSE' | null;
+      source_type?: 'NON_PO' | null;
+      reference_po_number?: string | null;
+      vendor_id?: string | null;
+      vendor_invoice_number?: string | null;
+      invoice_date?: string | null;
+      due_date?: string | null;
+      payment_term_id?: string | null;
+      payment_terms?: string | null;
+      tax_amount?: number | null;
+      freight_amount?: number | null;
+      allocate_to_goods_receipt_id?: number | null;
+      currency?: string;
+      distributions?: Array<{
+        gl_account_id: string;
+        department_id?: string | null;
+        amount: number;
+        description?: string | null;
+        goods_receipt_id?: number | null;
+        goods_receipt_line_id?: number | null;
+      }> | null;
+    },
+  ): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}`, data);
+  },
+
   submit(id: number): Promise<SupplierInvoice> {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/submit`);
+  },
+
+  reject(id: number): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/reject`);
   },
 
   approve(id: number): Promise<SupplierInvoice> {
@@ -2178,17 +2211,33 @@ export const financialReportService = {
 // GENERAL LEDGER / JOURNAL ENTRY SERVICES
 // ==========================================
 
+export type JournalEntryListFilters = {
+  q?: string
+  source?: string
+  origin?: string
+  rule?: string
+  date_from?: string
+  date_to?: string
+  period?: string
+  posting?: string
+  approval?: string
+}
+
 export const journalEntryService = {
   /**
-   * Fetch all journal entries (with nested ledger postings) with pagination
+   * Fetch journal entries (with nested ledger postings) with optional search filters
    */
   async listJournalEntries(
     skip: number = 0,
-    limit: number = 100
+    limit: number = 500,
+    filters: JournalEntryListFilters = {},
   ): Promise<JournalEntry[]> {
-    return apiClient.get<JournalEntry[]>('/api/v1/journal-entries', {
-      params: { skip, limit },
-    });
+    const params: Record<string, string | number> = { skip, limit }
+    for (const [key, value] of Object.entries(filters)) {
+      const text = String(value || '').trim()
+      if (text && text.toUpperCase() !== 'ALL') params[key] = text
+    }
+    return apiClient.get<JournalEntry[]>('/api/v1/journal-entries', { params })
   },
 
   /**

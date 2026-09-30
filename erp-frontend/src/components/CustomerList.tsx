@@ -11,19 +11,34 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { customerService } from '../api/services'
 import type { Customer } from '../types'
 import { useEffect, useState } from 'react'
+import { csvFilename, downloadCsv } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { PaginationControls } from './PaginationControls'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const CUSTOMER_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'ALL', label: 'All statuses' },
+      { value: 'ACTIVE', label: 'Active' },
+      { value: 'INACTIVE', label: 'Inactive' },
+      { value: 'ON_HOLD', label: 'On hold' },
+    ],
+  },
+]
 
 export function CustomerList() {
   const navigate = useNavigate()
   const location = useLocation()
   const [skip, setSkip] = useState(0)
-  const [searchInput, setSearchInput] = useState('')
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('ALL')
   const [toast, setToast] = useState<string | null>(null)
   const limit = 10
+  const { values } = useListFilterParams(CUSTOMER_FILTERS)
+  const search = values.q.trim()
+  const statusFilter = values.status || 'ALL'
 
   useEffect(() => {
     const message = (location.state as { toast?: string } | null)?.toast
@@ -42,6 +57,7 @@ export function CustomerList() {
   const {
     data,
     isLoading,
+    isFetching,
     isError,
     error,
   } = useQuery({
@@ -51,6 +67,7 @@ export function CustomerList() {
         q: search || undefined,
         status: statusFilter === 'ALL' ? undefined : statusFilter,
       }),
+    placeholderData: (previous) => previous,
   })
 
   const customers = data?.items ?? []
@@ -70,32 +87,9 @@ export function CustomerList() {
     }
   }
 
-  const applySearch = (event: React.FormEvent) => {
-    event.preventDefault()
+  useEffect(() => {
     setSkip(0)
-    setSearch(searchInput.trim())
-  }
-
-  if (isLoading) {
-    return (
-      <div style={containerStyle}>
-        <div style={emptyStateWrapperStyle}>
-          <p>Loading customers...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div style={containerStyle}>
-        <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>
-          <p>Error loading customers:</p>
-          <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
-        </div>
-      </div>
-    )
-  }
+  }, [search, statusFilter])
 
   return (
     <div style={containerStyle}>
@@ -119,34 +113,41 @@ export function CustomerList() {
         </button>
       </header>
 
-      <form onSubmit={applySearch} style={filterRowStyle}>
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search by name, customer ID, or tax ID"
-          style={searchInputStyle}
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value)
-            setSkip(0)
-          }}
-          style={selectStyle}
-        >
-          <option value="ALL">All statuses</option>
-          <option value="ACTIVE">Active</option>
-          <option value="INACTIVE">Inactive</option>
-          <option value="ON_HOLD">On hold</option>
-        </select>
-        <button type="submit" style={secondaryButtonStyle}>
-          Search
-        </button>
-      </form>
+      <ListFilterBar
+        fields={CUSTOMER_FILTERS}
+        searchPlaceholder="Search name, customer ID, or tax ID"
+        exportCount={total}
+        onExport={async () => {
+          const page = await customerService.listCustomersPage(0, 2000, {
+            q: search || undefined,
+            status: statusFilter === 'ALL' ? undefined : statusFilter,
+          })
+          downloadCsv(
+            csvFilename('customers'),
+            ['Customer ID', 'Company Name', 'Customer Number Ext', 'Payment Terms', 'Status', 'Tax ID'],
+            page.items.map((row) => [
+              row.customer_id,
+              row.company_name,
+              row.customer_number_ext,
+              row.payment_terms,
+              row.status,
+              row.tax_id,
+            ]),
+          )
+        }}
+      />
 
       <div style={dashboardSectionStyle}>
-        {customers.length === 0 ? (
+        {isError ? (
+          <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>
+            <p>Error loading customers:</p>
+            <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
+          </div>
+        ) : isLoading && customers.length === 0 ? (
+          <div style={emptyStateWrapperStyle}>
+            <p>Loading customers...</p>
+          </div>
+        ) : customers.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No customers found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -189,6 +190,9 @@ export function CustomerList() {
           onPrevious={handlePreviousPage}
           onNext={handleNextPage}
         />
+        {isFetching && !isLoading ? (
+          <p style={{ ...pageSubStyle, marginTop: 8 }}>Updating results…</p>
+        ) : null}
       </div>
     </div>
   )
@@ -236,47 +240,6 @@ const primaryButtonStyle: React.CSSProperties = {
   fontWeight: 'bold',
   transition: 'background-color 0.2s',
   fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  fontSize: '13px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
-
-const filterRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: '10px',
-  marginBottom: '16px',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-}
-
-const searchInputStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: '220px',
-  padding: '9px 12px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  fontSize: '14px',
-  fontFamily: 'inherit',
-  backgroundColor: 'var(--bg)',
-  color: 'var(--text-h)',
-}
-
-const selectStyle: React.CSSProperties = {
-  padding: '9px 12px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  fontSize: '14px',
-  fontFamily: 'inherit',
-  backgroundColor: 'var(--bg)',
-  color: 'var(--text-h)',
 }
 
 const dashboardSectionStyle: React.CSSProperties = {

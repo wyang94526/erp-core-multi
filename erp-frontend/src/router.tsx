@@ -298,6 +298,10 @@ export const router = createBrowserRouter([
         element: <SupplierInvoiceForm />,
       },
       {
+        path: 'supplier-invoices/:invoiceId/edit',
+        element: <SupplierInvoiceForm />,
+      },
+      {
         path: 'supplier-invoices/:invoiceId',
         element: <BillDetail />,
       },

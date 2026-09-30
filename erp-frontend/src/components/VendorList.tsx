@@ -10,31 +10,83 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { vendorService } from '../api/services'
 import type { Supplier } from '../types'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { PaginationControls } from './PaginationControls'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const VENDOR_FILTERS: FilterField[] = [
+  {
+    key: 'vendor_type',
+    label: 'Type',
+    options: [
+      { value: 'ALL', label: 'All types' },
+      { value: 'material', label: 'Material' },
+      { value: 'subcontractor', label: 'Subcontractor' },
+      { value: 'both', label: 'Both' },
+      { value: 'service', label: 'Service' },
+    ],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'Active', label: 'Active' },
+      { value: 'Inactive', label: 'Inactive' },
+    ],
+  },
+]
 
 export function VendorList() {
   const navigate = useNavigate()
   const [skip, setSkip] = useState(0)
   const limit = 10
+  const { values } = useListFilterParams(VENDOR_FILTERS)
 
-  // Fetch vendors using React Query
   const {
     data,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['vendors', skip, limit],
-    queryFn: () => vendorService.listVendorsPage(skip, limit),
+    queryKey: ['vendors', 'directory'],
+    queryFn: () => vendorService.listVendorsPage(0, 500),
   })
 
   const vendors = data?.items ?? []
-  const total = data?.pagination.total ?? 0
+  const filteredVendors = useMemo(() => {
+    return vendors.filter((vendor) => {
+      if (values.vendor_type !== 'ALL' && (vendor.vendor_type || 'material') !== values.vendor_type) {
+        return false
+      }
+      if (values.status !== 'ALL') {
+        const active = vendor.status !== 'Inactive'
+        if (values.status === 'Active' && !active) return false
+        if (values.status === 'Inactive' && active) return false
+      }
+      return matchesSearch(
+        values.q,
+        vendor.supplier_id,
+        vendor.company_name,
+        vendor.vendor_number_ext,
+        vendor.vendor_type,
+        vendor.payment_terms,
+        vendor.status,
+      )
+    })
+  }, [vendors, values.q, values.vendor_type, values.status])
 
-  const { items: sortedVendors, requestSort, sortConfig } = useSortableData(vendors)
+  useEffect(() => {
+    setSkip(0)
+  }, [values.q, values.vendor_type, values.status])
+
+  const pageRows = filteredVendors.slice(skip, skip + limit)
+  const total = filteredVendors.length
+
+  const { items: sortedVendors, requestSort, sortConfig } = useSortableData(pageRows)
 
   const handlePreviousPage = () => {
     if (skip >= limit) {
@@ -43,7 +95,7 @@ export function VendorList() {
   }
 
   const handleNextPage = () => {
-    if (skip + vendors.length < total) {
+    if (skip + limit < total) {
       setSkip(skip + limit)
     }
   }
@@ -101,8 +153,28 @@ export function VendorList() {
         </button>
       </header>
 
+      <ListFilterBar
+        fields={VENDOR_FILTERS}
+        searchPlaceholder="Search vendor ID, name, terms…"
+        exportCount={filteredVendors.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('vendors'),
+            ['Vendor ID', 'Company Name', 'Vendor Type', 'Vendor Number Ext', 'Payment Terms', 'Status'],
+            filteredVendors.map((vendor) => [
+              vendor.supplier_id,
+              vendor.company_name,
+              formatVendorType(vendor.vendor_type),
+              vendor.vendor_number_ext,
+              vendor.payment_terms,
+              vendor.status !== 'Inactive' ? 'Active' : 'Inactive',
+            ]),
+          )
+        }
+      />
+
       <div style={dashboardSectionStyle}>
-        {vendors.length === 0 ? (
+        {filteredVendors.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No vendors found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

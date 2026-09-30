@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { subcontractOrderService } from '../api/services'
 import type { SubcontractOrder } from '../types'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
@@ -20,6 +20,7 @@ import ListFilterBar, {
   type FilterField,
 } from './ListFilterBar'
 import { salesOrderDetailPath } from '../utils/salesOrders'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 
 const SCO_FILTERS: FilterField[] = [
   {
@@ -103,9 +104,21 @@ export function SubcontractOrderList() {
         const approval = (sco.approval_status || 'DRAFT').toUpperCase()
         if (approval !== values.approval.toUpperCase()) return false
       }
-      return true
+      return matchesSearch(
+        values.q,
+        sco.sco_number,
+        sco.supplier_id,
+        sco.sales_order_id,
+        sco.item_id,
+        sco.status,
+        sco.approval_status,
+      )
     })
-  }, [allScos, itemIdFilter, salesOrderIdFilter, values.view, values.status, values.approval])
+  }, [allScos, itemIdFilter, salesOrderIdFilter, values.view, values.status, values.approval, values.q])
+
+  useEffect(() => {
+    setSkip(0)
+  }, [itemIdFilter, salesOrderIdFilter, values.view, values.status, values.approval, values.q])
 
   const pageRows = scos.slice(skip, skip + limit)
 
@@ -198,7 +211,27 @@ export function SubcontractOrderList() {
         />
       ) : null}
 
-      <ListFilterBar fields={SCO_FILTERS} />
+      <ListFilterBar
+        fields={SCO_FILTERS}
+        searchPlaceholder="Search SCO, supplier, sales order, item…"
+        exportCount={scos.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('subcontract-orders'),
+            ['SCO Number', 'Supplier', 'Sales Order', 'Product', 'Qty Ordered', 'Order Date', 'Status', 'Approval'],
+            scos.map((sco) => [
+              sco.sco_number,
+              sco.supplier_id,
+              sco.sales_order_id,
+              sco.item_id,
+              sco.quantity_ordered,
+              sco.order_date,
+              sco.status,
+              sco.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {scos.length === 0 ? (

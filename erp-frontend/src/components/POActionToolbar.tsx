@@ -4,6 +4,14 @@
  */
 
 import React from 'react';
+import { Eye, Pencil, RotateCcw, Save, Send, Undo2 } from 'lucide-react';
+import {
+  HoverTip,
+  dangerButtonStyle,
+  disabledActionStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles';
 
 interface POActionToolbarProps {
   isReadOnly: boolean;
@@ -42,90 +50,58 @@ export function POActionToolbar({
   return (
     <div style={toolbarStyle} role="toolbar" aria-label="Purchase Order actions">
       <div style={leftGroupStyle}>
-        {/* Toggle Mode Button */}
-        <span
-          title={
+        <HoverTip
+          label={
             editLocked
               ? editLockedReason || 'This purchase order cannot be edited inline'
               : isReadOnly
                 ? 'Switch to edit mode'
                 : 'View read-only mode'
           }
-          style={{ display: 'inline-block', cursor: editLocked ? 'not-allowed' : 'pointer' }}
         >
-        <button
-          type="button"
-          onClick={() => {
-            if (editLocked) return
-            onToggleMode()
-          }}
-          disabled={editLocked}
-          aria-pressed={!isReadOnly && !editLocked}
-          aria-disabled={editLocked}
-          aria-label={
-            editLocked
-              ? `Switch to Edit Mode. ${editLockedReason || 'This purchase order cannot be edited inline'}`
-              : isReadOnly
-                ? 'Switch to Edit Mode'
-                : 'View Read-Only Mode'
-          }
-          style={{
-            ...buttonBaseStyle,
-            backgroundColor: editLocked ? '#90a4ae' : isReadOnly ? '#aa3bff' : '#f5f5f5',
-            color: editLocked || isReadOnly ? 'white' : '#333',
-            border: editLocked || isReadOnly ? 'none' : '1px solid #ccc',
-            cursor: editLocked ? 'not-allowed' : 'pointer',
-            opacity: editLocked ? 0.75 : 1,
-            pointerEvents: editLocked ? 'none' : 'auto',
-          }}
-          onMouseEnter={(e) => {
-            if (editLocked) return
-            if (isReadOnly) {
-              e.currentTarget.style.backgroundColor = '#932adc';
-            } else {
-              e.currentTarget.style.backgroundColor = '#e0e0e0';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (editLocked) {
-              e.currentTarget.style.backgroundColor = '#90a4ae';
-              return
-            }
-            if (isReadOnly) {
-              e.currentTarget.style.backgroundColor = '#aa3bff';
-            } else {
-              e.currentTarget.style.backgroundColor = '#f5f5f5';
-            }
-          }}
-        >
-          {isReadOnly || editLocked ? '✍️ Switch to Edit Mode' : '👁️ View Read-Only Mode'}
-        </button>
-        </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (editLocked) return;
+              onToggleMode();
+            }}
+            disabled={editLocked}
+            aria-pressed={!isReadOnly && !editLocked}
+            aria-disabled={editLocked}
+            style={{
+              ...(isReadOnly && !editLocked ? primaryButtonStyle : secondaryButtonStyle),
+              ...disabledActionStyle(!editLocked),
+            }}
+          >
+            {isReadOnly || editLocked ? <Pencil size={15} /> : <Eye size={15} />}
+            {isReadOnly || editLocked ? 'Edit' : 'View'}
+          </button>
+        </HoverTip>
       </div>
 
       <div style={rightGroupStyle}>
         {showRecall && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-            <button
-              type="button"
-              onClick={onRecall}
-              disabled={!canRecall || isRecalling || isSubmitting}
-              title={
+            <HoverTip
+              label={
                 canRecall
                   ? 'Create a revision of this purchase order'
                   : recallDisabledReason || 'Create Revision is not available'
               }
-              style={{
-                ...buttonBaseStyle,
-                backgroundColor: canRecall ? '#ef6c00' : '#bdbdbd',
-                color: 'white',
-                border: 'none',
-                cursor: canRecall && !isRecalling ? 'pointer' : 'not-allowed',
-                opacity: canRecall ? 1 : 0.9,
-              }}
             >
-              {isRecalling ? 'Opening revision…' : 'Create Revision'}
-            </button>
+              <button
+                type="button"
+                onClick={onRecall}
+                disabled={!canRecall || isRecalling || isSubmitting}
+                style={{
+                  ...secondaryButtonStyle,
+                  ...disabledActionStyle(canRecall && !isRecalling && !isSubmitting),
+                }}
+              >
+                <RotateCcw size={15} />
+                {isRecalling ? 'Opening…' : 'Create Revision'}
+              </button>
+            </HoverTip>
             {!canRecall && recallDisabledReason ? (
               <span style={{ fontSize: 12, color: '#c62828', maxWidth: 360, textAlign: 'right' }}>
                 {recallDisabledReason}
@@ -136,62 +112,45 @@ export function POActionToolbar({
 
         {!isReadOnly && !workflowLocked && (
           <>
-            {/* Reset Form Button */}
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={isSubmitting}
-              style={{
-                ...buttonBaseStyle,
-                backgroundColor: 'transparent',
-                color: '#d32f2f',
-                border: '1px solid #d32f2f',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#ffebee')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              Reset Form
-            </button>
+            <HoverTip label="Clear the current form values">
+              <button type="button" onClick={onReset} disabled={isSubmitting} style={dangerButtonStyle}>
+                <Undo2 size={15} />
+                Reset
+              </button>
+            </HoverTip>
 
-            {/* Save Draft Button */}
-            <button
-              type="button"
-              onClick={onSaveDraft}
-              disabled={isSubmitting}
-              style={{
-                ...buttonBaseStyle,
-                backgroundColor: '#757575',
-                color: 'white',
-                border: 'none',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#616161')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#757575')}
-            >
-              Save Draft
-            </button>
+            <HoverTip label="Save this purchase order as a draft">
+              <button
+                type="button"
+                onClick={onSaveDraft}
+                disabled={isSubmitting}
+                style={secondaryButtonStyle}
+              >
+                <Save size={15} />
+                Save Draft
+              </button>
+            </HoverTip>
 
-            {/* Submit PO Button */}
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={isSubmitting}
-              style={{
-                ...buttonBaseStyle,
-                backgroundColor: hasValidationError ? '#90caf9' : '#1976d2',
-                color: 'white',
-                border: 'none',
-                cursor: hasValidationError ? 'not-allowed' : 'pointer',
-              }}
-              onMouseEnter={(e) => {
-                if (!hasValidationError) e.currentTarget.style.backgroundColor = '#1565c0';
-              }}
-              onMouseLeave={(e) => {
-                if (!hasValidationError) e.currentTarget.style.backgroundColor = '#1976d2';
-              }}
-              title={hasValidationError ? 'Please correct form validation errors before submitting' : 'Submit Purchase Order'}
+            <HoverTip
+              label={
+                hasValidationError
+                  ? 'Please correct form validation errors before submitting'
+                  : 'Submit Purchase Order'
+              }
             >
-              {isSubmitting ? 'Submitting...' : 'Submit Purchase Order'}
-            </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={isSubmitting}
+                style={{
+                  ...primaryButtonStyle,
+                  ...disabledActionStyle(!hasValidationError),
+                }}
+              >
+                <Send size={15} />
+                {isSubmitting ? 'Submitting…' : 'Submit'}
+              </button>
+            </HoverTip>
           </>
         )}
       </div>
@@ -199,43 +158,29 @@ export function POActionToolbar({
   );
 }
 
-// Styles
 const toolbarStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  padding: '16px 24px',
+  padding: '12px 16px',
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
   borderRadius: '8px',
   marginBottom: '20px',
   boxShadow: 'var(--shadow)',
   flexWrap: 'wrap',
-  gap: '16px',
+  gap: '12px',
 };
 
 const leftGroupStyle: React.CSSProperties = {
   display: 'flex',
-  gap: '12px',
+  gap: '8px',
 };
 
 const rightGroupStyle: React.CSSProperties = {
   display: 'flex',
-  gap: '12px',
+  gap: '8px',
   flexWrap: 'wrap',
 };
 
-const buttonBaseStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  borderRadius: '6px',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.2s, color 0.2s',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  outline: 'none',
-  fontFamily: 'inherit',
-};
 export default POActionToolbar;

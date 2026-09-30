@@ -14,10 +14,40 @@ import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { invoiceDetailHref } from '../utils/cashReference'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import {
+  matchesDeliveryDate,
+  matchesRelativeDate,
+  type DeliveryDateFilter,
+  type RelativeDateFilter,
+} from '../utils/listDateFilters'
 
 const PAGE_SIZE = 10
 
 const FILTERS: FilterField[] = [
+  {
+    key: 'issue_date',
+    label: 'Issue date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'last_quarter', label: 'Last quarter' },
+      { value: 'ytd', label: 'YTD' },
+    ],
+  },
+  {
+    key: 'due',
+    label: 'Due date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'this_week', label: 'This week' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'next_30', label: 'Next 30 days' },
+    ],
+  },
   {
     key: 'status',
     label: 'Status',
@@ -49,7 +79,9 @@ export function SalesInvoiceList() {
   const [searchParams] = useSearchParams()
   const focusInvoice = (searchParams.get('invoice') || '').trim()
   const [skip, setSkip] = useState(0)
-  const { values } = useListFilterParams(FILTERS)
+  const { values, hasActiveFilters } = useListFilterParams(FILTERS)
+  const issueDateFilter = (values.issue_date || 'all') as RelativeDateFilter
+  const dueFilter = (values.due || 'all') as DeliveryDateFilter
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
     queryKey: ['salesInvoices'],
@@ -59,13 +91,28 @@ export function SalesInvoiceList() {
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (values.status !== 'ALL' && r.status !== values.status) return false
-      return true
+      if (!matchesRelativeDate(r.issue_date, issueDateFilter)) return false
+      if (dueFilter === 'overdue') {
+        if (r.status === 'PAID' || r.status === 'VOID') return false
+        if (!matchesDeliveryDate(r.due_date, 'overdue')) return false
+      } else if (!matchesDeliveryDate(r.due_date, dueFilter)) {
+        return false
+      }
+      return matchesSearch(
+        values.q,
+        r.invoice_number,
+        r.sales_order_id,
+        r.customer_name,
+        r.customer_id,
+        r.ar_invoice_id,
+        r.status,
+      )
     })
-  }, [rows, values.status])
+  }, [rows, values.status, values.q, issueDateFilter, dueFilter])
 
   useEffect(() => {
     setSkip(0)
-  }, [values.status])
+  }, [values.status, values.q, issueDateFilter, dueFilter])
 
   const pageRows = filtered.slice(skip, skip + PAGE_SIZE)
   const { items: sorted, requestSort, sortConfig } = useSortableData(pageRows, {
@@ -92,7 +139,28 @@ export function SalesInvoiceList() {
         </div>
       </header>
 
-      <ListFilterBar fields={FILTERS} />
+      <ListFilterBar
+        fields={FILTERS}
+        searchPlaceholder="Search invoice, sales order, customer…"
+        exportCount={filtered.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('sales-invoices'),
+            ['Invoice #', 'Sales Order', 'Customer', 'Issue', 'Due', 'Total', 'Outstanding', 'AR Invoice', 'Status'],
+            filtered.map((inv) => [
+              inv.invoice_number,
+              inv.sales_order_id,
+              inv.customer_name || inv.customer_id,
+              inv.issue_date,
+              inv.due_date,
+              inv.total_amount,
+              inv.outstanding_balance,
+              inv.ar_invoice_id,
+              inv.status,
+            ]),
+          )
+        }
+      />
 
       {isLoading ? (
         <div style={emptyStyle}>Loading sales invoices...</div>
@@ -102,7 +170,9 @@ export function SalesInvoiceList() {
         </div>
       ) : filtered.length === 0 ? (
         <div style={emptyStyle}>
-          No sales invoices yet. After shipping a fulfillment, use Create Invoice on the sales order.
+          {hasActiveFilters
+            ? 'No sales invoices match the current filters.'
+            : 'No sales invoices yet. After shipping a fulfillment, use Create Invoice on the sales order.'}
         </div>
       ) : (
         <>

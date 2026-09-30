@@ -325,7 +325,23 @@ class JournalEntryRead(ORMModel):
     posting_status: str | None = None
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
+    is_system_generated: bool = False
+    source_document_type: str | None = None
+    source_record_id: str | None = None
+    posting_rule_id: UUID | None = None
+    posting_rule_code: str | None = None
+    posting_rule_name: str | None = None
     postings: list[LedgerPostingRead]
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def enrich_posting_rule(cls, values: Any, handler):
+        rule = getattr(values, "posting_rule", None) if not isinstance(values, dict) else None
+        model = handler(values)
+        if rule is not None:
+            model.posting_rule_code = getattr(rule, "rule_code", None)
+            model.posting_rule_name = getattr(rule, "name", None)
+        return model
 
 
 class JournalBulkImportItem(JournalEntryCreate):
@@ -364,6 +380,18 @@ class YearEndCloseLine(BaseModel):
     description: str
 
 
+class MonthEndAdjustmentRule(BaseModel):
+    id: UUID
+    rule_code: str
+    name: str
+    variant: str
+    variant_label: str
+    debit_account_code: str | None = None
+    debit_account_name: str | None = None
+    credit_account_code: str | None = None
+    credit_account_name: str | None = None
+
+
 class MonthEndClosePreview(ORMModel):
     period: str
     close_date: date
@@ -373,6 +401,7 @@ class MonthEndClosePreview(ORMModel):
     expense_total: Decimal
     net_income: Decimal
     lines: list[YearEndCloseLine]
+    adjustment_rules: list[MonthEndAdjustmentRule] = []
     ready: list[JournalEntryRead]
     held: list[JournalEntryRead]
     existing_journal: JournalEntryRead | None = None
@@ -2875,6 +2904,10 @@ class GoodsReceiptJournalRead(BaseModel):
     posting_status: str | None = None
     approval_status: str | None = None
     purpose: str | None = None
+    is_system_generated: bool = False
+    source_document_type: str | None = None
+    source_record_id: str | None = None
+    posting_rule_id: UUID | None = None
     postings: list[GoodsReceiptJournalPostingRead] = Field(default_factory=list)
 
 
@@ -2934,6 +2967,22 @@ class SupplierInvoiceDistributionCreate(BaseModel):
     description: str | None = Field(default=None, max_length=255)
     goods_receipt_id: int | None = None
     goods_receipt_line_id: int | None = None
+
+
+class SupplierInvoiceUpdate(BaseModel):
+    invoice_type: Literal["LANDED_COST", "EXPENSE"] | None = None
+    allocate_to_goods_receipt_id: int | None = None
+    reference_po_number: str | None = Field(default=None, max_length=50)
+    vendor_id: str | None = Field(default=None, max_length=50)
+    vendor_invoice_number: str | None = Field(default=None, max_length=100)
+    invoice_date: date | None = None
+    due_date: date | None = None
+    payment_term_id: UUID | None = None
+    payment_terms: str | None = Field(default=None, max_length=50)
+    tax_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    freight_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    distributions: list[SupplierInvoiceDistributionCreate] | None = None
 
 
 class SupplierInvoiceCreate(BaseModel):

@@ -12,6 +12,7 @@ import { inventoryService } from '../api/services'
 import type { StockMovementType } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -50,9 +51,20 @@ export function StockMovements() {
   })
 
   const filteredMovements = useMemo(() => {
-    if (values.type === 'ALL') return movements
-    return movements.filter((m) => m.movement_type === values.type)
-  }, [movements, values.type])
+    return movements.filter((m) => {
+      if (values.type !== 'ALL' && m.movement_type !== values.type) return false
+      return matchesSearch(
+        values.q,
+        m.movement_id,
+        m.item_id,
+        m.movement_type,
+        m.reference,
+        m.notes,
+        m.warehouse_code,
+        m.bin_code,
+      )
+    })
+  }, [movements, values.type, values.q])
 
   const titleSuffix = useMemo(
     () => (productFilter ? ` · ${productFilter}` : ''),
@@ -122,7 +134,28 @@ export function StockMovements() {
         />
       ) : null}
 
-      <ListFilterBar fields={MOVEMENT_FILTERS} />
+      <ListFilterBar
+        fields={MOVEMENT_FILTERS}
+        searchPlaceholder="Search movement, item, reference…"
+        exportCount={filteredMovements.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('stock-movements'),
+            ['Movement ID', 'Date', 'Product', 'Type', 'Qty', 'Warehouse', 'Bin', 'Reference', 'Notes'],
+            filteredMovements.map((row) => [
+              row.movement_id,
+              row.movement_date,
+              row.item_id,
+              row.movement_type,
+              row.quantity,
+              row.warehouse_code || row.warehouse_id,
+              row.bin_code || row.bin_id,
+              row.reference,
+              row.notes,
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {filteredMovements.length === 0 ? (

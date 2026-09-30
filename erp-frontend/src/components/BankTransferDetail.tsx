@@ -8,6 +8,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type CSSProperties } from 'react'
+import { ArrowLeft, Pencil, Trash2 } from 'lucide-react'
 import { bankTransferService } from '../api/services'
 import { ApprovalPanel } from './ApprovalPanel'
 import {
@@ -17,6 +18,19 @@ import {
   isBankTransferEditable,
 } from '../utils/bankTransfers'
 import { journalEditPath } from '../utils/journalEntries'
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  dangerButtonStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 function formatCurrency(amount: number, currency = 'USD') {
   return Number(amount || 0).toLocaleString('en-US', {
@@ -58,7 +72,7 @@ export function BankTransferDetail() {
     return (
       <div style={containerStyle}>
         <p style={errorStyle}>{error instanceof Error ? error.message : 'Bank transfer not found'}</p>
-        <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/bank-transfers')}>
+        <button type="button" style={headerButtonStyle} onClick={() => navigate('/bank-transfers')}>
           Back to Bank Transfers
         </button>
       </div>
@@ -88,29 +102,64 @@ export function BankTransferDetail() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Bank Transfer</h2>
-          <p style={pageSubStyle}>{transfer.reference_number || `BTR-${String(transfer.id).padStart(6, '0')}`}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {canEdit ? (
-            <button
-              type="button"
-              style={secondaryButtonStyle}
-              onClick={() => navigate(bankTransferPath(transfer.id, '/edit'))}
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>
+            {transfer.reference_number || `BTR-${String(transfer.id).padStart(6, '0')}`}
+          </h1>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <span
+              style={{
+                ...badgeStyle,
+                backgroundColor: glPosted ? '#e8f5e9' : '#fff8e1',
+                color: glPosted ? '#2e7d32' : '#f57f17',
+              }}
             >
-              Edit
-            </button>
-          ) : null}
-          {canDelete ? (
-            <button type="button" style={dangerButtonStyle} disabled={deleting} onClick={() => void handleDelete()}>
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          ) : null}
-          <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/bank-transfers')}>
-            Back to Bank Transfers
-          </button>
+              {transfer.status || 'DRAFT'}
+            </span>
+            <span style={{ ...badgeStyle, ...approvalBadgeColors(transfer.approval_status) }}>
+              {(transfer.approval_status || 'DRAFT').toString().replace(/_/g, ' ')}
+            </span>
+          </div>
+          <p style={documentPageSubStyle}>
+            {transfer.from_account_name || transfer.from_account_id}
+            {' → '}
+            {transfer.to_account_name || transfer.to_account_id}
+            {' · '}
+            {formatCurrency(transfer.amount)}
+          </p>
+        </div>
+        <div style={headerActionsStyle}>
+          <div style={actionRowStyle}>
+            {canEdit ? (
+              <HoverTip label="Edit this draft bank transfer">
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => navigate(bankTransferPath(transfer.id, '/edit'))}
+                >
+                  <Pencil size={15} />
+                  Edit
+                </button>
+              </HoverTip>
+            ) : null}
+            {canDelete ? (
+              <HoverTip label="Delete this draft bank transfer">
+                <button type="button" style={dangerButtonStyle} disabled={deleting} onClick={() => void handleDelete()}>
+                  <Trash2 size={15} />
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </HoverTip>
+            ) : null}
+          </div>
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the bank transfer list">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/bank-transfers')}>
+                <ArrowLeft size={15} />
+                Bank Transfers
+              </button>
+            </HoverTip>
+          </div>
         </div>
       </header>
 
@@ -211,18 +260,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 12,
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
 const cardStyle: CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -246,13 +283,6 @@ const gridStyle: CSSProperties = {
 }
 const labelStyle: CSSProperties = { display: 'block', fontSize: 12, color: 'var(--text)', fontWeight: 600 }
 const valueStyle: CSSProperties = { margin: '4px 0 0 0', fontSize: 14, color: 'var(--text-h)' }
-const badgeStyle: CSSProperties = {
-  display: 'inline-block',
-  padding: '4px 10px',
-  borderRadius: 12,
-  fontSize: 11,
-  fontWeight: 'bold',
-}
 const hintStyle: CSSProperties = { margin: '16px 0 0 0', fontSize: 13, color: 'var(--text)' }
 const journalLinkStyle: CSSProperties = {
   display: 'inline-block',
@@ -263,22 +293,5 @@ const journalLinkStyle: CSSProperties = {
   wordBreak: 'break-all',
 }
 const errorStyle: CSSProperties = { color: '#c62828', fontSize: 13 }
-const secondaryButtonStyle: CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: 'var(--bg)',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 14,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-}
-const dangerButtonStyle: CSSProperties = {
-  ...secondaryButtonStyle,
-  backgroundColor: '#ffebee',
-  color: '#c62828',
-  border: '1px solid #ffcdd2',
-}
 
 export default BankTransferDetail

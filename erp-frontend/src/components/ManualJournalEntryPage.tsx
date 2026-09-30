@@ -4,13 +4,21 @@
  */
 
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { approvalService, chartOfAccountsService, journalEntryService } from '../api/services'
+import { approvalService, chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import type { JournalEntry, JournalLineDraft } from '../types'
 import { newJournalLine } from '../utils/journalCsvImport'
-import { isJournalEditable } from '../utils/journalEntries'
+import {
+  inferredPostingRule,
+  isJournalEditable,
+  isSystemJournal,
+  postingRuleDisplay,
+  postingRulePath,
+  sourceDocumentLabel,
+  sourceDocumentPath,
+} from '../utils/journalEntries'
 
 function todayISO() {
   const now = new Date()
@@ -85,6 +93,12 @@ export function ManualJournalEntryPage() {
     enabled: isEdit && Boolean(id),
   })
 
+  const rulesQuery = useQuery({
+    queryKey: ['postingRules'],
+    queryFn: () => postingRulesService.list(),
+    enabled: isEdit,
+  })
+
   const accounts = useMemo(() => {
     const rows = accountsQuery.data || []
     return [...rows].sort((a, b) => a.account_code.localeCompare(b.account_code))
@@ -104,7 +118,7 @@ export function ManualJournalEntryPage() {
     }
     const entry = entryQuery.data
     if (!entry || loadedId === `${entry.id}:${entryQuery.dataUpdatedAt}`) return
-    if (!isJournalEditable(entry)) {
+    if (!isJournalEditable(entry) && !isSystemJournal(entry)) {
       setError('Only draft or rejected journals can be edited.')
       return
     }
@@ -185,6 +199,7 @@ export function ManualJournalEntryPage() {
       setError(message)
       return
     }
+    if (entryQuery.data && isSystemJournal(entryQuery.data)) return
     setBusy(true)
     setError(null)
     try {
@@ -211,7 +226,19 @@ export function ManualJournalEntryPage() {
     void handleSave(canSubmit)
   }
 
-  if (!canCreate) {
+  const loadedEntry = entryQuery.data
+  const readOnly = Boolean(loadedEntry && isSystemJournal(loadedEntry))
+
+  if (isEdit && entryQuery.isLoading) {
+    return (
+      <div style={pageStyle}>
+        <h1 style={titleStyle}>Journal Entry</h1>
+        <p style={hintStyle}>Loading journal…</p>
+      </div>
+    )
+  }
+
+  if (!canCreate && !readOnly) {
     return (
       <div style={pageStyle}>
         <h1 style={titleStyle}>Manual Journal Entry</h1>
@@ -220,16 +247,7 @@ export function ManualJournalEntryPage() {
     )
   }
 
-  if (isEdit && entryQuery.isLoading) {
-    return (
-      <div style={pageStyle}>
-        <h1 style={titleStyle}>Edit Journal Entry</h1>
-        <p style={hintStyle}>Loading journal…</p>
-      </div>
-    )
-  }
-
-  if (isEdit && (entryQuery.isError || (entryQuery.data && !isJournalEditable(entryQuery.data)))) {
+  if (isEdit && (entryQuery.isError || (loadedEntry && !isJournalEditable(loadedEntry) && !readOnly))) {
     return (
       <div style={pageStyle}>
         <h1 style={titleStyle}>Edit Journal Entry</h1>
@@ -243,14 +261,25 @@ export function ManualJournalEntryPage() {
     )
   }
 
+  const sourceHref = loadedEntry
+    ? sourceDocumentPath(loadedEntry.source_document_type, loadedEntry.source_record_id)
+    : null
+  const postingRule = loadedEntry ? inferredPostingRule(loadedEntry, rulesQuery.data || []) : null
+  const ruleLabel = loadedEntry ? postingRuleDisplay(loadedEntry, rulesQuery.data || []) : ''
+  const ruleHref = postingRulePath(postingRule?.id || loadedEntry?.posting_rule_id)
+
   return (
     <div style={pageStyle}>
       <form style={formStyle} onSubmit={onSubmit}>
         <div style={headerStyle}>
           <div>
-            <h1 style={titleStyle}>{isEdit ? 'Edit Journal Entry' : 'Manual Journal Entry'}</h1>
+            <h1 style={titleStyle}>
+              {readOnly ? 'System Journal Entry' : isEdit ? 'Edit Journal Entry' : 'Manual Journal Entry'}
+            </h1>
             <p style={hintStyle}>
-              Manual double-entry journal mapped to the chart of accounts. Debits must equal credits.
+              {readOnly
+                ? 'This journal was generated automatically. Reverse it from the source document instead of editing the lines.'
+                : 'Manual double-entry journal mapped to the chart of accounts. Debits must equal credits.'}
             </p>
           </div>
         </div>
@@ -261,6 +290,7 @@ export function ManualJournalEntryPage() {
             <input
               type="date"
               required
+              disabled={readOnly}
               value={postingDate}
               onChange={(e) => {
                 const next = e.target.value
@@ -275,6 +305,7 @@ export function ManualJournalEntryPage() {
             <input
               type="month"
               required
+              disabled={readOnly}
               value={period}
               onChange={(e) => {
                 setPeriod(e.target.value)
@@ -289,6 +320,7 @@ export function ManualJournalEntryPage() {
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               placeholder="Optional source document or voucher #"
+              disabled={readOnly}
               style={inputStyle}
             />
           </label>
@@ -299,10 +331,29 @@ export function ManualJournalEntryPage() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="e.g. Accrue September rent"
+              disabled={readOnly}
               style={inputStyle}
             />
           </label>
         </div>
+
+        {readOnly && loadedEntry && (
+          <div style={sourceActionsStyle}>
+            {sourceHref ? (
+              <Link to={sourceHref} style={sourceLinkStyle}>
+                View Source Document — {sourceDocumentLabel(loadedEntry.source_document_type)}
+                {loadedEntry.source_record_id ? ` ${loadedEntry.source_record_id}` : ''}
+              </Link>
+            ) : (
+              <span style={hintStyle}>No source document link is available.</span>
+            )}
+            {ruleHref && ruleLabel && (
+              <Link to={ruleHref} style={sourceLinkStyle} title={postingRule?.name || loadedEntry.posting_rule_name || ruleLabel}>
+                View Posting Rule {ruleLabel}
+              </Link>
+            )}
+          </div>
+        )}
 
         {accountsQuery.isLoading && <p style={hintStyle}>Loading chart of accounts…</p>}
         <div style={gridWrapStyle}>
@@ -326,6 +377,7 @@ export function ManualJournalEntryPage() {
                       <select
                         value={line.account_id}
                         onChange={(e) => updateLine(line.key, { account_id: e.target.value })}
+                        disabled={readOnly}
                         style={inputStyle}
                       >
                         <option value="">Select account…</option>
@@ -344,6 +396,7 @@ export function ManualJournalEntryPage() {
                         value={line.description}
                         onChange={(e) => updateLine(line.key, { description: e.target.value })}
                         placeholder="Line memo (optional)"
+                        disabled={readOnly}
                         style={inputStyle}
                       />
                     </td>
@@ -354,6 +407,7 @@ export function ManualJournalEntryPage() {
                         step="0.01"
                         value={line.debit}
                         onChange={(e) => setDebit(line.key, e.target.value)}
+                        disabled={readOnly}
                         style={{ ...inputStyle, textAlign: 'right' }}
                       />
                     </td>
@@ -364,6 +418,7 @@ export function ManualJournalEntryPage() {
                         step="0.01"
                         value={line.credit}
                         onChange={(e) => setCredit(line.key, e.target.value)}
+                        disabled={readOnly}
                         style={{ ...inputStyle, textAlign: 'right' }}
                       />
                     </td>
@@ -371,7 +426,7 @@ export function ManualJournalEntryPage() {
                       <button
                         type="button"
                         style={removeBtn}
-                        disabled={lines.length <= 2 || busy}
+                        disabled={readOnly || lines.length <= 2 || busy}
                         onClick={() => setLines((rows) => rows.filter((row) => row.key !== line.key))}
                       >
                         Remove
@@ -384,14 +439,16 @@ export function ManualJournalEntryPage() {
           </table>
         </div>
 
-        <button
-          type="button"
-          style={addLineBtn}
-          disabled={busy}
-          onClick={() => setLines((rows) => [...rows, newJournalLine()])}
-        >
-          + Add line
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            style={addLineBtn}
+            disabled={busy}
+            onClick={() => setLines((rows) => [...rows, newJournalLine()])}
+          >
+            + Add line
+          </button>
+        )}
 
         <div style={totalsStyle}>
           <span>Debits {money(totals.debit)}</span>
@@ -405,12 +462,14 @@ export function ManualJournalEntryPage() {
 
         <div style={actionsStyle}>
           <button type="button" style={cancelBtn} onClick={goBack} disabled={busy}>
-            Cancel
+            {readOnly ? 'Back to General Ledger' : 'Cancel'}
           </button>
-          <button type="button" style={secondaryBtn} disabled={busy} onClick={() => void handleSave(false)}>
-            {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Draft'}
-          </button>
-          {canSubmit && (
+          {!readOnly && (
+            <button type="button" style={secondaryBtn} disabled={busy} onClick={() => void handleSave(false)}>
+              {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Draft'}
+            </button>
+          )}
+          {!readOnly && canSubmit && (
             <button type="submit" style={primaryBtn} disabled={busy}>
               {busy ? 'Submitting…' : 'Submit for Approval'}
             </button>
@@ -451,6 +510,26 @@ const hintStyle: CSSProperties = {
   margin: '4px 0 0',
   fontSize: '13px',
   color: '#616161',
+}
+
+const sourceActionsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '12px',
+  margin: '0 0 16px',
+}
+
+const sourceLinkStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '8px 12px',
+  borderRadius: '6px',
+  border: '1px solid #90caf9',
+  background: '#e3f2fd',
+  color: '#1565c0',
+  fontWeight: 600,
+  fontSize: '13px',
+  textDecoration: 'none',
 }
 
 const headerGridStyle: CSSProperties = {

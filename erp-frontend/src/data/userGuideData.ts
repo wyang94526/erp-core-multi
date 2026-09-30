@@ -76,7 +76,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     steps: [
       'Open Home → User Guide, or the User Guide link at the bottom of the left sidebar.',
-      'Use the search box to filter topics, steps, and FAQs instantly.',
+      'Use the search box to filter topics, steps, and FAQs instantly. Directory screens (orders, invoices, items, journals, and master data) share the same Search + dropdown + Export CSV bar; the CSV includes every row that matches the current filters, not just the page on screen.',
       'Browse by module in the left column, then expand Step-by-step, Tips, FAQs, and Common Issues.',
       'On any operational screen, click Help in the top bar (next to AI Assistant) or press Ctrl/⌘ + / to open a drawer of articles tagged for that route. Ask the assistant for live P&L, Balance Sheet, or “by month” totals; it can link you to the full report.',
       'Open Process Workflows (/help/workflows) for Order-to-Cash, Subcontract-to-Pay (including fulfilling the customer SO), Procure-to-Pay, and period-close checklists with jump links into each screen.',
@@ -151,6 +151,60 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'A KPI click lands on a page I cannot access',
         fix: 'Your role can see the metric but may lack the list permission. Ask an admin to grant the matching view permission (for example po:view or ar_invoice:view).',
+      },
+    ],
+  },
+  {
+    id: 'list-search-export',
+    module: 'home',
+    title: 'Searching lists and exporting CSV',
+    routeMatch: [
+      '/sales-orders',
+      '/fulfillments',
+      '/sales-invoices',
+      '/purchase-orders',
+      '/customers',
+      '/vendors',
+      '/items',
+      '/payment-terms',
+      '/subcontract-orders',
+      '/inventory',
+      '/inventory/movements',
+      '/inventory/warehouses',
+      '/chart-of-accounts',
+      '/posting-rules',
+      '/accounts-receivable',
+      '/accounts-payable',
+      '/supplier-invoices',
+      '/cash-management',
+      '/bank-accounts',
+      '/bank-transfers',
+      '/general-ledger',
+    ],
+    summary:
+      'Every directory screen uses the same URL-driven filter bar: a Search box, optional dropdowns, Clear filters, and Export CSV. Export downloads the rows that match the current filters, including rows beyond the current page.',
+    steps: [
+      'Open any list (Sales Orders, Purchase Orders, Customers, General Ledger, and so on). The filter bar sits above the table.',
+      'Type in Search to match IDs, names, references, or status text. The q parameter is stored in the URL so you can bookmark or share the filtered view.',
+      'Use the dropdowns (status, approval, type, date, and similar) to narrow the same result set.',
+      'Click Export CSV to download every matching row. The file is dated (for example customers-2026-09-30.csv) and includes a UTF-8 BOM so Excel opens it correctly.',
+      'Click Clear filters to remove search and dropdowns. Dashboard deep-links keep their from/metric context.',
+    ],
+    callouts: [
+      {
+        kind: 'tip',
+        text: 'General Ledger uses the same Search + Export CSV pattern, plus extra date, period, source, and posting-rule filters. The CSV includes each journal and its posting lines.',
+      },
+      {
+        kind: 'important',
+        text: 'Export is based on current filters, not the page you are viewing. A 10-row table can still export hundreds of matching records.',
+      },
+    ],
+    faqs: [
+      {
+        question: 'Why is Export CSV disabled?',
+        answer:
+          'The button is disabled when no rows match the current search and dropdowns. Clear filters or widen the search, then export again.',
       },
     ],
   },
@@ -238,6 +292,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Use PDF print for vendor confirmation.',
+      'The Purchase Orders list can filter by type, order date (this month / last quarter / YTD), expected delivery (overdue, this week, this month, next 30 days), status, and approval. Export CSV uses the same filters.',
       'For overseas vendors, confirm Incoterms, named place, and wire details on the vendor master before sending the PO.',
     ],
     faqs: [
@@ -572,6 +627,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
     callouts: [
       { kind: 'important', text: 'Invoicing is typically after fulfillment so quantities match what shipped.' },
       { kind: 'tip', text: 'Use the sales invoice list to jump to AR aging for a customer.' },
+      {
+        kind: 'tip',
+        text: 'Sales Invoices can filter by issue date (this month / last quarter / YTD), due date (overdue, this week, this month, next 30 days), and status. Overdue skips paid and void invoices. Export CSV uses the same filters.',
+      },
     ],
     faqs: [
       {
@@ -613,7 +672,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance → Supplier Invoices / Bills. Use Create Bill from an approved PO/SCO, or Create Non-PO Invoice for freight, customs duty, rent, utilities, or salaries.',
       'For Non-PO invoices, choose Expense (GL distribution) or Landed Cost (optional goods-receipt allocation). No purchase order is required.',
       'Select the vendor / source document. PO-matched lines default to unbilled received quantities at order prices.',
-      'Save as draft or submit for approval. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
+      'Save as draft or submit for approval. A Non-PO draft (or a rejected bill) can be opened and edited, then saved or submitted again. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
       'Open Finance → Supplier Invoices and click a Bill # (VBILL-YYYY-NNNN) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
       'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add or edit company banks under Cash & Treasury → Bank Accounts. Open a bank with View to see the detail page, or Edit to change the mapped G/L account. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
@@ -621,6 +680,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
     callouts: [
       { kind: 'required', text: 'Match PO bills to receipts. Billing a PO-matched invoice with no receipt breaks GRNI clearing. Non-PO expense invoices do not require a PO or receipt.' },
       { kind: 'tip', text: 'Overseas wire details come from the vendor master — verify SWIFT/IBAN before releasing payment.' },
+      {
+        kind: 'tip',
+        text: 'Supplier Invoices can filter by bill date (this month / last quarter / YTD), due date (overdue, this week, this month, next 30 days), status, and source (PO / SCO / Non-PO). Overdue skips paid and cancelled bills. Export CSV uses the same filters.',
+      },
     ],
     faqs: [
       {
@@ -637,6 +700,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'How do I enter freight or rent without a purchase order?',
         answer:
           'Use Create Non-PO Invoice. Choose Landed Cost for freight/duty (optionally allocate to a goods receipt) or Expense for rent, utilities, and salaries, then distribute amounts to GL accounts.',
+      },
+      {
+        question: 'Can I edit a Non-PO bill after I save it as draft?',
+        answer:
+          'Yes. Open the bill and click Edit while it is Draft or Rejected. After Submit, the approver can Reject it so you can correct the voucher and resubmit. Approved bills cannot be edited.',
       },
       {
         question: 'Where is the Chart of Accounts?',
@@ -693,8 +761,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance & Accounting → General Ledger & Setup → Manual Journal Entry (or open General Ledger and create a journal).',
       'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
       'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted).',
-      'Use General Ledger to filter by period, account, or reference (MEC-YYYY-MM, YEC-YYYY, transfer journals).',
-      'Do not rewrite posting rules when an auto-generated journal is created. Close journals read the MEC_CLOSE / YEC_CLOSE targets; bank transfers use each bank’s G/L.',
+      'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. Export CSV downloads the journals (and their posting lines) that match the current filters. System-generated journals show a System chip and link back to the source document and posting rule.',
+      'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads the YEC_CLOSE / YEC_NI_CLEAR targets; month-end adjustments use the MEC GRNI, prepay, accrual, depreciation, and FX rules; bank transfers use each bank’s G/L.',
     ],
     callouts: [
       { kind: 'required', text: 'Debits must equal credits before submit.' },
@@ -720,11 +788,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Posting Rules',
     routeMatch: ['/posting-rules', '/chart-of-accounts'],
     summary:
-      'Posting rules tell the engine which Chart of Accounts pair to use for operational events (sales invoice, GRNI, AP, cash, month-end and year-end close). Users maintain the accounts; the engine only reads them.',
+      'Posting rules tell the engine which Chart of Accounts pair to use for operational events (sales invoice, GRNI, AP, cash, month-end adjustments, and year-end close). Users maintain the accounts; the engine only reads them.',
     steps: [
       'Go to Finance & Accounting → General Ledger & Setup → Posting Rules.',
-      'Review each event (for example sales invoice revenue, PO goods receipt, supplier bill, MEC_CLOSE, YEC_CLOSE).',
-      'Set or change the debit and credit G/L accounts. Close rules store the P&L-clearing and retained-earnings targets (3353 / 3350).',
+      'Review each event (for example sales invoice revenue, PO goods receipt, supplier bill, month-end adjustments, YEC_CLOSE).',
+      'Set or change the debit and credit G/L accounts. Year-end close stores the P&L-to-retained-earnings target (4110001 / 3350) and the current-period NI clear (3353 / 3350). Month-end rules are adjustments only.',
       'Keep Chart of Accounts codes active before you point a rule at them (Finance → Chart of Accounts).',
       'After you change a rule, new postings use the new pair. Already-posted journals are not rewritten.',
     ],
@@ -752,35 +820,35 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Month-End and Year-End Close',
     routeMatch: ['/general-ledger/month-end-close', '/general-ledger/year-end-close'],
     summary:
-      'Both close screens generate a Draft journal that must be submitted and approved. Month-End Close zeros that month’s P&L into 3353. Year-End Close moves remaining P&L and current-period net income into 3350 retained earnings.',
+      'Month-End Close is for period adjustments only (GRNI cutoff, prepayments, accruals, depreciation, FX revaluation). Revenue and expense stay open and keep accumulating. Year-End Close generates the Draft journal that zeros full-year P&L into 3350 retained earnings.',
     steps: [
       'Each month, including December, open General Ledger → Month-End Close and select the period.',
-      'Review the proposed lines (P&L to Equity 3353). Operational journals post when they are approved; they are not batch-posted here.',
-      'Click Generate Closing Journal. The journal is Draft / DRAFT with reference MEC-YYYY-MM. Submit it for approval.',
-      'When the fiscal year is ready, open Year-End Close. Approve any remaining Month-End Close journals first.',
-      'Generate the YEC-YYYY journal (P&L and 3353 to 3350), then submit it for approval.',
+      'Review period activity (informational) and the adjustment posting rules. Post adjustment journals as needed; do not close P&L.',
+      'Operational journals post when they are approved; they are not batch-posted here.',
+      'When the fiscal year is ready, open Year-End Close. Approve remaining operational and adjustment journals first.',
+      'Generate the YEC-YYYY journal (P&L and leftover 3353 to 3350), then submit it for approval.',
     ],
     callouts: [
       {
         kind: 'important',
-        text: 'Neither Month-End Close nor Year-End Close posts immediately. The auto-generated journal must go through the journal approval workflow.',
+        text: 'Year-End Close does not post immediately. The auto-generated journal must go through the journal approval workflow.',
       },
       {
         kind: 'tip',
-        text: 'You can generate a close journal before the period ends; it stays Draft until approved.',
+        text: 'You can generate the year-end journal before December 31; it stays Draft until approved. Month-end adjustments can be posted at any time.',
       },
     ],
     faqs: [
       {
         question: 'Can I use Month-End Close instead of Year-End Close in December?',
         answer:
-          'Run Month-End Close for December to move that month’s P&L into 3353. Year-End Close is still required to transfer current-period net income into retained earnings (3350).',
+          'No. Month-End Close only posts adjustments and leaves revenue and expense intact. Year-End Close is required to transfer full-year P&L (and leftover current-period NI) into retained earnings (3350).',
       },
     ],
     troubleshooting: [
       {
-        issue: 'Generate Closing Journal is disabled',
-        fix: 'Approve remaining operational journals so they post, confirm posted P&L exists for that period, and delete any existing MEC-YYYY-MM or YEC-YYYY draft if you need to regenerate.',
+        issue: 'Generate Closing Journal is disabled on Year-End Close',
+        fix: 'Approve remaining operational journals so they post, confirm posted P&L exists for the year, and delete any existing YEC-YYYY draft if you need to regenerate.',
       },
     ],
   },

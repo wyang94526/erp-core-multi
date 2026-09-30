@@ -7,8 +7,18 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from sqlalchemy.exc import IntegrityError
+
 from app.schemas import SupplierInvoiceCreate
-from app.services.p2p import validate_supplier_invoice_payload
+from app.services.p2p import (
+    _assert_invoice_editable,
+    reject_supplier_invoice,
+    submit_supplier_invoice,
+    validate_supplier_invoice_payload,
+)
 
 
 def test_po_matched_requires_source_order_id():
@@ -127,6 +137,57 @@ def test_schema_allows_non_po_without_po_id():
     assert payload.source_order_id is None
     assert payload.invoice_type == "EXPENSE"
     assert payload.distributions and len(payload.distributions) == 1
+
+
+def test_draft_and_rejected_non_po_are_editable():
+    draft = SimpleNamespace(status="DRAFT", invoice_type="EXPENSE")
+    rejected = SimpleNamespace(status="REJECTED", invoice_type="LANDED_COST")
+    _assert_invoice_editable(draft)
+    _assert_invoice_editable(rejected)
+
+
+def test_pending_or_po_matched_cannot_be_edited():
+    with pytest.raises(HTTPException) as exc:
+        _assert_invoice_editable(SimpleNamespace(status="PENDING_APPROVAL", invoice_type="EXPENSE"))
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as exc:
+        _assert_invoice_editable(SimpleNamespace(status="DRAFT", invoice_type="PO_MATCHED"))
+    assert "Non-PO" in str(exc.value.detail)
+
+
+def test_reject_falls_back_to_draft_when_rejected_status_is_blocked():
+    invoice = SimpleNamespace(status="PENDING_APPROVAL", id=9)
+    db = MagicMock()
+    db.begin_nested.return_value.__enter__.return_value = None
+    db.begin_nested.return_value.__exit__.return_value = None
+    db.flush.side_effect = [
+        IntegrityError("flush", {}, Exception("chk_supplier_invoice_status")),
+        None,
+    ]
+    with patch("app.services.p2p._load_invoice", return_value=invoice):
+        with patch("app.services.p2p.serialize_supplier_invoice", return_value={"status": "DRAFT"}):
+            result = reject_supplier_invoice(db, 9)
+    assert invoice.status == "DRAFT"
+    assert result["status"] == "DRAFT"
+
+
+def test_reject_moves_pending_invoice_to_rejected():
+    invoice = SimpleNamespace(status="PENDING_APPROVAL", id=9)
+    db = MagicMock()
+    with patch("app.services.p2p._load_invoice", return_value=invoice):
+        with patch("app.services.p2p.serialize_supplier_invoice", return_value={"status": "REJECTED"}):
+            result = reject_supplier_invoice(db, 9)
+    assert invoice.status == "REJECTED"
+    assert result["status"] == "REJECTED"
+
+
+def test_submit_allows_rejected_invoice():
+    invoice = SimpleNamespace(status="REJECTED", id=9)
+    db = MagicMock()
+    with patch("app.services.p2p._load_invoice", return_value=invoice):
+        with patch("app.services.p2p.serialize_supplier_invoice", return_value={"status": "PENDING_APPROVAL"}):
+            submit_supplier_invoice(db, 9)
+    assert invoice.status == "PENDING_APPROVAL"
 
 
 def test_schema_rejects_zero_distribution_amount():

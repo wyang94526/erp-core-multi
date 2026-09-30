@@ -14,10 +14,40 @@ import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import {
+  matchesDeliveryDate,
+  matchesRelativeDate,
+  type DeliveryDateFilter,
+  type RelativeDateFilter,
+} from '../utils/listDateFilters'
 
 const PAGE_SIZE = 10
 
 const FILTERS: FilterField[] = [
+  {
+    key: 'invoice_date',
+    label: 'Bill date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'last_quarter', label: 'Last quarter' },
+      { value: 'ytd', label: 'YTD' },
+    ],
+  },
+  {
+    key: 'due',
+    label: 'Due date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'this_week', label: 'This week' },
+      { value: 'this_month', label: 'This month' },
+      { value: 'next_30', label: 'Next 30 days' },
+    ],
+  },
   {
     key: 'status',
     label: 'Status',
@@ -64,7 +94,9 @@ export function SupplierInvoiceList() {
   const sourceOrderId = searchParams.get('source_order_id') || undefined
   const focusInvoice = (searchParams.get('invoice') || '').trim()
   const [skip, setSkip] = useState(0)
-  const { values } = useListFilterParams(FILTERS)
+  const { values, hasActiveFilters } = useListFilterParams(FILTERS)
+  const invoiceDateFilter = (values.invoice_date || 'all') as RelativeDateFilter
+  const dueFilter = (values.due || 'all') as DeliveryDateFilter
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
     queryKey: ['vendorInvoices', sourceOrderId],
@@ -80,13 +112,31 @@ export function SupplierInvoiceList() {
     return rows.filter((r) => {
       if (values.status !== 'ALL' && r.status !== values.status) return false
       if (values.source_type !== 'ALL' && r.source_type !== values.source_type) return false
-      return true
+      if (!matchesRelativeDate(r.invoice_date, invoiceDateFilter)) return false
+      if (dueFilter === 'overdue') {
+        if (r.status === 'PAID' || r.status === 'CANCELLED') return false
+        if (!matchesDeliveryDate(r.due_date, 'overdue')) return false
+      } else if (!matchesDeliveryDate(r.due_date, dueFilter)) {
+        return false
+      }
+      return matchesSearch(
+        values.q,
+        r.invoice_number,
+        r.source_order_id,
+        r.reference_po_number,
+        r.vendor_name,
+        r.vendor_id,
+        r.status,
+        r.source_type,
+        r.invoice_type,
+        r.vendor_invoice_number,
+      )
     })
-  }, [rows, values.status, values.source_type])
+  }, [rows, values.status, values.source_type, values.q, invoiceDateFilter, dueFilter])
 
   useEffect(() => {
     setSkip(0)
-  }, [values.status, values.source_type])
+  }, [values.status, values.source_type, values.q, invoiceDateFilter, dueFilter])
 
   const pageRows = filtered.slice(skip, skip + PAGE_SIZE)
   const { items: sorted, requestSort, sortConfig } = useSortableData(pageRows, {
@@ -128,7 +178,28 @@ export function SupplierInvoiceList() {
         </button>
       </header>
 
-      <ListFilterBar fields={FILTERS} />
+      <ListFilterBar
+        fields={FILTERS}
+        searchPlaceholder="Search bill, order, vendor…"
+        exportCount={filtered.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('supplier-invoices'),
+            ['Bill #', 'Source', 'Order', 'Vendor', 'Bill Date', 'Due', 'Total', 'Outstanding', 'Status'],
+            filtered.map((inv) => [
+              inv.invoice_number,
+              inv.source_type,
+              inv.source_order_id,
+              inv.vendor_name || inv.vendor_id,
+              inv.invoice_date,
+              inv.due_date,
+              inv.total_amount,
+              inv.outstanding_balance,
+              inv.status,
+            ]),
+          )
+        }
+      />
 
       {isLoading ? (
         <div style={emptyStyle}>Loading supplier invoices...</div>
@@ -138,8 +209,9 @@ export function SupplierInvoiceList() {
         </div>
       ) : filtered.length === 0 ? (
         <div style={emptyStyle}>
-          No supplier invoices yet. Receive goods on an approved PO/SCO to create a matched bill, or
-          create a Non-PO invoice for freight, duty, rent, or utilities.
+          {hasActiveFilters
+            ? 'No supplier invoices match the current filters.'
+            : 'No supplier invoices yet. Receive goods on an approved PO/SCO to create a matched bill, or create a Non-PO invoice for freight, duty, rent, or utilities.'}
         </div>
       ) : (
         <>

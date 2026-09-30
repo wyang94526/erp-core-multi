@@ -5,10 +5,24 @@
  * PaymentTerms — global master list of Net / P02 / due-on-receipt terms.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { paymentTermsService } from '../api/services'
 import type { PaymentTerm } from '../types'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const TERM_FILTERS: FilterField[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'active', label: 'Active' },
+      { value: 'inactive', label: 'Inactive' },
+    ],
+  },
+]
 import SortableTh from './SortableTh'
 
 const EMPTY_FORM = {
@@ -47,7 +61,16 @@ function PaymentTerms() {
     loadTerms()
   }, [])
 
-  const { items: sortedTerms, requestSort, sortConfig } = useSortableData(terms, {
+  const { values } = useListFilterParams(TERM_FILTERS)
+  const filteredTerms = useMemo(() => {
+    return terms.filter((term) => {
+      if (values.status === 'active' && !term.is_active) return false
+      if (values.status === 'inactive' && term.is_active) return false
+      return matchesSearch(values.q, term.code, term.description, term.due_days)
+    })
+  }, [terms, values.q, values.status])
+
+  const { items: sortedTerms, requestSort, sortConfig } = useSortableData(filteredTerms, {
     columnTypes: {
       due_days: 'number',
       discount_days: 'number',
@@ -158,6 +181,26 @@ function PaymentTerms() {
           {showForm ? 'Cancel' : '+ Add Payment Term'}
         </button>
       </header>
+
+      <ListFilterBar
+        fields={TERM_FILTERS}
+        searchPlaceholder="Search code or description…"
+        exportCount={filteredTerms.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('payment-terms'),
+            ['Code', 'Description', 'Due Days', 'Discount Days', 'Discount %', 'Status'],
+            filteredTerms.map((term) => [
+              term.code,
+              term.description,
+              term.due_days,
+              term.discount_days,
+              term.discount_percentage,
+              term.is_active ? 'Active' : 'Inactive',
+            ]),
+          )
+        }
+      />
 
       {showForm && (
         <form style={formCardStyle} onSubmit={handleSave}>

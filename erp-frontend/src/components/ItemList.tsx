@@ -10,25 +10,33 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { itemService } from '../api/services'
 import type { Item } from '../types'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { csvFilename, downloadCsv } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { PaginationControls } from './PaginationControls'
 import { itemTypeLabel } from '../utils/itemTypes'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const ITEM_FILTERS: FilterField[] = []
 
 export function ItemList() {
   const navigate = useNavigate()
   const [skip, setSkip] = useState(0)
   const limit = 10
+  const { values } = useListFilterParams(ITEM_FILTERS)
+  const search = values.q.trim()
 
   const {
     data,
     isLoading,
+    isFetching,
     isError,
     error,
   } = useQuery({
-    queryKey: ['items', skip, limit],
-    queryFn: () => itemService.listItemsPage(skip, limit),
+    queryKey: ['items', skip, limit, search],
+    queryFn: () => itemService.listItemsPage(skip, limit, { q: search || undefined }),
+    placeholderData: (previous) => previous,
   })
 
   const items = data?.items ?? []
@@ -52,26 +60,9 @@ export function ItemList() {
     }
   }
 
-  if (isLoading) {
-    return (
-      <div style={containerStyle}>
-        <div style={emptyStateWrapperStyle}>
-          <p>Loading items...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div style={containerStyle}>
-        <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>
-          <p>Error loading items:</p>
-          <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    setSkip(0)
+  }, [search])
 
   return (
     <div style={containerStyle}>
@@ -90,8 +81,38 @@ export function ItemList() {
         </button>
       </header>
 
+      <ListFilterBar
+        fields={ITEM_FILTERS}
+        searchPlaceholder="Search item ID, part number, description…"
+        exportCount={total}
+        onExport={async () => {
+          const page = await itemService.listItemsPage(0, 2000, { q: search || undefined })
+          downloadCsv(
+            csvFilename('items'),
+            ['Item ID', 'Customer Part Number', 'Description', 'UOM', 'Type', 'Unit Price'],
+            page.items.map((row) => [
+              row.item_id,
+              row.customer_part_number,
+              row.description,
+              row.uom,
+              itemTypeLabel(row.item_type),
+              row.unit_price,
+            ]),
+          )
+        }}
+      />
+
       <div style={dashboardSectionStyle}>
-        {items.length === 0 ? (
+        {isError ? (
+          <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>
+            <p>Error loading items:</p>
+            <p>{error instanceof Error ? error.message : 'Unknown error'}</p>
+          </div>
+        ) : isLoading && items.length === 0 ? (
+          <div style={emptyStateWrapperStyle}>
+            <p>Loading items...</p>
+          </div>
+        ) : items.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No items found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -145,6 +166,9 @@ export function ItemList() {
           onPrevious={handlePreviousPage}
           onNext={handleNextPage}
         />
+        {isFetching && !isLoading ? (
+          <p style={{ ...pageSubStyle, marginTop: 8 }}>Updating results…</p>
+        ) : null}
       </div>
     </div>
   )

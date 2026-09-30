@@ -3,13 +3,27 @@
  * @date: 2026-09-19
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown, Loader2, Mail, Receipt, CheckCircle2, Ban } from 'lucide-react'
 import { arInvoiceService, salesInvoiceService } from '../api/services'
 import type { ARInvoiceDetail } from '../types'
 import { generateSalesInvoicePdf } from '../utils/generateSalesInvoicePdf'
 import { cashReferenceLinkStyle } from '../utils/cashReference'
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  dangerButtonStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 const money = (n: number | null | undefined, currency = 'USD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0)
@@ -32,14 +46,6 @@ function statusColors(status: string): { bg: string; text: string } {
     VOID: { bg: '#ffebee', text: '#c62828' },
   }
   return map[status] || { bg: '#f5f5f5', text: '#616161' }
-}
-
-function HoverTip({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <span title={label} style={{ display: 'inline-flex' }}>
-      {children}
-    </span>
-  )
 }
 
 function creditMemoTooltip(detail: ARInvoiceDetail): string {
@@ -199,9 +205,9 @@ export function InvoiceDetail() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>{detail.invoice_id}</h1>
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>{detail.invoice_id}</h1>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             <span style={{ ...badgeStyle, backgroundColor: collectionBadge.bg, color: collectionBadge.text }}>
               {detail.display_status || detail.status}
@@ -215,7 +221,7 @@ export function InvoiceDetail() {
               </span>
             ) : null}
           </div>
-          <p style={pageSubStyle}>
+          <p style={documentPageSubStyle}>
             {detail.customer_id}
             {detail.customer_name ? ` · ${detail.customer_name}` : ''}
             {detail.sales_order_id ? (
@@ -270,7 +276,7 @@ export function InvoiceDetail() {
               <HoverTip label="Void this sales invoice and release billed amount on the sales order">
                 <button
                   type="button"
-                  style={{ ...secondaryButtonStyle, color: '#c62828', borderColor: '#ef9a9a' }}
+                  style={dangerButtonStyle}
                   disabled={voiding}
                   onClick={() => void handleVoid()}
                 >
@@ -441,18 +447,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: 24,
-  borderBottom: '1px solid var(--border, #ddd)',
-  paddingBottom: 16,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  flexWrap: 'wrap',
-  gap: 12,
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h, #212121)' }
-const pageSubStyle: CSSProperties = { margin: '8px 0 0', fontSize: 14, color: 'var(--text, #616161)' }
 const cardStyle: CSSProperties = {
   backgroundColor: 'var(--bg, #fff)',
   border: '1px solid var(--border, #ddd)',
@@ -512,55 +506,6 @@ const totalRowStyle: CSSProperties = {
   justifyContent: 'space-between',
   gap: 24,
   minWidth: 240,
-}
-const badgeStyle: CSSProperties = {
-  padding: '4px 10px',
-  borderRadius: 12,
-  fontSize: 11,
-  fontWeight: 700,
-}
-const headerActionsStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-end',
-  gap: 8,
-}
-const actionRowStyle: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  justifyContent: 'flex-end',
-  gap: 8,
-}
-const compactButtonStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 6,
-  padding: '7px 12px',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-  whiteSpace: 'nowrap',
-}
-const primaryButtonStyle: CSSProperties = {
-  ...compactButtonStyle,
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-}
-const headerButtonStyle: CSSProperties = {
-  ...compactButtonStyle,
-  backgroundColor: 'transparent',
-  color: 'var(--text-h, #212121)',
-  border: '1px solid var(--border, #ddd)',
-}
-const secondaryButtonStyle: CSSProperties = {
-  ...compactButtonStyle,
-  backgroundColor: 'transparent',
-  color: 'var(--text-h, #212121)',
-  border: '1px solid var(--border, #ddd)',
 }
 const errorBannerStyle: CSSProperties = {
   backgroundColor: '#ffebee',

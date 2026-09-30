@@ -78,6 +78,10 @@ export function toJournalEntry(row: GoodsReceiptJournal): JournalEntry {
     reference: row.reference || null,
     posting_status: (row.posting_status as JournalEntry['posting_status']) || 'Draft',
     approval_status: (row.approval_status as JournalEntry['approval_status']) || 'DRAFT',
+    is_system_generated: Boolean(row.is_system_generated),
+    source_document_type: row.source_document_type || null,
+    source_record_id: row.source_record_id || null,
+    posting_rule_id: row.posting_rule_id || null,
     postings,
   }
 }

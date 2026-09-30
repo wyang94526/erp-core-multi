@@ -3,24 +3,36 @@
  * @date: 2026-09-19
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { chartOfAccountsService, journalEntryService } from '../api/services'
-import type { JournalEntry } from '../types'
+import { Lock } from 'lucide-react'
+import { chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
+import type { JournalEntry, PostingRule } from '../types'
 import { parseJournalBulkCsvFile } from '../utils/journalCsvImport'
+import { downloadTextFile } from '../utils/financialReports'
 import { ApprovalPanel } from './ApprovalPanel'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
+import { JournalLedgerFiltersBar, useJournalLedgerFilters } from './JournalLedgerFilters'
 import { useAuth } from '../context/AuthContext'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import {
+  filterJournalEntries,
+  inferredJournalSource,
+  inferredPostingRule,
+  isInferredSystemJournal,
+  postingRuleDisplay,
   isJournalDeletable,
-  isJournalDraft,
+  isJournalEditable,
+  isSystemJournal,
   JOURNAL_CREATE_PATH,
   journalEditPath,
+  journalEntriesToCsv,
+  journalExportFilename,
   MONTH_END_CLOSE_PATH,
   YEAR_END_CLOSE_PATH,
   shortJournalId,
+  sourceDocumentLabel,
 } from '../utils/journalEntries'
 
 interface FlatPostingRow {
@@ -51,24 +63,30 @@ function GeneralLedger() {
   const csvInputRef = useRef<HTMLInputElement | null>(null)
   const approvalPanelRef = useRef<HTMLDivElement | null>(null)
   const canCreate = hasPermission('journal:create')
+  const { filters, clearFilters, hasActiveFilters } = useJournalLedgerFilters()
+  const [rules, setRules] = useState<PostingRule[]>([])
   const selectedEntry = entries.find((entry) => entry.id === selectedId) || null
 
-  const loadEntries = async () => {
+  const loadEntries = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await journalEntryService.listJournalEntries()
+      const data = await journalEntryService.listJournalEntries(0, 500, filters)
       setEntries(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load journal entries')
     } finally {
       setLoading(false)
     }
-  }
+  }, [filters])
 
   useEffect(() => {
-    loadEntries()
+    void postingRulesService.list().then(setRules).catch(() => setRules([]))
   }, [])
+
+  useEffect(() => {
+    void loadEntries()
+  }, [loadEntries])
 
   useEffect(() => {
     if (!selectedId) return
@@ -145,9 +163,14 @@ function GeneralLedger() {
     return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString()
   }
 
+  const visibleEntries = useMemo(
+    () => filterJournalEntries(entries, filters, rules),
+    [entries, filters, rules],
+  )
+
   const rows: FlatPostingRow[] = useMemo(
     () =>
-      entries.flatMap((entry) =>
+      visibleEntries.flatMap((entry) =>
         entry.postings.map((posting) => {
           const accountCode = posting.account_code || '—'
           const accountName = posting.account_name || '—'
@@ -166,19 +189,21 @@ function GeneralLedger() {
           }
         }),
       ),
-    [entries],
+    [visibleEntries],
   )
 
   const {
     items: sortedEntries,
     requestSort: requestEntrySort,
     sortConfig: entrySortConfig,
-  } = useSortableData(entries, {
+  } = useSortableData(visibleEntries, {
     columnTypes: {
       created_at: 'date',
       id: 'string',
       description: 'string',
       reference: 'string',
+      source_document_type: 'string',
+      posting_rule_id: 'string',
       period: 'string',
       posting_status: 'string',
       approval_status: 'string',
@@ -187,9 +212,19 @@ function GeneralLedger() {
       if (key === 'id') return shortJournalId(entry.id)
       if (key === 'approval_status') return entry.approval_status || 'DRAFT'
       if (key === 'created_at') return entry.posting_date || entry.created_at
+      if (key === 'source_document_type') {
+        return `${sourceDocumentLabel(inferredJournalSource(entry))} ${entry.source_record_id || ''}`
+      }
+      if (key === 'posting_rule_id') return postingRuleDisplay(entry, rules)
       return (entry as unknown as Record<string, unknown>)[key]
     },
   })
+
+  const handleExportJournals = () => {
+    if (sortedEntries.length === 0) return
+    const csv = journalEntriesToCsv(sortedEntries, rules)
+    downloadTextFile(journalExportFilename(), `\uFEFF${csv}`, 'text/csv;charset=utf-8')
+  }
 
   const {
     items: sortedRows,
@@ -256,6 +291,18 @@ function GeneralLedger() {
       {importMessage && <div style={successBannerStyle}>{importMessage}</div>}
       {error && <div style={errorBannerStyle}>{error}</div>}
 
+      <JournalLedgerFiltersBar
+        rules={rules}
+        exportCount={sortedEntries.length}
+        exportDisabled={loading}
+        onExport={handleExportJournals}
+      />
+      <p style={filterCountStyle}>
+        {loading
+          ? 'Searching journals…'
+          : `${sortedEntries.length} journal${sortedEntries.length === 1 ? '' : 's'} match current filters`}
+      </p>
+
       {selectedId && (
         <div ref={approvalPanelRef} style={approvalAnchorStyle}>
           <div style={approvalContextStyle}>
@@ -278,11 +325,22 @@ function GeneralLedger() {
       )}
 
       <div style={dashboardSectionStyle}>
-        <h3 style={sectionTitleStyle}>Journal Entries</h3>
+        <div style={sectionHeaderRowStyle}>
+          <h3 style={{ ...sectionTitleStyle, margin: 0 }}>Journal Entries</h3>
+        </div>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading journal entries...</div>
         ) : sortedEntries.length === 0 ? (
-          <div style={emptyStateWrapperStyle}>No journal entries found.</div>
+          <div style={emptyStateWrapperStyle}>
+            {hasActiveFilters ? 'No journal entries match the current filters.' : 'No journal entries found.'}
+            {hasActiveFilters ? (
+              <div style={{ marginTop: 12 }}>
+                <button type="button" style={secondaryButtonStyle} onClick={clearFilters}>
+                  Clear filters
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
             <table style={directoryTableStyle}>
@@ -313,6 +371,12 @@ function GeneralLedger() {
                     onRequestSort={requestEntrySort}
                   />
                   <SortableTh
+                    label="Source"
+                    columnKey="source_document_type"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
+                  <SortableTh
                     label="Period"
                     columnKey="period"
                     sortConfig={entrySortConfig}
@@ -331,6 +395,12 @@ function GeneralLedger() {
                     onRequestSort={requestEntrySort}
                   />
                   <th style={directoryThStyle}>Actions</th>
+                  <SortableTh
+                    label="Posting Rule"
+                    columnKey="posting_rule_id"
+                    sortConfig={entrySortConfig}
+                    onRequestSort={requestEntrySort}
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -347,14 +417,31 @@ function GeneralLedger() {
                       {formatDate(entry.posting_date || entry.created_at)}
                     </td>
                     <td style={directoryTdStyle}>{shortJournalId(entry.id)}</td>
-                    <td style={directoryTdStyle}>{entry.description}</td>
+                    <td style={directoryTdStyle}>
+                      <div style={descriptionCellStyle}>
+                        {isInferredSystemJournal(entry) && (
+                          <span style={systemChipStyle} title="System-generated from a source document">
+                            <Lock size={11} />
+                            System
+                          </span>
+                        )}
+                        <span>{entry.description}</span>
+                      </div>
+                    </td>
                     <td style={directoryTdStyle}>{entry.reference || '—'}</td>
+                    <td style={directoryTdStyle}>
+                      {inferredJournalSource(entry) === 'MANUAL'
+                        ? 'Manual'
+                        : `${sourceDocumentLabel(inferredJournalSource(entry))}${
+                            entry.source_record_id ? ` · ${entry.source_record_id}` : ''
+                          }`}
+                    </td>
                     <td style={directoryTdStyle}>{entry.period || '—'}</td>
                     <td style={directoryTdStyle}>{entry.posting_status || '—'}</td>
                     <td style={directoryTdStyle}>{entry.approval_status || 'DRAFT'}</td>
                     <td style={directoryTdStyle}>
                       <div style={actionRowStyle}>
-                        {canCreate && isJournalDraft(entry) ? (
+                        {canCreate && isJournalEditable(entry) ? (
                           <button
                             style={editButtonStyle}
                             onClick={() => navigate(journalEditPath(entry.id))}
@@ -365,7 +452,11 @@ function GeneralLedger() {
                           <button
                             type="button"
                             style={viewButtonStyle}
-                            onClick={() => setViewingEntry(entry)}
+                            onClick={() =>
+                              isSystemJournal(entry)
+                                ? navigate(journalEditPath(entry.id))
+                                : setViewingEntry(entry)
+                            }
                           >
                             View
                           </button>
@@ -396,6 +487,9 @@ function GeneralLedger() {
                         )}
                       </div>
                     </td>
+                    <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }} title={inferredPostingRule(entry, rules)?.name || entry.posting_rule_name || ''}>
+                      {postingRuleDisplay(entry, rules) || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -403,11 +497,13 @@ function GeneralLedger() {
           </div>
         )}
 
-        <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
+        <JournalEntryViewModal entry={viewingEntry} rules={rules} onClose={() => setViewingEntry(null)} />
 
         <h3 style={sectionTitleStyle}>Posting Detail</h3>
         {loading ? null : sortedRows.length === 0 ? (
-          <div style={emptyStateWrapperStyle}>No postings found.</div>
+          <div style={emptyStateWrapperStyle}>
+            {hasActiveFilters ? 'No posting lines match the current filters.' : 'No postings found.'}
+          </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={directoryTableStyle}>
@@ -542,6 +638,12 @@ const pageSubStyle: React.CSSProperties = {
   color: '#616161',
 }
 
+const filterCountStyle: React.CSSProperties = {
+  margin: '-8px 0 16px',
+  fontSize: '13px',
+  color: '#616161',
+}
+
 const primaryButtonStyle: React.CSSProperties = {
   padding: '10px 18px',
   backgroundColor: '#2196F3',
@@ -575,6 +677,14 @@ const sectionTitleStyle: React.CSSProperties = {
   fontSize: '16px',
   fontWeight: 700,
   color: '#212121',
+}
+
+const sectionHeaderRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '12px',
+  marginBottom: '12px',
 }
 
 const approvalButtonStyle: React.CSSProperties = {
@@ -642,6 +752,28 @@ const directoryTdStyle: React.CSSProperties = {
   padding: '12px 10px',
   color: '#424242',
   verticalAlign: 'middle',
+}
+
+const descriptionCellStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+const systemChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '2px 7px',
+  borderRadius: 999,
+  background: '#eceff1',
+  color: '#455a64',
+  border: '1px solid #cfd8dc',
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  textTransform: 'uppercase',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

@@ -761,6 +761,17 @@ export interface GoodsReceiptLine {
   serial_number?: string | null;
 }
 
+export type JournalSourceDocumentType =
+  | 'GOODS_RECEIPT'
+  | 'SUPPLIER_INVOICE'
+  | 'SALES_INVOICE'
+  | 'SALES_CREDIT'
+  | 'AR_PAYMENT'
+  | 'AP_PAYMENT'
+  | 'BANK_TRANSFER'
+  | 'MONTH_END_CLOSE'
+  | 'YEAR_END_CLOSE'
+
 export interface GoodsReceiptJournalPosting {
   id?: string | null;
   account_id?: string | null;
@@ -784,6 +795,10 @@ export interface GoodsReceiptJournal {
   posting_status?: string | null;
   approval_status?: string | null;
   purpose?: string | null;
+  is_system_generated?: boolean;
+  source_document_type?: JournalSourceDocumentType | string | null;
+  source_record_id?: string | null;
+  posting_rule_id?: string | null;
   postings: GoodsReceiptJournalPosting[];
 }
 
@@ -1078,6 +1093,7 @@ export type VendorInvoiceType = 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | strin
 export type VendorInvoiceStatus =
   | 'DRAFT'
   | 'PENDING_APPROVAL'
+  | 'REJECTED'
   | 'APPROVED'
   | 'PAID'
   | 'CANCELLED'
@@ -1261,6 +1277,12 @@ export interface JournalEntry {
   posting_status: 'Draft' | 'Posted' | string | null;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
+  is_system_generated?: boolean;
+  source_document_type?: JournalSourceDocumentType | string | null;
+  source_record_id?: string | null;
+  posting_rule_id?: string | null;
+  posting_rule_code?: string | null;
+  posting_rule_name?: string | null;
   postings: LedgerPosting[];
 }
 
@@ -1303,6 +1325,18 @@ export interface YearEndCloseResult {
   journal: JournalEntry
 }
 
+export interface MonthEndAdjustmentRule {
+  id: string
+  rule_code: string
+  name: string
+  variant: string
+  variant_label: string
+  debit_account_code?: string | null
+  debit_account_name?: string | null
+  credit_account_code?: string | null
+  credit_account_name?: string | null
+}
+
 export interface MonthEndClosePreview {
   period: string
   close_date: string
@@ -1312,6 +1346,7 @@ export interface MonthEndClosePreview {
   expense_total: number | string
   net_income: number | string
   lines: YearEndCloseLine[]
+  adjustment_rules?: MonthEndAdjustmentRule[]
   ready: JournalEntry[]
   held: JournalEntry[]
   existing_journal: JournalEntry | null

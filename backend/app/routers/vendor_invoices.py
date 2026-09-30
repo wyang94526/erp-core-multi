@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,6 +16,7 @@ from app.schemas import (
     SupplierInvoiceCreate,
     SupplierInvoicePayRequest,
     SupplierInvoiceRead,
+    SupplierInvoiceUpdate,
 )
 from app.services import p2p
 
@@ -88,6 +90,47 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
     )
     db.commit()
     return result
+
+
+@router.patch("/{invoice_id}", response_model=SupplierInvoiceRead)
+def update_vendor_invoice(
+    invoice_id: int, payload: SupplierInvoiceUpdate, db: Session = Depends(get_db)
+):
+    result = p2p.update_supplier_invoice(
+        db,
+        invoice_id,
+        invoice_type=payload.invoice_type,
+        reference_po_number=payload.reference_po_number,
+        vendor_id=payload.vendor_id,
+        vendor_invoice_number=payload.vendor_invoice_number,
+        invoice_date=payload.invoice_date,
+        due_date=payload.due_date,
+        tax_amount=payload.tax_amount,
+        freight_amount=payload.freight_amount,
+        currency=payload.currency,
+        distributions=(
+            [row.model_dump() for row in payload.distributions] if payload.distributions else None
+        ),
+        payment_term_id=payload.payment_term_id,
+        payment_terms=payload.payment_terms,
+        allocate_to_goods_receipt_id=payload.allocate_to_goods_receipt_id,
+    )
+    db.commit()
+    return result
+
+
+@router.patch("/{invoice_id}/reject", response_model=SupplierInvoiceRead)
+def reject_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    try:
+        result = p2p.reject_supplier_invoice(db, invoice_id)
+        db.commit()
+        return result
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Could not reject this invoice. Return it to Draft and edit it instead.",
+        ) from exc
 
 
 @router.patch("/{invoice_id}/submit", response_model=SupplierInvoiceRead)

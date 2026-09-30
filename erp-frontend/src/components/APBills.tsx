@@ -12,6 +12,7 @@ import { ApprovalPanel } from './ApprovalPanel'
 import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPaymentDialog'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -99,9 +100,18 @@ function APBills() {
       if (values.due === 'upcoming') {
         if (!(bill.due_date && bill.due_date >= today && bill.status !== 'Paid')) return false
       }
-      return true
+      return matchesSearch(
+        values.q,
+        bill.bill_id,
+        bill.purchase_order_id,
+        bill.po_number,
+        bill.source_order_id,
+        bill.vendor_id,
+        bill.status,
+        bill.approval_status,
+      )
     })
-  }, [bills, values.status, values.approval, values.due, today, focusBill])
+  }, [bills, values.status, values.approval, values.due, values.q, today, focusBill])
 
   const { items: sortedBills, requestSort, sortConfig } = useSortableData(filteredBills, {
     columnTypes: {
@@ -149,7 +159,26 @@ function APBills() {
         />
       ) : null}
 
-      <ListFilterBar fields={AP_FILTERS} />
+      <ListFilterBar
+        fields={AP_FILTERS}
+        searchPlaceholder="Search bill, PO, vendor…"
+        exportCount={filteredBills.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('ap-bills'),
+            ['Bill ID', 'Purchase Order ID', 'Vendor ID', 'Amount', 'Due Date', 'Status', 'Approval'],
+            filteredBills.map((bill) => [
+              bill.bill_id,
+              bill.purchase_order_id || bill.po_number || bill.source_order_id,
+              bill.vendor_id,
+              bill.amount,
+              bill.due_date,
+              bill.status,
+              bill.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {loading ? (

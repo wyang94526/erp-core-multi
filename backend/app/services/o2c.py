@@ -23,11 +23,12 @@ from app.models import (
 )
 from app.services.document_sequences import DOC_INVOICE, generate_document_number
 from app.services import finance, inventory
+from app.services.journal_source import SOURCE_SALES_INVOICE, rule_id
 from app.services.posting_rules import (
     EVENT_SALES_INVOICE,
     VARIANT_REVENUE,
     VARIANT_TAX,
-    resolve_posting_pair,
+    resolve_posting_rule,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 from app.services.item_types import catalog_item, skip_inventory_movement
@@ -778,10 +779,10 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
     if invoice.status == "PAID":
         raise HTTPException(status_code=400, detail="Invoice is already paid")
 
-    ar_account, revenue_account = resolve_posting_pair(
+    ar_account, revenue_account, revenue_rule = resolve_posting_rule(
         db, EVENT_SALES_INVOICE, VARIANT_REVENUE, None
     )
-    _tax_ar, tax_account = resolve_posting_pair(
+    _tax_ar, tax_account, tax_rule = resolve_posting_rule(
         db, EVENT_SALES_INVOICE, VARIANT_TAX, None
     )
 
@@ -792,6 +793,11 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
     if total <= 0:
         raise HTTPException(status_code=400, detail="Invoice total must be positive")
 
+    invoice_source = {
+        "reference": invoice.invoice_number,
+        "source_document_type": SOURCE_SALES_INVOICE,
+        "source_record_id": invoice.invoice_number,
+    }
     if tax > 0:
         finance._post_balanced_journal_entry(
             db,
@@ -799,6 +805,8 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
             debit_account=ar_account,
             credit_account=revenue_account,
             amount=subtotal,
+            posting_rule_id=rule_id(revenue_rule),
+            **invoice_source,
         )
         finance._post_balanced_journal_entry(
             db,
@@ -806,6 +814,8 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
             debit_account=ar_account,
             credit_account=tax_account,
             amount=tax,
+            posting_rule_id=rule_id(tax_rule),
+            **invoice_source,
         )
     else:
         finance._post_balanced_journal_entry(
@@ -814,6 +824,8 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
             debit_account=ar_account,
             credit_account=revenue_account,
             amount=total,
+            posting_rule_id=rule_id(revenue_rule),
+            **invoice_source,
         )
 
     # Mirror into AR invoices for payment tracking using the Sales Invoice number

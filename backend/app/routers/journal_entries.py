@@ -4,7 +4,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -30,18 +30,23 @@ from app.services.accounting import (
     validate_posting_rows,
 )
 from app.services import month_end_close, year_end_close
+from app.services.journal_list import apply_journal_list_filters
+from app.services.journal_source import assert_journal_mutable
 
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
 
 
-_POSTING_LOAD = selectinload(JournalEntry.postings).selectinload(LedgerPosting.account)
+_POSTING_LOAD = (
+    selectinload(JournalEntry.postings).selectinload(LedgerPosting.account),
+    selectinload(JournalEntry.posting_rule),
+)
 _EDITABLE_APPROVAL = {"DRAFT", "REJECTED"}
 
 
 def _load_entry(db: Session, entry_id: UUID) -> JournalEntry | None:
     return (
         db.query(JournalEntry)
-        .options(_POSTING_LOAD)
+        .options(*_POSTING_LOAD)
         .filter(JournalEntry.id == entry_id)
         .first()
     )
@@ -88,16 +93,35 @@ def _apply_header(
 @router.get("", response_model=list[JournalEntryRead])
 def list_journal_entries(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
+    q: str | None = None,
+    source: str | None = Query(default=None, alias="source"),
+    origin: str | None = None,
+    rule: str | None = Query(default=None, alias="rule"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    period: str | None = None,
+    posting: str | None = Query(default=None, alias="posting"),
+    approval: str | None = Query(default=None, alias="approval"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("journal:view")),
 ) -> list[JournalEntry]:
+    query = apply_journal_list_filters(
+        db.query(JournalEntry).options(*_POSTING_LOAD),
+        q=q,
+        source_document_type=source,
+        origin=origin,
+        posting_rule_id=rule,
+        date_from=date_from,
+        date_to=date_to,
+        period=period,
+        posting_status=posting,
+        approval_status=approval,
+    )
     return (
-        db.query(JournalEntry)
-        .options(_POSTING_LOAD)
-        .order_by(JournalEntry.created_at.desc())
+        query.order_by(JournalEntry.posting_date.desc().nullslast(), JournalEntry.created_at.desc())
         .offset(skip)
-        .limit(limit)
+        .limit(min(limit, 1000))
         .all()
     )
 
@@ -117,7 +141,7 @@ def run_month_end_close(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("journal:create")),
 ) -> dict:
-    """Create a Draft / DRAFT monthly closing journal. It does not post until approved."""
+    """Rejected: month-end no longer generates a P&L closing journal."""
     body = payload or MonthEndCloseRequest()
     entry = month_end_close.run_month_end_close(
         db,
@@ -187,6 +211,10 @@ def _create_journal_entry(db: Session, payload: JournalEntryCreate, user: User) 
         posting_status="Draft",
         approval_status="DRAFT",
         current_approval_step=None,
+        is_system_generated=False,
+        source_document_type=None,
+        source_record_id=None,
+        posting_rule_id=None,
     )
     for row in posting_rows:
         entry.postings.append(LedgerPosting(**row))
@@ -267,6 +295,7 @@ def update_journal_entry(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot edit a journal entry with approval status {approval}",
         )
+    assert_journal_mutable(entry)
 
     data = payload.model_dump(exclude_unset=True)
     _apply_header(
@@ -308,6 +337,7 @@ def delete_journal_entry(
 
     posting = entry.posting_status or ""
     approval = entry.approval_status or ""
+    assert_journal_mutable(entry)
     if not _is_draft_status(posting) or not _is_draft_status(approval):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -16,6 +16,7 @@ import ListFilterBar, {
   type FilterField,
 } from './ListFilterBar'
 import { cashReferenceHref, cashReferenceLabel, cashReferenceLinkStyle } from '../utils/cashReference'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 
 const CASH_FILTERS: FilterField[] = [
   {
@@ -101,9 +102,18 @@ function CashManagement() {
         if (approval !== values.approval.toUpperCase()) return false
       }
       if (!matchesCashDate(tx.transaction_date, values.date)) return false
-      return true
+      return matchesSearch(
+        values.q,
+        tx.transaction_id,
+        tx.entity_name,
+        tx.reference_id,
+        tx.bank_account_name,
+        tx.bank_account_id,
+        tx.type,
+        tx.approval_status,
+      )
     })
-  }, [transactions, values.type, values.approval, values.date])
+  }, [transactions, values.type, values.approval, values.date, values.q])
 
   const cashSummary = useMemo(() => {
     const inflow = filteredTransactions
@@ -160,7 +170,27 @@ function CashManagement() {
         />
       ) : null}
 
-      <ListFilterBar fields={CASH_FILTERS} />
+      <ListFilterBar
+        fields={CASH_FILTERS}
+        searchPlaceholder="Search transaction, payee, reference, bank…"
+        exportCount={filteredTransactions.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('cash-transactions'),
+            ['Transaction ID', 'Date', 'Type', 'Payee / Payer', 'Reference ID', 'Bank Account', 'Amount', 'Approval'],
+            filteredTransactions.map((tx) => [
+              tx.transaction_id,
+              tx.transaction_date,
+              tx.type,
+              tx.entity_name,
+              tx.reference_id,
+              tx.bank_account_name || tx.bank_account_id,
+              tx.amount,
+              tx.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {loading ? (

@@ -2,14 +2,16 @@
  * @author: Wendy Yang
  * @date: 2026-09-19
  *
- * Create a supplier invoice (vendor bill) from a PO/SCO or as a Non-PO voucher.
+ * Create or edit a supplier invoice (vendor bill) from a PO/SCO or as a Non-PO voucher.
  * Routes: /supplier-invoices/new?source_type=&source_order_id=&category=non-po
+ *         /supplier-invoices/:invoiceId/edit
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+  apBillService,
   chartOfAccountsService,
   paymentTermsService,
   purchaseOrderService,
@@ -59,14 +61,18 @@ function newDistRow(): DistRow {
 
 export function SupplierInvoiceForm() {
   const [searchParams] = useSearchParams()
+  const { invoiceId: rawEditId } = useParams<{ invoiceId: string }>()
+  const editBillId = rawEditId ? decodeURIComponent(rawEditId).trim() : ''
+  const isEdit = Boolean(editBillId)
   const initialSourceType = (searchParams.get('source_type') || 'PURCHASE_ORDER') as
     | 'PURCHASE_ORDER'
     | 'SUBCONTRACT_ORDER'
   const initialSourceOrderId = searchParams.get('source_order_id') || ''
   const categoryParam = searchParams.get('category')
-  const lockedNonPo = isLockedNonPoCategory(categoryParam)
+  const lockedNonPo = isLockedNonPoCategory(categoryParam) || isEdit
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const skipVendorTermSync = useRef(isEdit)
 
   const [category, setCategory] = useState<InvoiceCategory>(() =>
     invoiceCategoryFromSearch(categoryParam),
@@ -93,9 +99,53 @@ export function SupplierInvoiceForm() {
 
   const isNonPo = category === 'NON_PO'
 
+  const editQuery = useQuery({
+    queryKey: ['supplierInvoiceEdit', editBillId],
+    queryFn: async () => {
+      const bill = await apBillService.getBillDetail(editBillId)
+      if (!bill.supplier_invoice_id) {
+        throw new Error('This bill has no supplier invoice to edit.')
+      }
+      const invoice = await vendorInvoiceService.get(bill.supplier_invoice_id)
+      return { bill, invoice }
+    },
+    enabled: isEdit,
+  })
+
   useEffect(() => {
-    setCategory(invoiceCategoryFromSearch(categoryParam))
-  }, [categoryParam])
+    if (!isEdit) setCategory(invoiceCategoryFromSearch(categoryParam))
+  }, [categoryParam, isEdit])
+
+  useEffect(() => {
+    const invoice = editQuery.data?.invoice
+    if (!invoice) return
+    const kind = (invoice.invoice_type || '').toUpperCase()
+    setCategory(kind === 'EXPENSE' || kind === 'LANDED_COST' ? 'NON_PO' : 'PO')
+    if (kind === 'LANDED_COST' || kind === 'EXPENSE') {
+      setNonPoType(kind)
+    }
+    setVendorId(invoice.vendor_id || '')
+    setVendorInvoiceNumber(invoice.vendor_invoice_number || '')
+    setInvoiceDate((invoice.invoice_date || '').slice(0, 10))
+    setDueDate((invoice.due_date || '').slice(0, 10))
+    setDueDateDirty(true)
+    setPaymentTermId(invoice.payment_term_id || '')
+    setCurrency(invoice.currency || 'USD')
+    setTaxAmount(invoice.tax_amount != null ? String(invoice.tax_amount) : '')
+    setFreightAmount(invoice.freight_amount != null ? String(invoice.freight_amount) : '')
+    setReferencePoNumber(invoice.reference_po_number || '')
+    setSubmitMode('draft')
+    const rows = (invoice.distributions || []).map((row) => ({
+      key: `dist-${row.id}`,
+      gl_account_id: row.gl_account_id,
+      department_id: row.department_id || '',
+      amount: String(row.amount ?? ''),
+      description: row.description || '',
+      goods_receipt_id: row.goods_receipt_id != null ? String(row.goods_receipt_id) : '',
+    }))
+    setDistributions(rows.length ? rows : [newDistRow()])
+    skipVendorTermSync.current = false
+  }, [editQuery.data])
 
   const poQuery = useQuery({
     queryKey: ['purchaseOrders', sourceOrderId],
@@ -145,18 +195,21 @@ export function SupplierInvoiceForm() {
     enabled: isNonPo,
   })
 
-  const backPath = isNonPo
-    ? '/supplier-invoices'
-    : sourceType === 'SUBCONTRACT_ORDER' && sourceOrderId
-      ? `/subcontract-orders/${sourceOrderId}`
-      : sourceOrderId
-        ? `/purchase-orders/${sourceOrderId}`
-        : '/supplier-invoices'
+  const backPath = isEdit
+    ? `/supplier-invoices/${encodeURIComponent(editBillId)}`
+    : isNonPo
+      ? '/supplier-invoices'
+      : sourceType === 'SUBCONTRACT_ORDER' && sourceOrderId
+        ? `/subcontract-orders/${sourceOrderId}`
+        : sourceOrderId
+          ? `/purchase-orders/${sourceOrderId}`
+          : '/supplier-invoices'
 
   const paymentTerms = paymentTermsQuery.data || []
   const vendors = vendorsQuery.data || []
 
   useEffect(() => {
+    if (skipVendorTermSync.current) return
     if (isNonPo) {
       const vendor = vendors.find((row) => row.supplier_id === vendorId)
       const matched = findPaymentTerm(paymentTerms, vendor?.payment_term_id, vendor?.payment_terms)
@@ -274,10 +327,9 @@ export function SupplierInvoiceForm() {
       const allocatedReceiptIds = [
         ...new Set(rows.map((row) => row.goods_receipt_id).filter((id): id is number => Number.isFinite(id))),
       ]
-      const created = await vendorInvoiceService.create({
+      const payload = {
         invoice_type: nonPoType,
-        source_type: 'NON_PO',
-        source_order_id: null,
+        source_type: 'NON_PO' as const,
         reference_po_number: referencePoNumber.trim() || null,
         vendor_id: vendorId,
         vendor_invoice_number: vendorInvoiceNumber || null,
@@ -289,11 +341,17 @@ export function SupplierInvoiceForm() {
         allocate_to_goods_receipt_id: allocatedReceiptIds.length === 1 ? allocatedReceiptIds[0] : null,
         currency,
         distributions: rows,
-      })
-      if (submitMode === 'submit') {
-        return vendorInvoiceService.submit(created.id)
       }
-      return created
+      const saved = isEdit
+        ? await vendorInvoiceService.update(editQuery.data!.invoice.id, payload)
+        : await vendorInvoiceService.create({
+            ...payload,
+            source_order_id: null,
+          })
+      if (submitMode === 'submit') {
+        return vendorInvoiceService.submit(saved.id)
+      }
+      return saved
     },
     onSuccess: async (created) => {
       await Promise.all([
@@ -321,20 +379,38 @@ export function SupplierInvoiceForm() {
       <header style={pageHeaderStyle}>
         <div>
           <h2 style={pageTitleStyle}>
-            {isNonPo ? 'Create Non-PO Invoice' : 'Create Supplier Invoice'}
+            {isEdit
+              ? `Edit ${editQuery.data?.invoice.invoice_number || editBillId}`
+              : isNonPo
+                ? 'Create Non-PO Invoice'
+                : 'Create Supplier Invoice'}
           </h2>
           <p style={pageSubStyle}>
-            {isNonPo
-              ? 'Freight, duty, rent, utilities, and other vouchers that are not 3-way matched to a PO'
-              : sourceOrderId
-                ? `${orderLabel} ${sourceOrderId} · ${vendorFromOrder || '…'}`
-                : 'Match a vendor invoice to a purchase or subcontract order'}
+            {isEdit
+              ? 'Draft and rejected Non-PO invoices can be corrected, then saved or submitted again.'
+              : isNonPo
+                ? 'Freight, duty, rent, utilities, and other vouchers that are not 3-way matched to a PO'
+                : sourceOrderId
+                  ? `${orderLabel} ${sourceOrderId} · ${vendorFromOrder || '…'}`
+                  : 'Match a vendor invoice to a purchase or subcontract order'}
           </p>
         </div>
         <button type="button" style={secondaryButtonStyle} onClick={() => navigate(backPath)}>
-          {isNonPo || !sourceOrderId ? 'Back to Invoices' : 'Back to Order'}
+          {isEdit ? 'Back to Bill' : isNonPo || !sourceOrderId ? 'Back to Invoices' : 'Back to Order'}
         </button>
       </header>
+
+      {isEdit && editQuery.isLoading ? (
+        <div style={cardStyle}>Loading invoice…</div>
+      ) : editQuery.isError ? (
+        <div style={{ ...cardStyle, color: '#c62828' }}>
+          {editQuery.error instanceof Error ? editQuery.error.message : 'Failed to load invoice'}
+        </div>
+      ) : isEdit && editQuery.data && (editQuery.data.invoice.invoice_type || '').toUpperCase() === 'PO_MATCHED' ? (
+        <div style={{ ...cardStyle, color: '#c62828' }}>
+          PO-matched bills cannot be edited after they are created. Create a new bill if the match is wrong.
+        </div>
+      ) : null}
 
       <div style={cardStyle}>
         <label style={labelStyle}>
@@ -758,7 +834,7 @@ export function SupplierInvoiceForm() {
 
         {mutation.isError ? (
           <p style={{ color: '#c62828', marginTop: 12 }}>
-            {mutation.error instanceof Error ? mutation.error.message : 'Create failed'}
+            {mutation.error instanceof Error ? mutation.error.message : isEdit ? 'Save failed' : 'Create failed'}
           </p>
         ) : null}
 
@@ -767,14 +843,16 @@ export function SupplierInvoiceForm() {
             <button
               type="button"
               style={primaryButtonStyle}
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || (isEdit && (editQuery.isLoading || editQuery.isError))}
               onClick={() => mutation.mutate()}
             >
               {mutation.isPending
                 ? 'Saving…'
                 : isNonPo
                   ? submitMode === 'submit'
-                    ? 'Create & Submit'
+                    ? isEdit
+                      ? 'Save & Submit'
+                      : 'Create & Submit'
                     : 'Save Draft'
                   : approveAfter
                     ? 'Create & Approve Bill'

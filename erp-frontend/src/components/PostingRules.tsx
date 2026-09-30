@@ -6,9 +6,14 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { chartOfAccountsService, postingRulesService } from '../api/services'
 import type { ChartOfAccount, PostingRule } from '../types'
 import { useAuth } from '../context/AuthContext'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const RULE_FILTERS: FilterField[] = []
 
 function accountLabel(code?: string | null, name?: string | null) {
   if (!code) return '—'
@@ -16,6 +21,7 @@ function accountLabel(code?: string | null, name?: string | null) {
 }
 
 function PostingRules() {
+  const { hash } = useLocation()
   const { hasPermission } = useAuth()
   const canEdit = hasPermission('journal:create')
   const [rules, setRules] = useState<PostingRule[]>([])
@@ -50,16 +56,44 @@ function PostingRules() {
     load()
   }, [])
 
+  useEffect(() => {
+    const ruleId = hash.startsWith('#rule-') ? hash.slice('#rule-'.length) : ''
+    if (!ruleId || rules.length === 0) return
+    const match = rules.find((rule) => rule.id === ruleId)
+    if (match) openEdit(match)
+    document.getElementById(`rule-${ruleId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [hash, rules])
+
+  const { values } = useListFilterParams(RULE_FILTERS)
+  const filteredRules = useMemo(
+    () =>
+      rules.filter(
+        (rule) =>
+          rule.is_active &&
+          matchesSearch(
+            values.q,
+            rule.rule_code,
+            rule.name,
+            rule.event_label,
+            rule.event_code,
+            rule.variant_label,
+            rule.party_label,
+            rule.debit_account_code,
+            rule.credit_account_code,
+          ),
+      ),
+    [rules, values.q],
+  )
   const grouped = useMemo(() => {
     const byEvent = new Map<string, PostingRule[]>()
-    for (const rule of rules) {
+    for (const rule of filteredRules) {
       const key = rule.event_label || rule.event_code
       const list = byEvent.get(key) || []
       list.push(rule)
       byEvent.set(key, list)
     }
     return [...byEvent.entries()]
-  }, [rules])
+  }, [filteredRules])
 
   const openEdit = (rule: PostingRule) => {
     setEditing(rule)
@@ -144,12 +178,33 @@ function PostingRules() {
           <p style={pageSubStyle}>
             Auto-generated journals read these debit and credit accounts. Change them here to
             maintain your chart — the next posting uses the new setup. Vendor AP mapping and
-            bank-account G/L still override AP and cash. Month-end uses the credit account on
-            Month-end close; year-end uses debit = current-period NI and credit = retained
-            earnings.
+            bank-account G/L still override AP and cash. Month-end rules are adjustments only
+            (GRNI cutoff, prepayments, accruals, depreciation, FX). Year-end close zeros P&amp;L into retained
+            earnings and clears leftover current-period NI.
           </p>
         </div>
       </header>
+
+      <ListFilterBar
+        fields={RULE_FILTERS}
+        searchPlaceholder="Search rule code, event, account…"
+        exportCount={filteredRules.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('posting-rules'),
+            ['Rule Code', 'Name', 'Event', 'Variant', 'Party', 'Debit', 'Credit'],
+            filteredRules.map((rule) => [
+              rule.rule_code,
+              rule.name,
+              rule.event_label || rule.event_code,
+              rule.variant_label || rule.variant,
+              rule.party_label || rule.party_scope,
+              rule.debit_account_code,
+              rule.credit_account_code,
+            ]),
+          )
+        }
+      />
 
       {saveMessage && !editing && <p style={successStyle}>{saveMessage}</p>}
 
@@ -239,7 +294,15 @@ function PostingRules() {
                   </thead>
                   <tbody>
                     {eventRules.map((rule) => (
-                      <tr key={rule.id} style={directoryTbodyRowStyle}>
+                      <tr
+                        id={`rule-${rule.id}`}
+                        key={rule.id}
+                        style={
+                          hash === `#rule-${rule.id}`
+                            ? { ...directoryTbodyRowStyle, backgroundColor: '#e3f2fd' }
+                            : directoryTbodyRowStyle
+                        }
+                      >
                         <td style={directoryTdStyle}>{rule.variant_label}</td>
                         <td style={directoryTdStyle}>{rule.party_label}</td>
                         <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }}>

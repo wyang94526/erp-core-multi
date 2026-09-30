@@ -17,6 +17,7 @@ import ListFilterBar, {
   type FilterField,
 } from './ListFilterBar'
 import { invoiceDetailHref } from '../utils/cashReference'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 
 const AR_FILTERS: FilterField[] = [
   {
@@ -99,9 +100,16 @@ function ARInvoices() {
       if (values.due === 'upcoming') {
         if (!(inv.due_date && inv.due_date >= today && inv.status !== 'Paid')) return false
       }
-      return true
+      return matchesSearch(
+        values.q,
+        inv.invoice_id,
+        inv.sales_order_id,
+        inv.customer_id,
+        inv.status,
+        inv.approval_status,
+      )
     })
-  }, [invoices, values.status, values.approval, values.due, today, focusInvoice])
+  }, [invoices, values.status, values.approval, values.due, values.q, today, focusInvoice])
 
   const { items: sortedInvoices, requestSort, sortConfig } = useSortableData(filteredInvoices, {
     columnTypes: {
@@ -151,7 +159,26 @@ function ARInvoices() {
         />
       ) : null}
 
-      <ListFilterBar fields={AR_FILTERS} />
+      <ListFilterBar
+        fields={AR_FILTERS}
+        searchPlaceholder="Search invoice, sales order, customer…"
+        exportCount={filteredInvoices.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('ar-invoices'),
+            ['Invoice ID', 'Sales Order ID', 'Customer ID', 'Amount', 'Due Date', 'Status', 'Approval'],
+            filteredInvoices.map((inv) => [
+              inv.invoice_id,
+              inv.sales_order_id,
+              inv.customer_id,
+              inv.amount,
+              inv.due_date,
+              inv.status,
+              inv.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {loading ? (

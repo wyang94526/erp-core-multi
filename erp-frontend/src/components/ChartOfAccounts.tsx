@@ -5,10 +5,27 @@
  * ChartOfAccounts — master list of GL accounts
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { chartOfAccountsService } from '../api/services'
 import type { AccountType, ChartOfAccount } from '../types'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const COA_FILTERS: FilterField[] = [
+  {
+    key: 'type',
+    label: 'Type',
+    options: [
+      { value: 'ALL', label: 'All types' },
+      { value: 'Asset', label: 'Asset' },
+      { value: 'Liability', label: 'Liability' },
+      { value: 'Equity', label: 'Equity' },
+      { value: 'Revenue', label: 'Revenue' },
+      { value: 'Expense', label: 'Expense' },
+    ],
+  },
+]
 import SortableTh from './SortableTh'
 
 const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']
@@ -45,7 +62,15 @@ function ChartOfAccounts() {
     loadAccounts()
   }, [])
 
-  const { items: sortedAccounts, requestSort, sortConfig } = useSortableData(accounts, {
+  const { values } = useListFilterParams(COA_FILTERS)
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      if (values.type !== 'ALL' && account.account_type !== values.type) return false
+      return matchesSearch(values.q, account.account_code, account.account_name, account.account_type)
+    })
+  }, [accounts, values.q, values.type])
+
+  const { items: sortedAccounts, requestSort, sortConfig } = useSortableData(filteredAccounts, {
     columnTypes: {
       created_at: 'date',
     },
@@ -162,12 +187,30 @@ function ChartOfAccounts() {
         </form>
       )}
 
+      <ListFilterBar
+        fields={COA_FILTERS}
+        searchPlaceholder="Search account code or name…"
+        exportCount={filteredAccounts.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('chart-of-accounts'),
+            ['Code', 'Name', 'Type', 'Created'],
+            filteredAccounts.map((account) => [
+              account.account_code,
+              account.account_name,
+              account.account_type,
+              account.created_at,
+            ]),
+          )
+        }
+      />
+
       <div style={dashboardSectionStyle}>
         {loading ? (
           <div style={emptyStateWrapperStyle}>Loading chart of accounts...</div>
         ) : error ? (
           <div style={{ ...emptyStateWrapperStyle, color: '#c62828' }}>{error}</div>
-        ) : accounts.length === 0 ? (
+        ) : filteredAccounts.length === 0 ? (
           <div style={emptyStateWrapperStyle}>No accounts found. Add one to get started.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

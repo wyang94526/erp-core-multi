@@ -7,7 +7,23 @@
 
 import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, Warehouse } from 'lucide-react'
 import { inventoryService } from '../api/services'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import {
+  HoverTip,
+  actionRowStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
+
+const WH_FILTERS: FilterField[] = []
 
 function slugToken(value: string, max = 20) {
   return value
@@ -53,10 +69,28 @@ export function WarehousesBins() {
     queryFn: () => inventoryService.listBins(),
   })
 
+  const { values } = useListFilterParams(WH_FILTERS)
+  const filteredWarehouses = useMemo(
+    () =>
+      warehouses.filter((wh) =>
+        matchesSearch(values.q, wh.warehouse_id, wh.code, wh.name, wh.address),
+      ),
+    [warehouses, values.q],
+  )
   const filteredBins = useMemo(() => {
-    if (selectedWarehouseId === 'all') return bins
-    return bins.filter((b) => b.warehouse_id === selectedWarehouseId)
-  }, [bins, selectedWarehouseId])
+    return bins.filter((b) => {
+      if (selectedWarehouseId !== 'all' && b.warehouse_id !== selectedWarehouseId) return false
+      const warehouse = warehouses.find((wh) => wh.warehouse_id === b.warehouse_id)
+      return matchesSearch(
+        values.q,
+        b.bin_id,
+        b.bin_code,
+        b.description,
+        warehouse?.code,
+        warehouse?.name,
+      )
+    })
+  }, [bins, selectedWarehouseId, warehouses, values.q])
 
   const openWarehouseDialog = () => {
     setFormError(null)
@@ -153,26 +187,81 @@ export function WarehousesBins() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Warehouses &amp; Bins</h2>
-          <p style={pageSubStyle}>
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>Warehouses &amp; Bins</h1>
+          <p style={documentPageSubStyle}>
             Warehouse sites and bin locations used for stock placement
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" style={secondaryButtonStyle} onClick={openBinDialog} disabled={warehouses.length === 0}>
-            Add bin
-          </button>
-          <button type="button" style={primaryButtonStyle} onClick={openWarehouseDialog}>
-            Add warehouse
-          </button>
+        <div style={headerActionsStyle}>
+          <div style={actionRowStyle}>
+            <HoverTip label="Add a warehouse site">
+              <button type="button" style={primaryButtonStyle} onClick={openWarehouseDialog}>
+                <Warehouse size={15} />
+                Add warehouse
+              </button>
+            </HoverTip>
+            <HoverTip
+              label={
+                warehouses.length === 0
+                  ? 'Add a warehouse first before creating bins'
+                  : 'Add a bin location inside a warehouse'
+              }
+            >
+              <button
+                type="button"
+                style={{
+                  ...secondaryButtonStyle,
+                  opacity: warehouses.length === 0 ? 0.55 : 1,
+                  cursor: warehouses.length === 0 ? 'not-allowed' : 'pointer',
+                }}
+                onClick={openBinDialog}
+                disabled={warehouses.length === 0}
+              >
+                <Plus size={15} />
+                Add bin
+              </button>
+            </HoverTip>
+          </div>
         </div>
       </header>
 
+      <ListFilterBar
+        fields={WH_FILTERS}
+        searchPlaceholder="Search warehouse, bin, address…"
+        exportCount={filteredWarehouses.length + filteredBins.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('warehouses-bins'),
+            ['Type', 'ID', 'Code', 'Name / Description', 'Warehouse', 'Address', 'Status'],
+            [
+              ...filteredWarehouses.map((wh) => [
+                'Warehouse',
+                wh.warehouse_id,
+                wh.code,
+                wh.name,
+                '',
+                wh.address,
+                wh.is_active ? 'Active' : 'Inactive',
+              ]),
+              ...filteredBins.map((bin) => [
+                'Bin',
+                bin.bin_id,
+                bin.bin_code,
+                bin.description,
+                warehouses.find((wh) => wh.warehouse_id === bin.warehouse_id)?.code || bin.warehouse_id,
+                '',
+                bin.is_active ? 'Active' : 'Inactive',
+              ]),
+            ],
+          )
+        }
+      />
+
       <div style={dashboardSectionStyle}>
         <h3 style={sectionTitleStyle}>Warehouses</h3>
-        {warehouses.length === 0 ? (
+        {filteredWarehouses.length === 0 ? (
           <div style={directoryEmptyTdWrapperStyle}>No warehouses configured.</div>
         ) : (
           <div style={{ overflowX: 'auto', marginBottom: '28px' }}>
@@ -187,7 +276,7 @@ export function WarehousesBins() {
                 </tr>
               </thead>
               <tbody>
-                {warehouses.map((wh) => (
+                {filteredWarehouses.map((wh) => (
                   <tr key={wh.warehouse_id} style={directoryTbodyRowStyle}>
                     <td style={directoryTdStyle}>{wh.warehouse_id}</td>
                     <td style={{ ...directoryTdStyle, fontWeight: 700, color: 'var(--text-h)' }}>
@@ -390,30 +479,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -505,28 +570,6 @@ const statusBadgeStyle: React.CSSProperties = {
   fontSize: '11px',
   fontWeight: 'bold',
   whiteSpace: 'nowrap',
-}
-
-const primaryButtonStyle: CSSProperties = {
-  padding: '8px 14px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontWeight: 700,
-  fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: CSSProperties = {
-  padding: '8px 14px',
-  backgroundColor: 'transparent',
-  color: '#212121',
-  border: '1px solid var(--border, #ddd)',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontWeight: 700,
-  fontFamily: 'inherit',
 }
 
 const overlayStyle: CSSProperties = {

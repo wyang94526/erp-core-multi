@@ -11,7 +11,7 @@
 import { useRef, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileDown, Loader2 } from 'lucide-react'
+import { ArrowLeft, FileDown, Loader2, Mail, Pencil, Receipt, RotateCcw } from 'lucide-react'
 import { itemService, purchaseOrderService, subcontractOrderService, vendorService } from '../api/services'
 import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
@@ -19,7 +19,25 @@ import { defaultCostSheet } from '../utils/scoCostSheet'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
 import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
 import { scoCanReceiveFinishedGoods, scoReceiveBlockedReason } from '../utils/scoReceive'
+import {
+  HoverTip,
+  actionRowStyle,
+  badgeStyle,
+  dangerButtonStyle,
+  disabledActionStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
 import { useAuth } from '../context/AuthContext'
+
+const money = (n: number | null | undefined, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0)
 import { ApprovalPanel } from './ApprovalPanel'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 import { DocumentRevisionPanel } from './DocumentRevisionPanel'
@@ -94,6 +112,12 @@ export function SubcontractOrderDetail() {
     queryKey: ['purchaseOrders', 'bySco', id],
     queryFn: () => purchaseOrderService.listPurchaseOrders(0, 50, { sco_number: id }),
     enabled: !!id,
+  })
+
+  const { data: vendor } = useQuery({
+    queryKey: ['vendors', sco?.supplier_id],
+    queryFn: () => vendorService.getVendor(sco!.supplier_id),
+    enabled: Boolean(sco?.supplier_id),
   })
 
   const issueMutation = useMutation({
@@ -385,6 +409,27 @@ export function SubcontractOrderDetail() {
     }
   }
 
+  const handleEmailVendor = async () => {
+    const email = (vendor?.contact_email || '').trim()
+    if (!email) {
+      setExportError('No vendor email on file. Add a contact email on the vendor.')
+      return
+    }
+    await handleExportVendorPdf()
+    const subject = encodeURIComponent(`Subcontract order ${sco.sco_number} from Grand-Tek Technology USA`)
+    const body = encodeURIComponent(
+      [
+        `Please find subcontract order ${sco.sco_number} for ${money(sco.document_total)}.`,
+        sco.sales_order_id ? `Sales order: ${sco.sales_order_id}` : '',
+        '',
+        'The subcontract order PDF was downloaded so you can attach it to this email.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank')
+  }
+
   const printIssueShippingDoc = async (order: SubcontractOrder, issue: MaterialIssue) => {
     setExportingIssueId(issue.issue_id)
     setIssueDocError(null)
@@ -515,60 +560,144 @@ export function SubcontractOrderDetail() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Subcontract Order Details</h2>
-          <p style={pageSubStyle}>
-            Viewing SCO {sco.sco_number}
-            {Number(sco.revision_number || amendmentNumber || 0) > 0
-              ? ` · Rev ${sco.revision_number || amendmentNumber}`
-              : ''}
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>{sco.sco_number}</h1>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <span style={{ ...badgeStyle, backgroundColor: statusColors.bg, color: statusColors.text }}>
+              {sco.status}
+            </span>
+            <span
+              style={{
+                ...badgeStyle,
+                backgroundColor: getStatusColors(approvalStatus).bg,
+                color: getStatusColors(approvalStatus).text,
+              }}
+            >
+              {approvalStatus.replace(/_/g, ' ')}
+            </span>
+            {sco.billing_status ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#37474f' }}>
+                {String(sco.billing_status).replace(/_/g, ' ')}
+              </span>
+            ) : null}
+            {Number(sco.revision_number || amendmentNumber || 0) > 0 ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#fff3e0', color: '#e65100' }}>
+                Rev {sco.revision_number || amendmentNumber}
+              </span>
+            ) : null}
+          </div>
+          <p style={documentPageSubStyle}>
+            {sco.supplier_id}
+            {vendor?.company_name ? ` · ${vendor.company_name}` : ''}
+            {sco.sales_order_id ? (
+              <>
+                {' · '}
+                <Link to={`/orders/${sco.sales_order_id}`} style={documentLinkStyle}>
+                  {sco.sales_order_id}
+                </Link>
+              </>
+            ) : null}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {canAmend && !editingCostSheet && (
-            <button type="button" onClick={() => setShowAmendModal(true)} style={amendButtonStyle}>
-              Create Revision
-            </button>
-          )}
-          {canEditCostSheet && !editingCostSheet && (
-            <button type="button" onClick={enterCostSheetEdit} style={primaryButtonStyle}>
-              Edit cost sheet
-            </button>
-          )}
-          {editingCostSheet && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingCostSheet(false)
-                  setFormErrors((prev) => {
-                    const copy = { ...prev }
-                    delete copy.costSheet
-                    return copy
-                  })
-                }}
-                style={secondaryButtonStyle}
-              >
-                Cancel
+        <div style={headerActionsStyle}>
+          <div style={actionRowStyle}>
+            <HoverTip label="Download or print this subcontract order as a PDF">
+              <button type="button" style={primaryButtonStyle} onClick={() => void handleExportVendorPdf()} disabled={exportingPdf}>
+                {exportingPdf ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <FileDown size={15} />}
+                PDF
               </button>
-              <button
-                type="button"
-                onClick={saveCostSheet}
-                disabled={costSheetMutation.isPending}
-                style={{
-                  ...primaryButtonStyle,
-                  opacity: costSheetMutation.isPending ? 0.7 : 1,
-                  cursor: costSheetMutation.isPending ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {costSheetMutation.isPending ? 'Saving…' : 'Save cost sheet'}
+            </HoverTip>
+            <HoverTip label="Email this subcontract order to the vendor. The PDF downloads first so you can attach it.">
+              <button type="button" style={secondaryButtonStyle} onClick={() => void handleEmailVendor()}>
+                <Mail size={15} />
+                Email vendor
               </button>
-            </>
-          )}
-          <button type="button" onClick={() => navigate('/subcontract-orders')} style={secondaryButtonStyle}>
-            Back to Subcontract Orders
-          </button>
+            </HoverTip>
+            {canEditCostSheet && !editingCostSheet ? (
+              <HoverTip label="Update labor, shipping, and admin charges">
+                <button type="button" style={secondaryButtonStyle} onClick={enterCostSheetEdit}>
+                  <Pencil size={15} />
+                  Edit cost sheet
+                </button>
+              </HoverTip>
+            ) : null}
+            {editingCostSheet ? (
+              <>
+                <HoverTip label="Discard cost sheet edits">
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => {
+                      setEditingCostSheet(false)
+                      setFormErrors((prev) => {
+                        const copy = { ...prev }
+                        delete copy.costSheet
+                        return copy
+                      })
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </HoverTip>
+                <HoverTip label="Save the revised cost sheet">
+                  <button
+                    type="button"
+                    style={{ ...primaryButtonStyle, ...disabledActionStyle(!costSheetMutation.isPending) }}
+                    onClick={saveCostSheet}
+                    disabled={costSheetMutation.isPending}
+                  >
+                    {costSheetMutation.isPending ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Pencil size={15} />}
+                    {costSheetMutation.isPending ? 'Saving…' : 'Save cost sheet'}
+                  </button>
+                </HoverTip>
+              </>
+            ) : null}
+            {canAmend && !editingCostSheet ? (
+              <HoverTip label="Create a revision of this subcontract order">
+                <button type="button" style={secondaryButtonStyle} onClick={() => setShowAmendModal(true)}>
+                  <RotateCcw size={15} />
+                  Create Revision
+                </button>
+              </HoverTip>
+            ) : null}
+            {isApproved && !isAmending ? (
+              <HoverTip label="Create a supplier invoice after receiving finished goods">
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() =>
+                    navigate(
+                      `/supplier-invoices/new?source_type=SUBCONTRACT_ORDER&source_order_id=${encodeURIComponent(sco.sco_number)}`,
+                    )
+                  }
+                >
+                  <Receipt size={15} />
+                  Create Bill
+                </button>
+              </HoverTip>
+            ) : null}
+            {isCancellable ? (
+              <HoverTip label="Cancel this subcontract order">
+                <button
+                  type="button"
+                  style={dangerButtonStyle}
+                  disabled={cancelMutation.isPending}
+                  onClick={() => cancelMutation.mutate()}
+                >
+                  {cancelMutation.isPending ? 'Cancelling…' : 'Cancel Order'}
+                </button>
+              </HoverTip>
+            ) : null}
+          </div>
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the subcontract order list">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/subcontract-orders')}>
+                <ArrowLeft size={15} />
+                Subcontract Orders
+              </button>
+            </HoverTip>
+          </div>
         </div>
       </header>
 
@@ -593,6 +722,12 @@ export function SubcontractOrderDetail() {
         listChangeLogs={subcontractOrderService.listChangeLogs}
       />
 
+      {exportError && (
+        <div style={{ ...errorAlertStyle, marginBottom: 16 }} role="alert">
+          <span>⚠️ {exportError}</span>
+        </div>
+      )}
+
       {canEditCostSheet && !editingCostSheet && (
         <div style={draftEditBarStyle}>
           <div>
@@ -605,9 +740,6 @@ export function SubcontractOrderDetail() {
                 : `Approval is ${approvalStatus.replace(/_/g, ' ')}. Update labor, shipping, and admin charges before submitting for approval.`}
             </div>
           </div>
-          <button type="button" onClick={enterCostSheetEdit} style={primaryButtonStyle}>
-            Edit cost sheet
-          </button>
         </div>
       )}
 
@@ -623,72 +755,6 @@ export function SubcontractOrderDetail() {
               subcontractor bill after approval.
             </div>
           </div>
-        </div>
-      )}
-
-      {isApproved && (
-        <div style={exportBarStyle}>
-          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-          <div>
-            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-              Print subcontract order
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text)' }}>
-              Download a printable PDF for the approved subcontract order.
-            </div>
-            {exportError && (
-              <div style={{ marginTop: 8, color: '#c62828', fontSize: 13 }} role="alert">
-                {exportError}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleExportVendorPdf}
-            disabled={exportingPdf}
-            style={{
-              ...exportButtonStyle,
-              opacity: exportingPdf ? 0.75 : 1,
-              cursor: exportingPdf ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {exportingPdf ? (
-              <>
-                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                Preparing PDF…
-              </>
-            ) : (
-              <>
-                <FileDown size={16} />
-                Print PDF
-              </>
-            )}
-          </button>
-        </div>
-      )}
-
-      {isApproved && (
-        <div style={{ ...exportBarStyle, marginBottom: 20 }}>
-          <div>
-            <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>
-              Procure-to-Pay
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text)' }}>
-              After receiving finished goods (GRNI posted), create a supplier invoice / bill.
-              {sco.billing_status ? ` Billing: ${sco.billing_status}` : ''}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() =>
-              navigate(
-                `/supplier-invoices/new?source_type=SUBCONTRACT_ORDER&source_order_id=${encodeURIComponent(sco.sco_number)}`,
-              )
-            }
-            style={{ ...exportButtonStyle, backgroundColor: '#6a1b9a' }}
-          >
-            Create Bill / Supplier Invoice
-          </button>
         </div>
       )}
 
@@ -1174,20 +1240,20 @@ export function SubcontractOrderDetail() {
                     onClick={() => void printIssueShippingDoc(sco, mi)}
                     disabled={exportingIssueId === mi.issue_id}
                     style={{
-                      ...exportButtonStyle,
+                      ...primaryButtonStyle,
                       opacity: exportingIssueId === mi.issue_id ? 0.75 : 1,
                       cursor: exportingIssueId === mi.issue_id ? 'not-allowed' : 'pointer',
                     }}
                   >
                     {exportingIssueId === mi.issue_id ? (
                       <>
-                        <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                        <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
                         Preparing…
                       </>
                     ) : (
                       <>
-                        <FileDown size={16} />
-                        Print shipping document
+                        <FileDown size={15} />
+                        PDF
                       </>
                     )}
                   </button>
@@ -1417,25 +1483,6 @@ export function SubcontractOrderDetail() {
         )}
       </div>
 
-      {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: '12px' }}>
-        {isCancellable && (
-          <button
-            onClick={() => cancelMutation.mutate()}
-            disabled={cancelMutation.isPending}
-            style={{
-              ...dangerButtonStyle,
-              cursor: cancelMutation.isPending ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Order'}
-          </button>
-        )}
-        <button onClick={() => navigate('/subcontract-orders')} style={secondaryButtonStyle}>
-          Back to Subcontract Orders
-        </button>
-      </div>
-
       {showAmendModal && (
         <AmendCostSheetModal
           busy={amendMutation.isPending}
@@ -1509,6 +1556,10 @@ function remainingRequiredQty(
 
 function getStatusColors(status: string): { bg: string; text: string } {
   const statusColors: Record<string, { bg: string; text: string }> = {
+    DRAFT: { bg: '#f5f5f5', text: '#616161' },
+    PENDING_APPROVAL: { bg: '#fff3e0', text: '#e65100' },
+    REJECTED: { bg: '#ffebee', text: '#c62828' },
+    APPROVED: { bg: '#e3f2fd', text: '#1565c0' },
     PLANNED: { bg: '#fffde7', text: '#f9a825' },
     PARTIALLY_ISSUED: { bg: '#fff3e0', text: '#e65100' },
     MATERIALS_ISSUED: { bg: '#e3f2fd', text: '#1565c0' },
@@ -1591,30 +1642,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -1650,16 +1677,7 @@ const tableHeaderContainerStyle: React.CSSProperties = {
 }
 
 const addButtonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '13px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
+  ...primaryButtonStyle,
 }
 
 const gridStyle: React.CSSProperties = {
@@ -1743,19 +1761,6 @@ const tdStyle: React.CSSProperties = {
   verticalAlign: 'middle',
 }
 
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
 const amendButtonStyle: React.CSSProperties = {
   ...primaryButtonStyle,
   backgroundColor: '#ef6c00',
@@ -1794,21 +1799,6 @@ const amendTextareaStyle: React.CSSProperties = {
   color: 'var(--text-h)',
 }
 
-const exportBarStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 16,
-  flexWrap: 'wrap',
-  padding: '16px 18px',
-  marginBottom: 16,
-  borderRadius: 10,
-  border: '1px solid rgba(147, 51, 234, 0.28)',
-  background:
-    'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255,255,255,0.95) 55%)',
-  boxShadow: 'var(--shadow)',
-}
-
 const draftEditBarStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -1840,44 +1830,6 @@ const issueCardHeaderStyle: React.CSSProperties = {
   padding: '12px 14px',
   borderBottom: '1px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
-}
-
-const exportButtonStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '11px 18px',
-  backgroundColor: '#9333ea',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  fontSize: 14,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-  whiteSpace: 'nowrap',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
-
-const dangerButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#ffebee',
-  color: '#c62828',
-  border: '1px solid #ffcdd2',
-  borderRadius: '6px',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

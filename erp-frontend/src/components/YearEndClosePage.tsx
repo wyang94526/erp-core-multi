@@ -8,6 +8,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, CalendarRange, FilePlus, Loader2 } from 'lucide-react'
 import { journalEntryService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import type { JournalEntry } from '../types'
@@ -18,6 +19,18 @@ import {
   shortJournalId,
 } from '../utils/journalEntries'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
+import {
+  HoverTip,
+  actionRowStyle,
+  disabledActionStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 function formatDate(value: string | null | undefined) {
   if (!value) return '—'
@@ -79,17 +92,15 @@ export function YearEndClosePage() {
 
   return (
     <div style={pageStyle}>
-      <div style={headerStyle}>
-        <div>
-          <h1 style={titleStyle}>Year-End Close</h1>
-          <p style={subStyle}>
-            Close FY {fiscalYear} P&amp;L into retained earnings. The generated journal stays Draft
-            and must be submitted for approval before it posts.
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>Year-End Close</h1>
+          <p style={documentPageSubStyle}>
+            Close FY {fiscalYear} revenue and expense into retained earnings (3350). The generated
+            journal stays Draft and must be submitted for approval before it posts.
           </p>
-        </div>
-        <div style={actionsStyle}>
-          <label style={yearLabelStyle}>
-            Fiscal year
+          <label style={periodControlStyle}>
+            <span style={periodLabelTextStyle}>Fiscal year</span>
             <select
               value={fiscalYear}
               onChange={(event) => {
@@ -106,24 +117,52 @@ export function YearEndClosePage() {
               ))}
             </select>
           </label>
-          <button type="button" style={secondaryBtn} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
-            Month-End Close
-          </button>
-          <button type="button" style={secondaryBtn} onClick={() => navigate('/general-ledger')}>
-            Back to General Ledger
-          </button>
-          {canRun && (
-            <button
-              type="button"
-              style={primaryBtn}
-              disabled={closeMutation.isPending || !preview?.can_run}
-              onClick={() => closeMutation.mutate()}
-            >
-              {closeMutation.isPending ? 'Generating…' : 'Generate Closing Journal'}
-            </button>
-          )}
         </div>
-      </div>
+        <div style={headerActionsStyle}>
+          {canRun ? (
+            <div style={actionRowStyle}>
+              <HoverTip
+                label={
+                  preview?.can_run
+                    ? 'Generate a Draft P&L closing journal for approval'
+                    : preview?.blockers?.[0] || 'Closing journal cannot be generated yet'
+                }
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    ...disabledActionStyle(Boolean(preview?.can_run) && !closeMutation.isPending),
+                  }}
+                  disabled={closeMutation.isPending || !preview?.can_run}
+                  onClick={() => closeMutation.mutate()}
+                >
+                  {closeMutation.isPending ? (
+                    <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                  ) : (
+                    <FilePlus size={15} />
+                  )}
+                  {closeMutation.isPending ? 'Generating…' : 'Generate journal'}
+                </button>
+              </HoverTip>
+            </div>
+          ) : null}
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the general ledger">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/general-ledger')}>
+                <ArrowLeft size={15} />
+                General Ledger
+              </button>
+            </HoverTip>
+            <HoverTip label="Post month-end adjustments on Month-End Close">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
+                <CalendarRange size={15} />
+                Month-End Close
+              </button>
+            </HoverTip>
+          </div>
+        </div>
+      </header>
 
       {error && <div style={errorBox}>{error}</div>}
       {resultMessage && (
@@ -143,7 +182,8 @@ export function YearEndClosePage() {
       {preview?.year_still_open ? (
         <div style={infoBox}>
           FY {fiscalYear} is still open. You can generate the closing journal now; it remains Draft
-          until it is approved. Continue using Month-End Close each month, including December.
+          until it is approved. Post month-end adjustments each month, including December. Revenue
+          and expense stay open until this year-end journal is approved.
         </div>
       ) : null}
 
@@ -187,7 +227,7 @@ export function YearEndClosePage() {
         ) : (
           <p style={hintStyle}>
             Approving the closing journal zeros FY {fiscalYear} P&amp;L and transfers the net to
-            retained earnings. Until then, the balance sheet still plugs current-year net income.
+            retained earnings. Month-end adjustments do not close revenue or expense.
           </p>
         )}
       </section>
@@ -234,11 +274,12 @@ export function YearEndClosePage() {
       <section style={cardStyle}>
         <h2 style={sectionTitle}>Approved drafts still unposted ({ready.length})</h2>
         <p style={hintStyle}>
-          Post these with{' '}
+          Approve and post these journals before generating the year-end journal. Month-end
+          adjustments are posted from{' '}
           <Link to={MONTH_END_CLOSE_PATH} style={inlineLink}>
             Month-End Close
-          </Link>{' '}
-          before generating the year-end journal.
+          </Link>
+          .
         </p>
         {ready.length === 0 ? (
           <p style={emptyStyle}>No approved draft journals in FY {fiscalYear}.</p>
@@ -258,6 +299,7 @@ export function YearEndClosePage() {
       </section>
 
       <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
@@ -341,26 +383,29 @@ const pageStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const headerStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: '12px',
-  flexWrap: 'wrap',
-  marginBottom: '20px',
-  paddingBottom: '16px',
-  borderBottom: '1px solid #ddd',
+const periodControlStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 10,
+  whiteSpace: 'nowrap',
 }
-const titleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#212121' }
-const subStyle: CSSProperties = { margin: '4px 0 0', fontSize: '14px', color: '#616161', maxWidth: 640 }
-const actionsStyle: CSSProperties = { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }
-const yearLabelStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: '#616161' }
+const periodLabelTextStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#757575',
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+}
 const selectStyle: CSSProperties = {
-  padding: '8px 10px',
+  padding: '6px 8px',
   borderRadius: 6,
-  border: '1px solid #cfd8dc',
+  border: '1px solid var(--border, #ddd)',
   fontFamily: 'inherit',
-  fontSize: 14,
+  fontSize: 13,
+  fontWeight: 700,
+  color: 'var(--text-h, #212121)',
+  backgroundColor: 'var(--bg, #fff)',
 }
 const cardStyle: CSSProperties = {
   background: '#fff',
@@ -417,23 +462,6 @@ const theadRow: CSSProperties = { borderBottom: '2px solid #ddd', background: '#
 const thStyle: CSSProperties = { padding: '10px', textAlign: 'left' }
 const tbodyRow: CSSProperties = { borderBottom: '1px solid #eee' }
 const tdStyle: CSSProperties = { padding: '10px', color: '#424242' }
-const primaryBtn: CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#2196F3',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
-const secondaryBtn: CSSProperties = {
-  ...primaryBtn,
-  backgroundColor: '#fff',
-  color: '#1565c0',
-  border: '1px solid #90caf9',
-}
 const editBtn: CSSProperties = {
   padding: '4px 10px',
   backgroundColor: '#fff8e1',

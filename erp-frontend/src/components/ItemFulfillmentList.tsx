@@ -16,6 +16,7 @@ import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { validateFulfillmentAgainstOrder } from '../utils/fulfillmentQty'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 
 const PAGE_SIZE = 10
 
@@ -78,9 +79,17 @@ export function ItemFulfillmentList() {
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (values.status !== 'ALL' && r.status !== values.status) return false
-      return true
+      return matchesSearch(
+        values.q,
+        r.fulfillment_number,
+        r.sales_order_id,
+        r.customer_name,
+        r.customer_id,
+        r.carrier,
+        r.status,
+      )
     })
-  }, [rows, values.status])
+  }, [rows, values.status, values.q])
 
   useEffect(() => {
     setSkip(0)
@@ -138,7 +147,25 @@ export function ItemFulfillmentList() {
         </div>
       </header>
 
-      <ListFilterBar fields={FILTERS} />
+      <ListFilterBar
+        fields={FILTERS}
+        searchPlaceholder="Search fulfillment, sales order, customer…"
+        exportCount={filtered.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('fulfillments'),
+            ['Fulfillment #', 'Sales Order', 'Customer', 'Status', 'Shipped', 'Carrier'],
+            filtered.map((row) => [
+              row.fulfillment_number,
+              row.sales_order_id,
+              row.customer_name || row.customer_id,
+              row.status,
+              row.shipped_date,
+              row.carrier,
+            ]),
+          )
+        }
+      />
 
       {isLoading ? (
         <div style={emptyStyle}>Loading fulfillments...</div>

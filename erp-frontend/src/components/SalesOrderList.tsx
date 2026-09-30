@@ -8,14 +8,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { salesOrderService } from '../api/services'
 import type { SalesOrder } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
-import { METRIC_PAGE_TITLES } from '../config/metricRoutes'
-import type { MetricDrillKey } from '../types/dashboard'
 import {
   invoiceStatusColors,
   invoiceStatusLabel,
@@ -26,37 +24,63 @@ import {
   salesOrderEditPath,
   SALES_ORDER_LOCKED_EDIT_MESSAGE,
 } from '../utils/salesOrders'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { matchesRelativeDate, type RelativeDateFilter } from '../utils/listDateFilters'
+import ListFilterBar, {
+  DashboardContextBanner,
+  useListFilterParams,
+  type FilterField,
+} from './ListFilterBar'
 
-type DateFilter = 'all' | 'this_month' | 'last_quarter' | 'ytd'
 type ViewFilter = 'all' | 'open'
 
 const LIST_LIMIT = 100
 
-function parseDate(value: string | null | undefined): Date | null {
-  if (!value) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-function matchesDateFilter(orderDate: string, filter: DateFilter, now = new Date()): boolean {
-  if (filter === 'all') return true
-  const d = parseDate(orderDate)
-  if (!d) return false
-  const y = now.getFullYear()
-  const m = now.getMonth()
-  if (filter === 'this_month') {
-    return d.getFullYear() === y && d.getMonth() === m
-  }
-  if (filter === 'ytd') {
-    return d.getFullYear() === y && d <= now
-  }
-  const currentQuarter = Math.floor(m / 3)
-  const lastQuarter = currentQuarter === 0 ? 3 : currentQuarter - 1
-  const lastQuarterYear = currentQuarter === 0 ? y - 1 : y
-  const start = new Date(lastQuarterYear, lastQuarter * 3, 1)
-  const end = new Date(lastQuarterYear, lastQuarter * 3 + 3, 0, 23, 59, 59)
-  return d >= start && d <= end
-}
+const SO_FILTERS: FilterField[] = [
+  {
+    key: 'date',
+    label: 'Date',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'this_month', label: 'This Month' },
+      { value: 'last_quarter', label: 'Last Quarter' },
+      { value: 'ytd', label: 'YTD' },
+    ],
+  },
+  {
+    key: 'view',
+    label: 'View',
+    allValue: 'all',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'open', label: 'Open only' },
+    ],
+  },
+  {
+    key: 'approval',
+    label: 'Approval',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'RECEIVED', label: 'Received' },
+      { value: 'SHIPPED', label: 'Shipped' },
+      { value: 'CANCELLED', label: 'Cancelled' },
+    ],
+  },
+]
 
 function isOpenOrder(order: SalesOrder): boolean {
   const status = (order.status || '').toUpperCase()
@@ -65,16 +89,14 @@ function isOpenOrder(order: SalesOrder): boolean {
 
 export function SalesOrderList() {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [skip, setSkip] = useState(0)
   const pageSize = 10
-
-  const dateFilter = (searchParams.get('date') as DateFilter) || 'all'
-  const approvalFilter = searchParams.get('approval') || 'ALL'
-  const statusFilter = searchParams.get('status') || 'ALL'
-  const viewFilter = (searchParams.get('view') as ViewFilter) || 'all'
-  const fromDashboard = searchParams.get('from') === 'dashboard'
-  const metric = (searchParams.get('metric') || '') as MetricDrillKey | ''
+  const { values, fromDashboard, metricTitle, hasActiveFilters, clearFilters } =
+    useListFilterParams(SO_FILTERS)
+  const dateFilter = (values.date || 'all') as RelativeDateFilter
+  const approvalFilter = values.approval || 'ALL'
+  const statusFilter = values.status || 'ALL'
+  const viewFilter = (values.view || 'all') as ViewFilter
   const [lockWarning, setLockWarning] = useState<string | null>(null)
 
   const requestEdit = (order: SalesOrder) => {
@@ -103,7 +125,7 @@ export function SalesOrderList() {
 
   const filteredOrders = useMemo(() => {
     return salesOrders.filter((order) => {
-      if (!matchesDateFilter(order.order_date, dateFilter)) return false
+      if (!matchesRelativeDate(order.order_date, dateFilter)) return false
       if (viewFilter === 'open' && !isOpenOrder(order)) return false
       if (approvalFilter !== 'ALL') {
         const approval = (order.approval_status || 'DRAFT').toUpperCase()
@@ -112,13 +134,21 @@ export function SalesOrderList() {
       if (statusFilter !== 'ALL') {
         if ((order.status || '').toUpperCase() !== statusFilter.toUpperCase()) return false
       }
-      return true
+      return matchesSearch(
+        values.q,
+        order.sales_order_id,
+        order.customer_id,
+        order.customer_po_number,
+        order.status,
+        order.approval_status,
+        order.buyer_contact_name,
+      )
     })
-  }, [salesOrders, dateFilter, viewFilter, approvalFilter, statusFilter])
+  }, [salesOrders, dateFilter, viewFilter, approvalFilter, statusFilter, values.q])
 
   useEffect(() => {
     setSkip(0)
-  }, [dateFilter, viewFilter, approvalFilter, statusFilter])
+  }, [dateFilter, viewFilter, approvalFilter, statusFilter, values.q])
 
   const pageRows = filteredOrders.slice(skip, skip + pageSize)
 
@@ -138,29 +168,6 @@ export function SalesOrderList() {
       return (order as unknown as Record<string, unknown>)[key]
     },
   })
-
-  const updateParam = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams)
-    const isDefault =
-      (key === 'date' && value === 'all') ||
-      (key === 'view' && value === 'all') ||
-      ((key === 'approval' || key === 'status') && value === 'ALL')
-    if (isDefault) next.delete(key)
-    else next.set(key, value)
-    if (fromDashboard) next.set('from', 'dashboard')
-    if (metric) next.set('metric', metric)
-    setSearchParams(next, { replace: true })
-  }
-
-  const clearFilters = () => {
-    setSearchParams({}, { replace: true })
-  }
-
-  const hasActiveFilters =
-    dateFilter !== 'all' ||
-    approvalFilter !== 'ALL' ||
-    statusFilter !== 'ALL' ||
-    viewFilter !== 'all'
 
   const filteredTotal = filteredOrders.reduce(
     (sum, o) => sum + (Number(o.total_amount) || 0),
@@ -196,11 +203,6 @@ export function SalesOrderList() {
     )
   }
 
-  const metricTitle =
-    metric && METRIC_PAGE_TITLES[metric]
-      ? METRIC_PAGE_TITLES[metric]
-      : 'Filtered sales orders'
-
   return (
     <div style={containerStyle}>
       {lockWarning && (
@@ -226,88 +228,36 @@ export function SalesOrderList() {
       </header>
 
       {fromDashboard ? (
-        <div style={contextBannerStyle}>
-          <div>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1565c0', letterSpacing: '0.04em' }}>
-              FROM DASHBOARD
-            </div>
-            <div style={{ fontWeight: 600, color: 'var(--text-h)', marginTop: 2 }}>
-              {metricTitle}
-            </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text)', marginTop: 4 }}>
-              {filteredOrders.length} order(s) ·{' '}
-              {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                filteredTotal,
-              )}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Link to="/" style={linkBtnStyle}>
-              ← Back to Dashboard
-            </Link>
-            {hasActiveFilters ? (
-              <button type="button" onClick={clearFilters} style={ghostBtnStyle}>
-                Clear filters
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <DashboardContextBanner
+          title={metricTitle}
+          subtitle={`${filteredOrders.length} order(s) · ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(filteredTotal)}`}
+          showClear={hasActiveFilters}
+          onClear={clearFilters}
+        />
       ) : null}
 
-      <div style={filtersBarStyle}>
-        <FilterSelect
-          label="Date"
-          value={dateFilter}
-          onChange={(value) => updateParam('date', value)}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'this_month', label: 'This Month' },
-            { value: 'last_quarter', label: 'Last Quarter' },
-            { value: 'ytd', label: 'YTD' },
-          ]}
-        />
-        <FilterSelect
-          label="View"
-          value={viewFilter}
-          onChange={(value) => updateParam('view', value)}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'open', label: 'Open only' },
-          ]}
-        />
-        <FilterSelect
-          label="Approval"
-          value={approvalFilter}
-          onChange={(value) => updateParam('approval', value)}
-          options={[
-            { value: 'ALL', label: 'All' },
-            { value: 'PENDING_APPROVAL', label: 'Pending' },
-            { value: 'APPROVED', label: 'Approved' },
-            { value: 'DRAFT', label: 'Draft' },
-            { value: 'REJECTED', label: 'Rejected' },
-          ]}
-        />
-        <FilterSelect
-          label="Status"
-          value={statusFilter}
-          onChange={(value) => updateParam('status', value)}
-          options={[
-            { value: 'ALL', label: 'All' },
-            { value: 'DRAFT', label: 'Draft' },
-            { value: 'APPROVED', label: 'Approved' },
-            { value: 'RECEIVED', label: 'Received' },
-            { value: 'SHIPPED', label: 'Shipped' },
-            { value: 'CANCELLED', label: 'Cancelled' },
-          ]}
-        />
-        {hasActiveFilters ? (
-          <div style={filterClearWrapStyle}>
-            <button type="button" onClick={clearFilters} style={ghostBtnStyle}>
-              Clear filters
-            </button>
-          </div>
-        ) : null}
-      </div>
+      <ListFilterBar
+        fields={SO_FILTERS}
+        searchPlaceholder="Search sales order, customer, PO #…"
+        exportCount={filteredOrders.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('sales-orders'),
+            ['Sales Order ID', 'Customer ID', 'Customer PO', 'Order Date', 'Status', 'Approval', 'Billing', 'Total Amount', 'Items'],
+            filteredOrders.map((order) => [
+              order.sales_order_id,
+              order.customer_id,
+              order.customer_po_number,
+              order.order_date,
+              order.status,
+              order.approval_status || 'DRAFT',
+              salesOrderInvoiceStatus(order),
+              order.total_amount,
+              order.items?.length ?? 0,
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {filteredOrders.length === 0 ? (
@@ -537,37 +487,6 @@ export function SalesOrderList() {
   )
 }
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: Array<{ value: string; label: string }>
-}) {
-  const selectId = `so-filter-${label.toLowerCase()}`
-  return (
-    <label htmlFor={selectId} style={filterFieldStyle}>
-      <span style={filterLabelStyle}>{label}</span>
-      <select
-        id={selectId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={filterSelectStyle}
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
 function getStatusColors(status: string): { bg: string; text: string } {
   const statusColors: Record<string, { bg: string; text: string }> = {
     DRAFT: { bg: '#f5f5f5', text: '#616161' },
@@ -650,93 +569,6 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontWeight: 'bold',
   fontFamily: 'inherit',
   cursor: 'pointer',
-}
-
-const contextBannerStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: 16,
-  flexWrap: 'wrap',
-  marginBottom: 16,
-  padding: '14px 16px',
-  borderRadius: 8,
-  border: '1px solid #90caf9',
-  background: 'linear-gradient(135deg, #e3f2fd 0%, #f5f9fc 60%, #fff 100%)',
-}
-
-const filtersBarStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'row',
-  alignItems: 'flex-end',
-  flexWrap: 'wrap',
-  gap: 16,
-  marginBottom: 16,
-  padding: '16px 18px',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'var(--bg)',
-  boxShadow: 'var(--shadow)',
-}
-
-const filterFieldStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  minWidth: 150,
-  flex: '1 1 150px',
-  maxWidth: 220,
-}
-
-const filterLabelStyle: React.CSSProperties = {
-  fontSize: '0.7rem',
-  fontWeight: 700,
-  color: 'var(--text)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-}
-
-const filterSelectStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid var(--border)',
-  backgroundColor: 'var(--bg)',
-  color: 'var(--text-h)',
-  fontSize: '0.875rem',
-  fontFamily: 'inherit',
-  cursor: 'pointer',
-}
-
-const filterClearWrapStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-end',
-  paddingBottom: 1,
-  marginLeft: 'auto',
-}
-
-const linkBtnStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: 6,
-  background: '#1976d2',
-  color: '#fff',
-  textDecoration: 'none',
-  fontSize: '0.8rem',
-  fontWeight: 700,
-}
-
-const ghostBtnStyle: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: 6,
-  border: '1px solid var(--border)',
-  background: 'var(--bg)',
-  color: 'var(--text-h)',
-  fontSize: '0.8rem',
-  fontWeight: 700,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
 }
 
 const idLinkStyle: React.CSSProperties = {

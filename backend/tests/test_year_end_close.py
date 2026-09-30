@@ -15,6 +15,7 @@ from app.services.year_end_close import (
     GENERATED_APPROVAL_STATUS,
     GENERATED_POSTING_STATUS,
     build_closing_lines,
+    resolve_current_period_ni_ids,
     resolve_fiscal_year,
     resolve_retained_earnings,
     run_year_end_close,
@@ -114,6 +115,21 @@ class YearEndCloseLogicTests(unittest.TestCase):
         self.assertEqual(GENERATED_POSTING_STATUS, "Draft")
         self.assertEqual(GENERATED_APPROVAL_STATUS, "DRAFT")
 
+    def test_ni_clear_ids_ignore_non_equity_pnl_debit(self):
+        ni = SimpleNamespace(id=uuid4(), account_type="Equity")
+        revenue = SimpleNamespace(id=uuid4(), account_type="Revenue")
+        db = MagicMock()
+        with patch(
+            "app.services.year_end_close.resolve_posting_rule",
+            return_value=(revenue, SimpleNamespace(id=uuid4()), None),
+        ):
+            self.assertEqual(resolve_current_period_ni_ids(db), set())
+        with patch(
+            "app.services.year_end_close.resolve_posting_rule",
+            return_value=(ni, SimpleNamespace(id=uuid4()), None),
+        ):
+            self.assertEqual(resolve_current_period_ni_ids(db), {ni.id})
+
 
 class YearEndCloseRunTests(unittest.TestCase):
     def test_run_rejects_when_preview_cannot_run(self):
@@ -162,15 +178,24 @@ class YearEndCloseRunTests(unittest.TestCase):
             ],
         }
         created = SimpleNamespace(id=uuid4(), posting_status="Draft", approval_status="DRAFT")
+        close_rule = SimpleNamespace(id=uuid4())
         with patch("app.services.year_end_close.preview_year_end_close", return_value=preview):
             with patch("app.services.year_end_close.find_year_end_journal", return_value=created):
-                entry = run_year_end_close(db, user, fiscal_year=2026)
+                with patch(
+                    "app.services.year_end_close.resolve_close_rule",
+                    return_value=(None, None, close_rule),
+                ):
+                    entry = run_year_end_close(db, user, fiscal_year=2026)
         db.add.assert_called_once()
         saved = db.add.call_args[0][0]
         self.assertEqual(saved.posting_status, "Draft")
         self.assertEqual(saved.approval_status, "DRAFT")
         self.assertEqual(saved.reference, "YEC-2026")
         self.assertEqual(saved.posting_date, date(2026, 12, 31))
+        self.assertTrue(saved.is_system_generated)
+        self.assertEqual(saved.source_document_type, "YEAR_END_CLOSE")
+        self.assertEqual(saved.source_record_id, "2026")
+        self.assertEqual(saved.posting_rule_id, close_rule.id)
         self.assertEqual(len(saved.postings), 2)
         self.assertEqual(entry.approval_status, "DRAFT")
 

@@ -1,11 +1,11 @@
 # @author: Wendy Yang
 # @date: 2026-09-24
 
-"""Year-end close: generate a Draft P&L + current-period NI → retained earnings journal.
+"""Year-end close: generate a Draft P&L → retained earnings journal.
 
-Month-End Close creates the monthly journal into 3353. This flow creates
-the annual closing journal as Draft / DRAFT so it must be submitted and
-approved before G/L balances change.
+Revenue and expense accumulate through the year. This flow zeros full-year
+P&L into retained earnings (3350) and clears leftover current-period NI
+(3353). The journal stays Draft / DRAFT until it is submitted and approved.
 """
 
 from __future__ import annotations
@@ -21,7 +21,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.services.financial_reports import ZERO, AccountBalance, _account_balances, money
-from app.services.posting_rules import EVENT_YEAR_END_CLOSE, resolve_close_pair
+from app.services.journal_source import SOURCE_YEAR_END_CLOSE, generated_journal_fields, rule_id
+from app.services.posting_rules import (
+    EVENT_YEAR_END_CLOSE,
+    VARIANT_NI_CLEAR,
+    resolve_close_pair,
+    resolve_close_rule,
+    resolve_posting_rule,
+)
 
 YEC_REFERENCE_PREFIX = "YEC-"
 GENERATED_POSTING_STATUS = "Draft"
@@ -178,6 +185,19 @@ def build_closing_lines(
 CURRENT_PERIOD_NI_CODES = frozenset({"3353", "3354"})
 
 
+def resolve_current_period_ni_ids(db: Session) -> set[UUID]:
+    """Account ids for leftover current-period NI (not the P&L representative debit)."""
+    try:
+        debit, _credit, _rule = resolve_posting_rule(
+            db, EVENT_YEAR_END_CLOSE, VARIANT_NI_CLEAR
+        )
+    except HTTPException:
+        return set()
+    if (debit.account_type or "").strip().lower() != "equity":
+        return set()
+    return {debit.id}
+
+
 def merge_target_lines(lines: list[CloseLine], target: ChartOfAccount, period_label: str) -> list[CloseLine]:
     others = [line for line in lines if line.account_id != target.id]
     target_lines = [line for line in lines if line.account_id == target.id]
@@ -311,12 +331,7 @@ def preview_year_end_close(
     expense_total = ZERO
     net_income = ZERO
     if retained is not None:
-        ni_account_ids: set[UUID] = set()
-        try:
-            ni_account, _re = resolve_close_pair(db, EVENT_YEAR_END_CLOSE)
-            ni_account_ids.add(ni_account.id)
-        except HTTPException:
-            pass
+        ni_account_ids = resolve_current_period_ni_ids(db)
         lines, revenue_total, expense_total, net_income = build_closing_lines(
             pnl, retained, f"FY {year}"
         )
@@ -419,6 +434,7 @@ def run_year_end_close(
         raise HTTPException(status_code=400, detail=preview["blockers"][0])
 
     year = preview["fiscal_year"]
+    _debit, _credit, close_rule = resolve_close_rule(db, EVENT_YEAR_END_CLOSE)
     entry = JournalEntry(
         description=f"Year-end close FY {year} — close P&L to retained earnings",
         posted_by_user_id=user.id,
@@ -428,6 +444,11 @@ def run_year_end_close(
         posting_status=GENERATED_POSTING_STATUS,
         approval_status=GENERATED_APPROVAL_STATUS,
         current_approval_step=None,
+        **generated_journal_fields(
+            source_document_type=SOURCE_YEAR_END_CLOSE,
+            source_record_id=year,
+            posting_rule_id=rule_id(close_rule),
+        ),
     )
     for line in preview["lines"]:
         entry.postings.append(

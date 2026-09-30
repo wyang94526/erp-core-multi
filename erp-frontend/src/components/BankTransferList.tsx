@@ -5,7 +5,7 @@
  * Bank Transfers — internal movements between company bank accounts.
  */
 
-import { type CSSProperties, useState } from 'react'
+import { type CSSProperties, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { bankTransferService } from '../api/services'
@@ -17,6 +17,22 @@ import {
   isBankTransferDeletable,
   isBankTransferEditable,
 } from '../utils/bankTransfers'
+import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+
+const TRANSFER_FILTERS: FilterField[] = [
+  {
+    key: 'approval',
+    label: 'Approval',
+    options: [
+      { value: 'ALL', label: 'All' },
+      { value: 'DRAFT', label: 'Draft' },
+      { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+]
 
 function formatCurrency(amount: number) {
   return Number(amount || 0).toLocaleString('en-US', {
@@ -57,7 +73,26 @@ function BankTransferList() {
     }
   }
 
-  const { items: sortedTransfers, requestSort, sortConfig } = useSortableData(transfers, {
+  const { values } = useListFilterParams(TRANSFER_FILTERS)
+  const filteredTransfers = useMemo(() => {
+    return transfers.filter((row) => {
+      if (values.approval !== 'ALL' && (row.approval_status || 'DRAFT').toUpperCase() !== values.approval) {
+        return false
+      }
+      return matchesSearch(
+        values.q,
+        row.reference_number,
+        row.from_account_name,
+        row.to_account_name,
+        row.from_account_id,
+        row.to_account_id,
+        row.status,
+        row.approval_status,
+      )
+    })
+  }, [transfers, values.q, values.approval])
+
+  const { items: sortedTransfers, requestSort, sortConfig } = useSortableData(filteredTransfers, {
     columnTypes: {
       amount: 'number',
       transfer_date: 'date',
@@ -84,6 +119,27 @@ function BankTransferList() {
           + New Bank Transfer
         </button>
       </header>
+
+      <ListFilterBar
+        fields={TRANSFER_FILTERS}
+        searchPlaceholder="Search reference, from/to bank…"
+        exportCount={filteredTransfers.length}
+        onExport={() =>
+          downloadCsv(
+            csvFilename('bank-transfers'),
+            ['Date', 'Reference', 'From', 'To', 'Amount', 'G/L Status', 'Approval'],
+            filteredTransfers.map((row) => [
+              row.transfer_date,
+              row.reference_number,
+              row.from_account_name || row.from_account_id,
+              row.to_account_name || row.to_account_id,
+              row.amount,
+              row.status,
+              row.approval_status || 'DRAFT',
+            ]),
+          )
+        }
+      />
 
       <div style={dashboardSectionStyle}>
         {isLoading ? (

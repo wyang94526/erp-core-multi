@@ -2,22 +2,35 @@
  * @author: Wendy Yang
  * @date: 2026-09-24
  *
- * Month-End Close — generate a Draft P&L closing journal for approval.
+ * Month-End Close — post period adjustments; P&L stays open until year-end.
  */
 
 import { useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft, CalendarRange, FilePlus } from 'lucide-react'
 import { journalEntryService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import type { JournalEntry } from '../types'
 import {
+  JOURNAL_CREATE_PATH,
   journalEditPath,
   isJournalDraft,
   shortJournalId,
   YEAR_END_CLOSE_PATH,
 } from '../utils/journalEntries'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
+import {
+  HoverTip,
+  actionRowStyle,
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleBlockStyle,
+  documentPageTitleStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 function formatDate(value: string | null | undefined) {
   if (!value) return '—'
@@ -39,12 +52,9 @@ function currentPeriod() {
 
 export function MonthEndClosePage() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const { hasPermission } = useAuth()
-  const canRun = hasPermission('journal:create')
+  const canCreate = hasPermission('journal:create')
   const [period, setPeriod] = useState(currentPeriod)
-  const [resultMessage, setResultMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
 
   const previewQuery = useQuery({
@@ -52,94 +62,71 @@ export function MonthEndClosePage() {
     queryFn: () => journalEntryService.previewMonthEndClose(period),
   })
 
-  const closeMutation = useMutation({
-    mutationFn: () => journalEntryService.runMonthEndClose(period),
-    onSuccess: (data) => {
-      setError(null)
-      setResultMessage(data.message)
-      void queryClient.invalidateQueries({ queryKey: ['monthEndClosePreview'] })
-      void queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
-    },
-    onError: (err) => {
-      setResultMessage(null)
-      setError(err instanceof Error ? err.message : 'Month-end close failed')
-    },
-  })
-
   const preview = previewQuery.data
   const ready = preview?.ready || []
   const held = preview?.held || []
-  const lines = preview?.lines || []
+  const adjustmentRules = preview?.adjustment_rules || []
   const existing = preview?.existing_journal
 
   return (
     <div style={pageStyle}>
-      <div style={headerStyle}>
-        <div>
-          <h1 style={titleStyle}>Month-End Close</h1>
-          <p style={subStyle}>
-            Close {period} P&amp;L into current-period net income (3353). The generated journal stays
-            Draft and must be submitted for approval before it posts.
+      <header style={documentPageHeaderStyle}>
+        <div style={documentPageTitleBlockStyle}>
+          <h1 style={documentPageTitleStyle}>Month-End Close</h1>
+          <p style={documentPageSubStyle}>
+            Post {period} adjustments — GRNI cutoff, prepayments, accruals, depreciation, or
+            currency revaluation. Revenue and expense stay open and keep accumulating until
+            Year-End Close.
           </p>
-        </div>
-        <div style={actionsStyle}>
-          <label style={yearLabelStyle}>
-            Period
+          <label style={periodControlStyle}>
+            <span style={periodLabelTextStyle}>Period</span>
             <input
               type="month"
               value={period}
-              onChange={(event) => {
-                setResultMessage(null)
-                setError(null)
-                setPeriod(event.target.value)
-              }}
+              onChange={(event) => setPeriod(event.target.value)}
               style={selectStyle}
             />
           </label>
-          <button type="button" style={secondaryBtn} onClick={() => navigate(YEAR_END_CLOSE_PATH)}>
-            Year-End Close
-          </button>
-          <button type="button" style={secondaryBtn} onClick={() => navigate('/general-ledger')}>
-            Back to General Ledger
-          </button>
-          {canRun && (
-            <button
-              type="button"
-              style={primaryBtn}
-              disabled={closeMutation.isPending || !preview?.can_run}
-              onClick={() => closeMutation.mutate()}
-            >
-              {closeMutation.isPending ? 'Generating…' : 'Generate Closing Journal'}
-            </button>
-          )}
         </div>
-      </div>
-
-      {error && <div style={errorBox}>{error}</div>}
-      {resultMessage && (
-        <div style={successBox}>
-          {resultMessage}
-          {closeMutation.data?.journal ? (
-            <>
-              {' '}
-              <Link to={journalEditPath(closeMutation.data.journal.id)} style={inlineLink}>
-                Open {shortJournalId(closeMutation.data.journal.id)}
-              </Link>
-            </>
+        <div style={headerActionsStyle}>
+          {canCreate ? (
+            <div style={actionRowStyle}>
+              <HoverTip label="Create a Draft month-end adjustment journal">
+                <button type="button" style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
+                  <FilePlus size={15} />
+                  New adjustment
+                </button>
+              </HoverTip>
+            </div>
           ) : null}
+          <div style={actionRowStyle}>
+            <HoverTip label="Back to the general ledger">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate('/general-ledger')}>
+                <ArrowLeft size={15} />
+                General Ledger
+              </button>
+            </HoverTip>
+            <HoverTip label="Close full-year P&L on Year-End Close">
+              <button type="button" style={headerButtonStyle} onClick={() => navigate(YEAR_END_CLOSE_PATH)}>
+                <CalendarRange size={15} />
+                Year-End Close
+              </button>
+            </HoverTip>
+          </div>
         </div>
-      )}
+      </header>
 
       {preview?.period_still_open ? (
         <div style={infoBox}>
-          {period} is still open. You can generate the closing journal now; it remains Draft until it
-          is approved. Operational journals still post through their own approval workflow.
+          {period} is still open. Post adjustment journals now; they stay Draft until approved.
+          Operational journals still post through their own approval workflow. P&amp;L is not closed
+          this month.
         </div>
       ) : null}
 
       {preview?.blockers?.length ? (
         <div style={warnBox}>
-          <strong>Cannot generate yet</strong>
+          <strong>Before you finish month-end</strong>
           <ul style={blockerList}>
             {preview.blockers.map((item) => (
               <li key={item}>{item}</li>
@@ -149,69 +136,72 @@ export function MonthEndClosePage() {
       ) : null}
 
       <section style={cardStyle}>
-        <h2 style={sectionTitle}>Close summary</h2>
+        <h2 style={sectionTitle}>Period activity (still accumulating)</h2>
         <div style={summaryGrid}>
           <Summary label="Revenue" value={formatMoney(preview?.revenue_total)} />
           <Summary label="Expense" value={formatMoney(preview?.expense_total)} />
           <Summary label="Net income" value={formatMoney(preview?.net_income)} />
           <Summary
-            label="Current-period NI"
+            label="Current-period NI plug"
             value={
               preview?.current_period_ni
                 ? `${preview.current_period_ni.account_code} · ${preview.current_period_ni.account_name}`
                 : '—'
             }
           />
-          <Summary label="Close date" value={preview?.close_date || '—'} />
+          <Summary label="Period end" value={preview?.close_date || '—'} />
           <Summary label="Period" value={preview?.period || '—'} />
         </div>
+        <p style={hintStyle}>
+          These totals are informational. Revenue and expense are not zeroed at month-end.{' '}
+          <Link to={YEAR_END_CLOSE_PATH} style={inlineLink}>
+            Year-End Close
+          </Link>{' '}
+          closes full-year P&amp;L into retained earnings (3350).
+        </p>
         {existing ? (
           <p style={hintStyle}>
-            Existing close journal{' '}
+            A legacy monthly close journal{' '}
             <Link to={journalEditPath(existing.id)} style={inlineLink}>
               {shortJournalId(existing.id)}
             </Link>{' '}
             is {existing.approval_status || 'DRAFT'} / {existing.posting_status || 'Draft'}. Review
-            and submit it for approval.
+            it if it still needs approval or deletion.
           </p>
-        ) : (
-          <p style={hintStyle}>
-            Approving this journal zeros {period} P&amp;L and transfers the net to 3353. Year-End
-            Close later moves current-period net income into retained earnings (3350).
-          </p>
-        )}
+        ) : null}
       </section>
 
       <section style={cardStyle}>
-        <h2 style={sectionTitle}>Proposed journal lines ({lines.length})</h2>
-        <p style={hintStyle}>Created as Draft / DRAFT. Submit from the journal page after review.</p>
+        <h2 style={sectionTitle}>Adjustment posting rules ({adjustmentRules.length})</h2>
+        <p style={hintStyle}>
+          Use these catalog pairs when you post a month-end adjustment journal. Edit the accounts on
+          Posting Rules if the default codes do not match your chart.
+        </p>
         {previewQuery.isLoading ? (
           <p style={hintStyle}>Loading…</p>
-        ) : lines.length === 0 ? (
-          <p style={emptyStyle}>No posted P&amp;L balances to close for this period.</p>
+        ) : adjustmentRules.length === 0 ? (
+          <p style={emptyStyle}>No month-end adjustment rules are configured.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={tableStyle}>
               <thead>
                 <tr style={theadRow}>
-                  <th style={thStyle}>Account</th>
-                  <th style={thStyle}>Name</th>
-                  <th style={thStyle}>Type</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Debit</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
+                  <th style={thStyle}>When</th>
+                  <th style={thStyle}>Debit</th>
+                  <th style={thStyle}>Credit</th>
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line) => (
-                  <tr key={`${line.account_id}-${line.description}`} style={tbodyRow}>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{line.account_code}</td>
-                    <td style={tdStyle}>{line.account_name}</td>
-                    <td style={tdStyle}>{line.account_type}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {Number(line.debit) ? formatMoney(line.debit) : ''}
+                {adjustmentRules.map((rule) => (
+                  <tr key={rule.id} style={tbodyRow}>
+                    <td style={tdStyle}>{rule.variant_label || rule.name}</td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
+                      {rule.debit_account_code}
+                      {rule.debit_account_name ? ` — ${rule.debit_account_name}` : ''}
                     </td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {Number(line.credit) ? formatMoney(line.credit) : ''}
+                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
+                      {rule.credit_account_code}
+                      {rule.credit_account_name ? ` — ${rule.credit_account_name}` : ''}
                     </td>
                   </tr>
                 ))}
@@ -223,7 +213,7 @@ export function MonthEndClosePage() {
 
       <section style={cardStyle}>
         <h2 style={sectionTitle}>Approved drafts still unposted ({ready.length})</h2>
-        <p style={hintStyle}>These must post through journal approval before the month can close.</p>
+        <p style={hintStyle}>These must post through journal approval before you finish month-end.</p>
         {ready.length === 0 ? (
           <p style={emptyStyle}>No approved draft journals in {period}.</p>
         ) : (
@@ -325,26 +315,29 @@ const pageStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const headerStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: '12px',
-  flexWrap: 'wrap',
-  marginBottom: '20px',
-  paddingBottom: '16px',
-  borderBottom: '1px solid #ddd',
+const periodControlStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 10,
+  whiteSpace: 'nowrap',
 }
-const titleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#212121' }
-const subStyle: CSSProperties = { margin: '4px 0 0', fontSize: '14px', color: '#616161', maxWidth: 640 }
-const actionsStyle: CSSProperties = { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }
-const yearLabelStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: '#616161' }
+const periodLabelTextStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#757575',
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+}
 const selectStyle: CSSProperties = {
-  padding: '8px 10px',
+  padding: '6px 8px',
   borderRadius: 6,
-  border: '1px solid #cfd8dc',
+  border: '1px solid var(--border, #ddd)',
   fontFamily: 'inherit',
-  fontSize: 14,
+  fontSize: 13,
+  fontWeight: 700,
+  color: 'var(--text-h, #212121)',
+  backgroundColor: 'var(--bg, #fff)',
 }
 const cardStyle: CSSProperties = {
   background: '#fff',
@@ -357,20 +350,6 @@ const cardStyle: CSSProperties = {
 const sectionTitle: CSSProperties = { margin: '0 0 4px', fontSize: '16px', fontWeight: 700 }
 const hintStyle: CSSProperties = { margin: '0 0 12px', fontSize: '13px', color: '#616161' }
 const emptyStyle: CSSProperties = { padding: '20px', textAlign: 'center', color: '#666', fontStyle: 'italic' }
-const errorBox: CSSProperties = {
-  marginBottom: '12px',
-  padding: '10px 12px',
-  background: '#ffebee',
-  color: '#c62828',
-  borderRadius: '6px',
-}
-const successBox: CSSProperties = {
-  marginBottom: '12px',
-  padding: '10px 12px',
-  background: '#e8f5e9',
-  color: '#2e7d32',
-  borderRadius: '6px',
-}
 const infoBox: CSSProperties = {
   marginBottom: '12px',
   padding: '10px 12px',
@@ -401,23 +380,6 @@ const theadRow: CSSProperties = { borderBottom: '2px solid #ddd', background: '#
 const thStyle: CSSProperties = { padding: '10px', textAlign: 'left' }
 const tbodyRow: CSSProperties = { borderBottom: '1px solid #eee' }
 const tdStyle: CSSProperties = { padding: '10px', color: '#424242' }
-const primaryBtn: CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#2196F3',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
-const secondaryBtn: CSSProperties = {
-  ...primaryBtn,
-  backgroundColor: '#fff',
-  color: '#1565c0',
-  border: '1px solid #90caf9',
-}
 const editBtn: CSSProperties = {
   padding: '4px 10px',
   backgroundColor: '#fff8e1',
