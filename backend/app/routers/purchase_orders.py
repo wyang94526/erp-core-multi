@@ -372,6 +372,16 @@ def list_purchase_order_change_logs(po_number: str, db: Session = Depends(get_db
     return list_change_logs(db, "PURCHASE_ORDER", po_number)
 
 
+@router.post("/{po_number}/close-remaining", response_model=PurchaseOrderRead)
+def close_purchase_order_remaining(po_number: str, db: Session = Depends(get_db)):
+    p2p.close_purchase_order_remaining(db, po_number)
+    db.commit()
+    po = _load_po(db, po_number)
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return po
+
+
 @router.post("/{po_number}/receive", response_model=GoodsReceiptRead, status_code=status.HTTP_201_CREATED)
 def receive_purchase_order_goods(
     po_number: str,
@@ -397,5 +407,6 @@ def delete_purchase_order(po_number: str, db: Session = Depends(get_db)) -> None
     po = db.get(PurchaseOrder, po_number)
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+    p2p.assert_purchase_order_deletable(db, po)
     db.delete(po)
     db.commit()

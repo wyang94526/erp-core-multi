@@ -22,7 +22,6 @@ interface POActionToolbarProps {
   onSubmit: () => void;
   onReset: () => void;
   isSubmitting: boolean;
-  hasValidationError: boolean;
   canRecall?: boolean;
   recallDisabledReason?: string | null;
   onRecall?: () => void;
@@ -39,7 +38,6 @@ export function POActionToolbar({
   onSubmit,
   onReset,
   isSubmitting,
-  hasValidationError,
   canRecall = false,
   recallDisabledReason = null,
   onRecall,
@@ -131,21 +129,12 @@ export function POActionToolbar({
               </button>
             </HoverTip>
 
-            <HoverTip
-              label={
-                hasValidationError
-                  ? 'Please correct form validation errors before submitting'
-                  : 'Submit Purchase Order'
-              }
-            >
+            <HoverTip label="Submit Purchase Order">
               <button
                 type="button"
                 onClick={onSubmit}
                 disabled={isSubmitting}
-                style={{
-                  ...primaryButtonStyle,
-                  ...disabledActionStyle(!hasValidationError),
-                }}
+                style={primaryButtonStyle}
               >
                 <Send size={15} />
                 {isSubmitting ? 'Submitting…' : 'Submit'}

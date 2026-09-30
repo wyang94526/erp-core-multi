@@ -17,7 +17,7 @@ The server assigns `sales_order_id` on create as `PU61-{YY}{MM}{XXXX}` from the 
 Default create status is `DRAFT`. Submitting enters the approval workflow based on amount bands.
 
 ## Invoicing
-Sales invoices may be created after a shipped fulfillment. Invoice numbers are assigned as `PU65-{YY}{MM}{XXXX}` from the invoice issue date. Active invoices (`DRAFT`, `APPROVED`, `PAID`) count toward billed amount. Creating another invoice is rejected with 400 when the sales order is already fully invoiced, or when the new amount exceeds the remaining unbilled balance. Voided invoices release that amount so the order can be billed again. List/detail responses include `billed_amount`, `remaining_billable_amount`, and `invoice_status` (`UNBILLED` | `PARTIALLY_BILLED` | `FULLY_BILLED`).
+Sales invoices may be created after a shipped fulfillment. Invoice numbers are assigned as `USS5-{YY}{MM}{XXXX}` from the invoice issue date. Active invoices (`DRAFT`, `APPROVED`, `PAID`) count toward billed amount. Creating another invoice is rejected with 400 when the sales order is already fully invoiced, or when the new amount exceeds the remaining unbilled balance. Voided invoices release that amount so the order can be billed again. List/detail responses include `billed_amount`, `remaining_billable_amount`, and `invoice_status` (`UNBILLED` | `PARTIALLY_BILLED` | `FULLY_BILLED`).
 
 ## Permissions
 - `sales_order:view` — list/detail

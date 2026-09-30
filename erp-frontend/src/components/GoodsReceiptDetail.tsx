@@ -3,10 +3,10 @@
  * @date: 2026-09-19
  */
 
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Loader2, Pencil, Save, X } from 'lucide-react'
 import { goodsReceiptService } from '../api/services'
 import type { GoodsReceiptJournal, JournalEntry } from '../types'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
@@ -21,7 +21,7 @@ import {
   receiptWarehouseLabel,
   toJournalEntry,
 } from '../utils/goodsReceipts'
-import { shortJournalId } from '../utils/journalEntries'
+import { journalDisplayId } from '../utils/journalEntries'
 import {
   HoverTip,
   actionRowStyle,
@@ -32,6 +32,8 @@ import {
   documentPageTitleStyle,
   headerActionsStyle,
   headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
 } from '../utils/documentPageStyles'
 
 function formatDate(value: string | null | undefined): string {
@@ -60,7 +62,11 @@ export function GoodsReceiptDetail() {
   const { receiptId: rawId } = useParams<{ receiptId: string }>()
   const receiptKey = decodeURIComponent(rawId || '').trim()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [viewingJournal, setViewingJournal] = useState<JournalEntry | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [qtyByLine, setQtyByLine] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState<string | null>(null)
   const {
     data: detail = null,
     error: queryError,
@@ -71,6 +77,73 @@ export function GoodsReceiptDetail() {
     enabled: Boolean(receiptKey),
   })
   const error = queryError instanceof Error ? queryError.message : queryError ? 'Failed to load goods receipt' : null
+  const lines = detail?.lines || []
+  const canAdjust = Boolean(detail?.can_adjust_quantities)
+
+  const startEditing = () => {
+    setFormError(null)
+    setQtyByLine(
+      Object.fromEntries(lines.map((line) => [String(line.id), String(line.quantity_received ?? '')])),
+    )
+    setEditing(true)
+  }
+
+  const cancelEditing = () => {
+    setEditing(false)
+    setFormError(null)
+    setQtyByLine({})
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const payload = lines.map((line) => ({
+        id: line.id,
+        quantity_received: Number(qtyByLine[String(line.id)]),
+      }))
+      return goodsReceiptService.adjustQuantities(receiptKey, { lines: payload })
+    },
+    onSuccess: async () => {
+      setEditing(false)
+      setFormError(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+      ])
+    },
+    onError: (err: unknown) => {
+      setFormError(err instanceof Error ? err.message : 'Could not update received quantities')
+    },
+  })
+
+  const changedLines = useMemo(() => {
+    return lines.filter((line) => {
+      const next = Number(qtyByLine[String(line.id)])
+      return Number.isFinite(next) && next !== Number(line.quantity_received || 0)
+    })
+  }, [lines, qtyByLine])
+
+  const handleSave = () => {
+    for (const line of lines) {
+      const raw = qtyByLine[String(line.id)]
+      const qty = Number(raw)
+      if (!raw || raw.trim() === '' || !Number.isFinite(qty) || qty <= 0) {
+        setFormError(`Enter a positive quantity for ${line.item_id}.`)
+        return
+      }
+    }
+    if (changedLines.length === 0) {
+      setFormError('Change at least one received quantity.')
+      return
+    }
+    if (
+      !window.confirm(
+        'Update received quantities on this receipt? On-hand stock and the GRNI journal will be adjusted.',
+      )
+    ) {
+      return
+    }
+    saveMutation.mutate()
+  }
 
   if (loading) {
     return (
@@ -88,8 +161,8 @@ export function GoodsReceiptDetail() {
       <div style={containerStyle}>
         <div style={{ ...cardStyle, color: '#c62828' }}>
           <p>{error || 'Goods receipt not found'}</p>
-          <button type="button" style={headerButtonStyle} onClick={() => navigate(-1)}>
-            Back
+          <button type="button" style={headerButtonStyle} onClick={() => navigate('/goods-receipts')}>
+            Back to Goods Receipts
           </button>
         </div>
       </div>
@@ -101,8 +174,7 @@ export function GoodsReceiptDetail() {
   const sourceHref = sourceOrderHref(detail.source_type, detail.source_order_id)
   const journals = detail.journals || []
   const invoices = detail.related_invoices || []
-  const lines = detail.lines || []
-  const backHref = sourceHref || '/purchase-orders'
+  const backHref = '/goods-receipts'
 
   return (
     <div style={containerStyle}>
@@ -131,10 +203,44 @@ export function GoodsReceiptDetail() {
         </div>
         <div style={headerActionsStyle}>
           <div style={actionRowStyle}>
-            <HoverTip label={sourceHref ? `Back to ${detail.source_order_id}` : 'Go back'}>
+            {canAdjust && !editing ? (
+              <HoverTip label="Correct a mistaken received quantity">
+                <button type="button" style={headerButtonStyle} onClick={startEditing}>
+                  <Pencil size={15} />
+                  Adjust quantities
+                </button>
+              </HoverTip>
+            ) : null}
+            {editing ? (
+              <>
+                <HoverTip label="Save quantity corrections">
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handleSave}
+                    disabled={saveMutation.isPending}
+                  >
+                    {saveMutation.isPending ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={15} />}
+                    Save quantities
+                  </button>
+                </HoverTip>
+                <HoverTip label="Cancel quantity edits">
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={cancelEditing}
+                    disabled={saveMutation.isPending}
+                  >
+                    <X size={15} />
+                    Cancel
+                  </button>
+                </HoverTip>
+              </>
+            ) : null}
+            <HoverTip label="Back to Goods Receipts">
               <button type="button" style={headerButtonStyle} onClick={() => navigate(backHref)}>
                 <ArrowLeft size={15} />
-                {sourceHref ? `Back to ${detail.source_order_id}` : 'Back'}
+                Goods Receipts
               </button>
             </HoverTip>
           </div>
@@ -171,6 +277,13 @@ export function GoodsReceiptDetail() {
 
       <section style={cardStyle}>
         <h2 style={sectionHeadingStyle}>Line items</h2>
+        {formError ? <p style={errorTextStyle}>{formError}</p> : null}
+        {editing ? (
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+            Change the received quantity to match what actually arrived. You cannot exceed the PO ordered
+            quantity or go below any quantity already billed.
+          </p>
+        ) : null}
         <div style={{ overflowX: 'auto' }}>
           <table style={tableStyle}>
             <thead>
@@ -208,7 +321,23 @@ export function GoodsReceiptDetail() {
                         {formatReceiptQty(line.quantity_ordered)}
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
-                        {formatReceiptQty(line.quantity_received)}
+                        {editing ? (
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            aria-label={`Received quantity for ${line.item_id}`}
+                            value={qtyByLine[String(line.id)] ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setQtyByLine((prev) => ({ ...prev, [String(line.id)]: value }))
+                              setFormError(null)
+                            }}
+                            style={qtyInputStyle}
+                          />
+                        ) : (
+                          formatReceiptQty(line.quantity_received)
+                        )}
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
                         {formatReceiptMoney(line.unit_cost)}
@@ -236,9 +365,9 @@ export function GoodsReceiptDetail() {
         <h2 style={sectionHeadingStyle}>Status & accounting trail</h2>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
           This receipt is <strong>{statusKey}</strong>. Receiving creates draft journal entries (inventory or
-          expense debit, GRNI credit). Those journals stay Draft / DRAFT until they are approved and posted
-          on the General Ledger. Approving a matching supplier invoice creates another draft to clear GRNI
-          to Accounts Payable.
+          expense debit, GRNI credit). Adjusting received quantity recalculates those debit/credit amounts.
+          Journals stay Draft / DRAFT until they are approved and posted on the General Ledger. Approving a
+          matching supplier invoice creates another draft to clear GRNI to Accounts Payable.
         </p>
 
         <h3 style={subHeadingStyle}>Journal entries</h3>
@@ -254,6 +383,8 @@ export function GoodsReceiptDetail() {
                   <th style={thStyle}>Posting Date</th>
                   <th style={thStyle}>Description</th>
                   <th style={thStyle}>Status</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Debit</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
                   <th style={thStyle} />
                 </tr>
               </thead>
@@ -319,6 +450,10 @@ export function GoodsReceiptDetail() {
   )
 }
 
+function journalSideTotal(journal: GoodsReceiptJournal, side: 'debit' | 'credit'): number {
+  return (journal.postings || []).reduce((sum, posting) => sum + (Number(posting[side]) || 0), 0)
+}
+
 function JournalRow({
   journal,
   onView,
@@ -328,12 +463,18 @@ function JournalRow({
 }) {
   return (
     <tr style={tbodyRowStyle}>
-      <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{shortJournalId(journal.id)}</td>
+      <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{journalDisplayId(journal)}</td>
       <td style={tdStyle}>{journalPurposeLabel(journal.purpose)}</td>
       <td style={tdStyle}>{formatDate(journal.posting_date || journal.created_at)}</td>
       <td style={tdStyle}>{journal.description}</td>
       <td style={tdStyle}>
         {journal.posting_status || 'Draft'} / {journal.approval_status || 'DRAFT'}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+        {formatReceiptMoney(journalSideTotal(journal, 'debit'))}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+        {formatReceiptMoney(journalSideTotal(journal, 'credit'))}
       </td>
       <td style={tdStyle}>
         <button type="button" style={linkButtonStyle} onClick={onView}>
@@ -408,6 +549,23 @@ const linkButtonStyle: CSSProperties = {
   fontSize: 13,
   textDecoration: 'underline',
   padding: 0,
+}
+const qtyInputStyle: CSSProperties = {
+  width: 96,
+  textAlign: 'right',
+  fontFamily: 'monospace',
+  fontWeight: 700,
+  fontSize: 13,
+  padding: '6px 8px',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 6,
+  backgroundColor: 'var(--bg, #fff)',
+  color: 'var(--text, #424242)',
+}
+const errorTextStyle: CSSProperties = {
+  margin: '0 0 12px',
+  color: '#c62828',
+  fontSize: 13,
 }
 
 export default GoodsReceiptDetail

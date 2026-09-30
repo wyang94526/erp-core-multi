@@ -163,7 +163,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'sco-fulfill-so',
         title: 'Fulfill & Invoice the Customer Sales Order',
         navPath: 'Sales & Procurement ▸ Item Fulfillments  ·  Finance ▸ Sales Invoices',
-        body: 'With finished goods on-hand, return to the original sales order: pick, pack, and ship. Then generate the customer invoice for fulfilled quantities and collect cash on the Order-to-Cash path.',
+        body: 'With finished goods on-hand, return to the original sales order: pick, pack, and ship. A partial subcontract receipt (for example 800 of 1000) can be fulfilled now; remaining quantity stays open for a later shipment after the next receipt, or click Cancel remaining if the rest will not ship. Then generate the customer invoice for fulfilled quantities and collect cash on the Order-to-Cash path.',
         links: [
           { label: 'Go to Sales Orders', to: '/sales-orders' },
           { label: 'Go to Fulfillments', to: '/fulfillments' },
@@ -202,9 +202,10 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
       {
         id: 'p2p-receipt',
         title: 'Goods Receipt & Quality Inspection',
-        navPath: 'Inventory ▸ Stock Movements',
-        body: 'Receive against the approved PO (Receive Goods) so GRNI posts. Inspect quality, then confirm the receipt appears as a Receipt movement in the target warehouse / bin.',
+        navPath: 'Sales & Procurement ▸ Goods Receipts',
+        body: 'Receive against the approved PO (Receive Goods) so GRNI posts. Enter only the quantity that arrived; remaining quantity can be received on a later receipt. If a qty was entered incorrectly, open the PU67- receipt and Adjust quantities. Do not cancel remaining until the received quantity has a supplier invoice. Inspect quality, then confirm the receipt appears under Goods Receipts and as a Receipt movement in the target warehouse / bin.',
         links: [
+          { label: 'Goods Receipts', to: '/goods-receipts' },
           { label: 'Go to Stock Movements', to: '/inventory/movements' },
           { label: 'Warehouses & Bins', to: '/inventory/warehouses' },
         ],

@@ -73,13 +73,14 @@ def annotate_po_line(line: Any, extra_allocated: Decimal) -> None:
     qty = _d(getattr(line, "quantity", 0))
     price = max(_d(getattr(line, "unit_price", 0)), ZERO)
     extra = money(extra_allocated)
-    current_alloc = money(getattr(line, "allocated_landed_expense", 0))
-    combined = money(current_alloc + extra)
-    line.allocated_landed_expense = combined
+    estimated_alloc = money(getattr(line, "allocated_landed_expense", 0))
+    line.allocated_landed_expense = money(estimated_alloc + extra)
     line.actual_allocated_landed_expense = extra
     if qty <= 0:
+        line.estimated_landed_unit_cost = ZERO
         line.actual_unit_cost = money4(price + extra) if extra > 0 else money4(price)
-        line.estimated_landed_unit_cost = money4(price + combined) if combined > 0 else money4(price)
         return
-    line.actual_unit_cost = money4(price + extra / qty)
-    line.estimated_landed_unit_cost = money4(price + combined / qty)
+    estimated_per_unit = estimated_alloc / qty
+    line.estimated_landed_unit_cost = money4(estimated_per_unit)
+    extra_per_unit = extra / qty if extra > 0 else estimated_per_unit
+    line.actual_unit_cost = money4(price + extra_per_unit)

@@ -3,10 +3,10 @@
  * @date: 2026-09-19
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileDown, Loader2, Mail, PackageCheck, Receipt, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Ban, FileDown, Loader2, Mail, PackageCheck, Receipt, RotateCcw } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt } from '../types';
@@ -17,6 +17,8 @@ import { isRecallablePurchaseOrder, isPurchaseOrderEditable, purchaseOrderLockRe
 import {
   canCreatePoBill,
   canReceivePoGoods,
+  canShowPoCloseRemaining,
+  closeRemainingBlockedReason,
   createBillBlockedReason,
   remainingReceiveQty,
   receiveGoodsBlockedReason,
@@ -29,10 +31,12 @@ import { POActionToolbar } from './POActionToolbar';
 import { ApprovalPanel } from './ApprovalPanel';
 import { DocumentRevisionPanel } from './DocumentRevisionPanel';
 import { GoodsReceiptHistoryTable } from './GoodsReceiptHistoryTable';
+import { ReceivePurchaseOrderDialog } from './ReceivePurchaseOrderDialog';
 import {
   HoverTip,
   actionRowStyle,
   badgeStyle,
+  dangerButtonStyle,
   disabledActionStyle,
   documentPageHeaderStyle,
   documentPageSubStyle,
@@ -135,6 +139,8 @@ export function PurchaseOrderForm() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [receivingGoods, setReceivingGoods] = useState(false);
+  const [closingRemaining, setClosingRemaining] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const [p2pError, setP2pError] = useState<string | null>(null);
   const [recalling, setRecalling] = useState(false);
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
@@ -143,7 +149,7 @@ export function PurchaseOrderForm() {
 
   const {
     state,
-    setHeader,
+    setHeader: setHeaderField,
     addRow,
     updateRow,
     updateRowFields,
@@ -155,6 +161,16 @@ export function PurchaseOrderForm() {
     setFullPO,
     resetForm,
   } = usePurchaseOrderState('');
+
+  const setHeader = (field: string, value: unknown) => {
+    setHeaderField(field, value);
+    setErrors((prev) => {
+      if (!(field in prev)) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
 
   const withSupplierName = (po: PurchaseOrder, sups: Supplier[]) => {
     const nameById = Object.fromEntries(sups.map((s) => [s.supplier_id, s.company_name]));
@@ -345,8 +361,6 @@ export function PurchaseOrderForm() {
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-
-  const hasValidationError = useMemo(() => Object.keys(errors).length > 0, [errors]);
 
   const persistPO = async (status: PurchaseOrder['status']) => {
     if (isExisting && !isPurchaseOrderEditable(state)) {
@@ -592,36 +606,65 @@ export function PurchaseOrderForm() {
     window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
   };
 
-  const handleReceiveAllGoods = async () => {
-    if (!state.po_number || !state.items.length) return;
-    if (!canReceivePoGoods(state)) {
-      setP2pError(receiveGoodsBlockedReason(state) || 'Nothing remaining to receive.');
-      return;
+  const handleCloseRemaining = async () => {
+    if (!state.po_number) return
+    if (
+      !window.confirm(
+        `Cancel the remaining unreceived quantity on ${state.po_number}? Further receipts will be closed.`,
+      )
+    ) {
+      return
     }
-    const receivableLines = state.items.filter((item) => remainingReceiveQty(item) > 0);
+    setClosingRemaining(true)
+    setP2pError(null)
+    try {
+      const refreshed = await purchaseOrderService.closeRemaining(state.po_number)
+      setFullPO(withSupplierName(refreshed, suppliers))
+      setSuccessMessage('Remaining quantity cancelled. This purchase order is closed for further receipts.')
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : 'Failed to cancel remaining quantity')
+    } finally {
+      setClosingRemaining(false)
+    }
+  }
+
+  const handleOpenReceive = () => {
+    if (!state.po_number || !state.items.length) return
+    if (!canReceivePoGoods(state)) {
+      setP2pError(receiveGoodsBlockedReason(state) || 'Nothing remaining to receive.')
+      return
+    }
+    const receivableLines = state.items.filter((item) => remainingReceiveQty(item) > 0)
     if (receivableLines.length === 0) {
       setP2pError('No receivable lines. Enter a quantity or amount before receiving.')
       return
     }
-    setP2pError(null);
-    setReceivingGoods(true);
+    setP2pError(null)
+    setReceiveOpen(true)
+  }
+
+  const handleSubmitReceive = async (payload: {
+    receipt_date: string
+    notes: string | null
+    lines: Array<{ source_line_id: number; quantity_received: number; unit_cost?: number | null }>
+  }) => {
+    if (!state.po_number) return
+    setReceivingGoods(true)
+    setP2pError(null)
     try {
-      await purchaseOrderService.receiveGoods(state.po_number, {
-        lines: receivableLines.map((item) => ({
-          source_line_id: Number(item.id),
-          quantity_received: remainingReceiveQty(item),
-          unit_cost: item.unit_price,
-        })),
-      });
-      const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number);
-      setFullPO(withSupplierName(refreshed, suppliers));
-      setSuccessMessage('Goods received — inventory/expense accrual and GRNI posted.');
+      await purchaseOrderService.receiveGoods(state.po_number, payload)
+      const refreshed = await purchaseOrderService.getPurchaseOrder(state.po_number)
+      setFullPO(withSupplierName(refreshed, suppliers))
+      setReceiveOpen(false)
+      setSuccessMessage(
+        `Goods receipt posted for ${payload.lines.length} line${payload.lines.length === 1 ? '' : 's'}. Remaining quantity can be received later.`,
+      )
     } catch (err) {
-      setP2pError(err instanceof Error ? err.message : 'Failed to receive goods');
+      setP2pError(err instanceof Error ? err.message : 'Failed to receive goods')
     } finally {
-      setReceivingGoods(false);
+      setReceivingGoods(false)
     }
-  };
+  }
 
   if (isLoading) {
     return (
@@ -665,6 +708,11 @@ export function PurchaseOrderForm() {
                     Rev {state.revision_number}
                   </span>
                 ) : null}
+                {state.remaining_closed ? (
+                  <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#455a64' }}>
+                    Remaining cancelled
+                  </span>
+                ) : null}
               </div>
               <p style={documentPageSubStyle}>
                 {state.supplier_id}
@@ -703,7 +751,7 @@ export function PurchaseOrderForm() {
                   <HoverTip
                     label={
                       canReceivePoGoods(state)
-                        ? 'Post a goods receipt for remaining quantity'
+                        ? 'Post a goods receipt. Enter a partial quantity if the vendor shipped less than ordered.'
                         : receiveGoodsBlockedReason(state) || 'Receive goods is not available'
                     }
                   >
@@ -711,12 +759,33 @@ export function PurchaseOrderForm() {
                       type="button"
                       style={{ ...secondaryButtonStyle, ...disabledActionStyle(canReceivePoGoods(state) && !receivingGoods) }}
                       disabled={receivingGoods || !canReceivePoGoods(state)}
-                      onClick={() => void handleReceiveAllGoods()}
+                      onClick={handleOpenReceive}
                     >
                       {receivingGoods ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <PackageCheck size={15} />}
                       {receivingGoods ? 'Receiving…' : 'Receive Goods'}
                     </button>
                   </HoverTip>
+                  {canShowPoCloseRemaining(state) ? (
+                    <HoverTip
+                      label={
+                        closeRemainingBlockedReason(state) ||
+                        'Cancel leftover quantity after this partial receipt. Remaining quantity will not be received.'
+                      }
+                    >
+                      <button
+                        type="button"
+                        style={{
+                          ...dangerButtonStyle,
+                          ...disabledActionStyle(state.can_close_remaining && !closingRemaining),
+                        }}
+                        disabled={closingRemaining || !state.can_close_remaining}
+                        onClick={() => void handleCloseRemaining()}
+                      >
+                        {closingRemaining ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Ban size={15} />}
+                        {closingRemaining ? 'Closing…' : 'Cancel remaining'}
+                      </button>
+                    </HoverTip>
+                  ) : null}
                   <HoverTip
                     label={
                       canCreatePoBill(state)
@@ -825,7 +894,6 @@ export function PurchaseOrderForm() {
             onSubmit={handleSubmitPO}
             onReset={handleResetForm}
             isSubmitting={isSubmitting}
-            hasValidationError={hasValidationError}
             showRecall={false}
             canRecall={canRecallAction}
             recallDisabledReason={recallDisabledReason}
@@ -900,9 +968,13 @@ export function PurchaseOrderForm() {
               <div style={notesCardStyle}>
                 <h3 style={receiptsHeadingStyle}>Goods Receipts</h3>
                 <p style={receiptsHintStyle}>
-                  Click a receipt ID to open posting status, received quantities, and the GRNI accounting trail.
+                  Click a receipt ID to open posting status, per-line quantities, and the GRNI accounting trail.
+                  Mixed-item receipts show percent of the PO ordered quantity.
                 </p>
-                <GoodsReceiptHistoryTable receipts={receipts} />
+                <GoodsReceiptHistoryTable
+                  receipts={receipts}
+                  orderQtyTotal={state.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}
+                />
               </div>
             )}
 
@@ -929,6 +1001,18 @@ export function PurchaseOrderForm() {
             />
           </div>
         </>
+
+      <ReceivePurchaseOrderDialog
+        open={receiveOpen}
+        poNumber={state.po_number}
+        items={state.items}
+        busy={receivingGoods}
+        error={p2pError}
+        onClose={() => {
+          if (!receivingGoods) setReceiveOpen(false)
+        }}
+        onSubmit={(payload) => void handleSubmitReceive(payload)}
+      />
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );

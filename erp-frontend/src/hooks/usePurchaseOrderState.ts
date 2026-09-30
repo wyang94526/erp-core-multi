@@ -87,6 +87,8 @@ export const getInitialState = (defaultPoNumber = ''): POFormState => {
     receive_blocked_reason: null,
     can_create_bill: false,
     bill_blocked_reason: null,
+    remaining_closed: false,
+    can_close_remaining: false,
   };
 };
 
@@ -339,6 +341,8 @@ function poReducer(state: POFormState, action: POAction): POFormState {
         receive_blocked_reason: po.receive_blocked_reason || null,
         can_create_bill: po.can_create_bill,
         bill_blocked_reason: po.bill_blocked_reason || null,
+        remaining_closed: Boolean(po.remaining_closed),
+        can_close_remaining: Boolean(po.can_close_remaining),
         ...totals,
       };
     }

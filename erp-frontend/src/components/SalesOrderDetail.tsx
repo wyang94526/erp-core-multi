@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Factory, FileDown, Loader2, Mail, Package, Pencil, Receipt } from 'lucide-react'
+import { ArrowLeft, Ban, Factory, FileDown, Loader2, Mail, Package, Pencil, Receipt } from 'lucide-react'
 import {
   customerService,
   fulfillmentService,
@@ -32,11 +32,13 @@ import {
   PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE,
   SALES_ORDER_LOCKED_EDIT_MESSAGE,
 } from '../utils/salesOrders'
-import { isSalesOrderFullyFulfilled } from '../utils/fulfillmentQty'
+import { isSalesOrderFullyFulfilled, salesOrderQtyProgress } from '../utils/fulfillmentQty'
+import { scoReceivedQty } from '../utils/scoReceive'
 import {
   HoverTip,
   actionRowStyle,
   badgeStyle,
+  dangerButtonStyle,
   disabledActionStyle,
   documentPageHeaderStyle,
   documentPageSubStyle,
@@ -109,6 +111,18 @@ export function SalesOrderDetail() {
     enabled: Boolean(order?.customer_id),
   })
 
+  const closeRemainingMutation = useMutation({
+    mutationFn: () => salesOrderService.closeRemaining(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesOrders', id] })
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['fulfillments'] })
+    },
+    onError: (err: Error) => {
+      setReviseError(err.message || 'Failed to cancel remaining quantity')
+    },
+  })
+
   const reviseMutation = useMutation({
     mutationFn: () => salesOrderService.reviseSalesOrder(id!),
     onSuccess: () => {
@@ -171,6 +185,7 @@ export function SalesOrderDetail() {
   const fullyFulfilled = isSalesOrderFullyFulfilled(order, fulfillments)
   const billingStatus = salesOrderInvoiceStatus(order)
   const billingColors = invoiceStatusColors(billingStatus)
+  const qtyProgress = salesOrderQtyProgress(order, fulfillments)
   const canCreateInvoice = isApproved && hasShippedFulfillment && !fullyInvoiced
   const canEditOrder = isSalesOrderEditable(order)
 
@@ -178,7 +193,9 @@ export function SalesOrderDetail() {
     ? 'Order must be approved before fulfillment'
     : orderCancelled
       ? 'Cancelled orders cannot be fulfilled'
-      : fullyFulfilled
+      : order.remaining_closed
+        ? 'Remaining quantity was cancelled'
+        : fullyFulfilled
         ? 'All items have been fulfilled'
         : fullyInvoiced
           ? 'This Sales Order has already been fully billed.'
@@ -303,6 +320,11 @@ export function SalesOrderDetail() {
                 Rev {order.revision_number}
               </span>
             ) : null}
+            {order.remaining_closed ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#455a64' }}>
+                Remaining cancelled
+              </span>
+            ) : null}
           </div>
           <p style={documentPageSubStyle}>
             {order.customer_id}
@@ -343,7 +365,15 @@ export function SalesOrderDetail() {
                 </button>
               </HoverTip>
             ) : null}
-            <HoverTip label={canFulfillItems ? 'Create an item fulfillment for this order' : fulfillBlockedReason || 'Fulfillment is not available'}>
+            <HoverTip
+              label={
+                canFulfillItems
+                  ? relatedScos.some((sco) => (sco.status || '').toUpperCase() === 'PARTIALLY_RECEIVED')
+                    ? 'Create a partial fulfillment for received subcontract quantity'
+                    : 'Create an item fulfillment for this order'
+                  : fulfillBlockedReason || 'Fulfillment is not available'
+              }
+            >
               <button
                 type="button"
                 style={{ ...secondaryButtonStyle, ...disabledActionStyle(canFulfillItems) }}
@@ -354,6 +384,28 @@ export function SalesOrderDetail() {
                 Fulfill
               </button>
             </HoverTip>
+            {order.can_close_remaining ? (
+              <HoverTip label="Cancel leftover quantity after this partial shipment. Remaining quantity will not be fulfilled.">
+                <button
+                  type="button"
+                  style={dangerButtonStyle}
+                  disabled={closeRemainingMutation.isPending}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Cancel the remaining unshipped quantity on ${order.sales_order_id}? Further fulfillment will be closed.`,
+                      )
+                    ) {
+                      return
+                    }
+                    closeRemainingMutation.mutate()
+                  }}
+                >
+                  <Ban size={15} />
+                  {closeRemainingMutation.isPending ? 'Closing…' : 'Cancel remaining'}
+                </button>
+              </HoverTip>
+            ) : null}
             <HoverTip
               label={
                 fullyInvoiced
@@ -506,6 +558,18 @@ export function SalesOrderDetail() {
               {order.currency} {Number(order.total_amount || 0).toFixed(2)}
             </p>
           </div>
+          {order.remaining_closed ? (
+            <>
+              <div>
+                <label style={labelStyle}>Shipped / Fulfilled Qty</label>
+                <p style={valueStyle}>{qtyProgress.fulfilled}</p>
+              </div>
+              <div>
+                <label style={labelStyle}>Cancelled Qty</label>
+                <p style={valueStyle}>{qtyProgress.cancelled}</p>
+              </div>
+            </>
+          ) : null}
           <div>
             <label style={labelStyle}>Billing</label>
             <p style={valueStyle}>
@@ -591,6 +655,12 @@ export function SalesOrderDetail() {
                   <th style={thStyle}>Product ID</th>
                   <th style={thStyle}>Customer P/N</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Quantity</th>
+                  {order.remaining_closed ? (
+                    <>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Shipped / Fulfilled</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Cancelled</th>
+                    </>
+                  ) : null}
                   <th style={{ ...thStyle, textAlign: 'right' }}>Unit Price</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Tax Amount</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Total Amount</th>
@@ -603,6 +673,16 @@ export function SalesOrderDetail() {
                     <td style={tdStyle}>{item.item_id}</td>
                     <td style={tdStyle}>{item.customer_part_number || '-'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{item.quantity_ordered}</td>
+                    {order.remaining_closed ? (
+                      <>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          {qtyProgress.byLine[item.so_item_id]?.fulfilled ?? 0}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          {qtyProgress.byLine[item.so_item_id]?.cancelled ?? 0}
+                        </td>
+                      </>
+                    ) : null}
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {order.currency} {Number(item.unit_price).toFixed(4)}
                     </td>
@@ -636,7 +716,8 @@ export function SalesOrderDetail() {
                   <th style={thStyle}>SCO #</th>
                   <th style={thStyle}>Supplier</th>
                   <th style={thStyle}>Item</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty Ordered</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty Received</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Approval</th>
                   <th style={thStyle}>Actions</th>
@@ -663,6 +744,7 @@ export function SalesOrderDetail() {
                           : ''}
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>{sco.quantity_ordered}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{scoReceivedQty(sco)}</td>
                       <td style={tdStyle}>
                         <span
                           style={{
@@ -742,6 +824,7 @@ function getStatusColors(status: string): { bg: string; text: string } {
     PROCESSING: { bg: '#e3f2fd', text: '#1565c0' },
     APPROVED: { bg: '#e8f5e9', text: '#2e7d32' },
     FULFILLED: { bg: '#fff3e0', text: '#e65100' },
+    PARTIALLY_FULFILLED: { bg: '#ede7f6', text: '#5e35b1' },
     INVOICED: { bg: '#e3f2fd', text: '#1565c0' },
     SHIPPED: { bg: '#fff3e0', text: '#e65100' },
     DELIVERED: { bg: '#e8f5e9', text: '#1b5e20' },

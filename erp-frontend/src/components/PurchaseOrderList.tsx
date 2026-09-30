@@ -11,7 +11,12 @@ import { useNavigate } from 'react-router-dom'
 import { purchaseOrderService, vendorService } from '../api/services'
 import type { PurchaseOrder, Supplier } from '../types'
 import { useEffect, useMemo, useState } from 'react'
-import { isPurchaseOrderEditable, purchaseOrderLockReason } from '../utils/poWorkflow'
+import {
+  canDeletePurchaseOrder,
+  isPurchaseOrderEditable,
+  purchaseOrderDeleteReason,
+  purchaseOrderLockReason,
+} from '../utils/poWorkflow'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
@@ -190,12 +195,17 @@ export function PurchaseOrderList() {
     if (skip + limit < filteredOrders.length) setSkip(skip + limit)
   }
 
-  const handleDelete = async (poNumber: string) => {
-    if (!window.confirm(`Are you sure you want to delete purchase order ${poNumber}?`)) {
+  const handleDelete = async (po: PurchaseOrder) => {
+    const blocked = purchaseOrderDeleteReason(po)
+    if (blocked) {
+      window.alert(blocked)
+      return
+    }
+    if (!window.confirm(`Are you sure you want to delete purchase order ${po.po_number}?`)) {
       return
     }
     try {
-      await purchaseOrderService.deletePurchaseOrder(poNumber)
+      await purchaseOrderService.deletePurchaseOrder(po.po_number)
       await queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] })
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to delete purchase order')
@@ -303,6 +313,8 @@ export function PurchaseOrderList() {
                     const approval = (po.approval_status || 'DRAFT').replace(/_/g, ' ')
                     const canEditPo = isPurchaseOrderEditable(po)
                     const editLockReason = purchaseOrderLockReason(po)
+                    const canDeletePo = canDeletePurchaseOrder(po)
+                    const deleteLockReason = purchaseOrderDeleteReason(po)
                     return (
                       <tr key={po.po_number} style={directoryTbodyRowStyle}>
                         <td style={directoryTdStyle}>{po.po_number}</td>
@@ -376,12 +388,21 @@ export function PurchaseOrderList() {
                             Edit
                           </button>
                           <button
-                            onClick={() => handleDelete(po.po_number)}
+                            type="button"
+                            onClick={() => void handleDelete(po)}
+                            disabled={!canDeletePo}
+                            title={
+                              canDeletePo
+                                ? 'Delete this draft purchase order'
+                                : deleteLockReason || 'This purchase order cannot be deleted'
+                            }
                             style={{
                               ...directoryActionButtonStyle,
-                              backgroundColor: '#ffebee',
-                              color: '#c62828',
-                              border: '1px solid #ffcdd2',
+                              backgroundColor: canDeletePo ? '#ffebee' : '#eceff1',
+                              color: canDeletePo ? '#c62828' : '#78909c',
+                              border: canDeletePo ? '1px solid #ffcdd2' : '1px solid #cfd8dc',
+                              cursor: canDeletePo ? 'pointer' : 'not-allowed',
+                              opacity: canDeletePo ? 1 : 0.75,
                             }}
                           >
                             Delete

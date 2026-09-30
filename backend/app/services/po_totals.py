@@ -88,11 +88,15 @@ def allocated_expense_pool(items: list[Any], shipping_fee: Any) -> Decimal:
     for item in items:
         if is_allocated_expense_line(item):
             charges += money(getattr(item, "line_subtotal", 0))
+            charges += money(getattr(item, "line_tax", 0))
     return charges
 
 
 def apply_estimated_landed_unit_costs(po: Any) -> None:
-    """Annotate each line with estimated_landed_unit_cost. Does not change unit_price."""
+    """Set estimated landed extras (freight/duty/tax) per unit. Does not include unit_price.
+
+    Unit cost on the line is unit_price + estimated_landed_unit_cost.
+    """
     items = list(getattr(po, "items", None) or [])
     expenses = allocated_expense_pool(items, getattr(po, "shipping_fee", 0))
     merchandise = [item for item in items if not is_allocated_expense_line(item)]
@@ -101,8 +105,9 @@ def apply_estimated_landed_unit_costs(po: Any) -> None:
         price = max(_d(getattr(item, "unit_price", 0)), Decimal("0"))
         qty = _d(getattr(item, "quantity", 0))
         if qty <= 0 or is_allocated_expense_line(item):
-            item.estimated_landed_unit_cost = money4(price) if price > 0 else ZERO
+            item.estimated_landed_unit_cost = ZERO
             item.allocated_landed_expense = ZERO
+            item.actual_unit_cost = money4(price) if price > 0 else ZERO
 
     if not merchandise:
         return
@@ -122,7 +127,8 @@ def apply_estimated_landed_unit_costs(po: Any) -> None:
             remaining = money(remaining - allocated)
         item.allocated_landed_expense = allocated
         per_unit = (allocated / qty) if qty > 0 else ZERO
-        item.estimated_landed_unit_cost = money4(price + per_unit)
+        item.estimated_landed_unit_cost = money4(per_unit)
+        item.actual_unit_cost = money4(price + per_unit)
 
 
 def apply_line_totals(item: Any) -> None:

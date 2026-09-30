@@ -33,6 +33,73 @@ export function formatReceiptQty(value: number | string | null | undefined): str
   return Number.isInteger(n) ? String(n) : parseFloat(n.toFixed(4)).toString()
 }
 
+type ReceiptQtyLine = {
+  item_id?: string | null
+  uom?: string | null
+  quantity_received?: number | string | null
+  quantity_ordered?: number | string | null
+}
+
+/** True when every receipt line is the same SKU and (if present) the same UOM. */
+export function receiptQtyIsHomogeneous(lines: ReceiptQtyLine[] | null | undefined): boolean {
+  const rows = lines || []
+  if (rows.length <= 1) return true
+  const items = new Set(rows.map((line) => (line.item_id || '').trim()).filter(Boolean))
+  const uoms = new Set(rows.map((line) => (line.uom || '').trim().toUpperCase()).filter(Boolean))
+  return items.size <= 1 && uoms.size <= 1
+}
+
+export function receiptQtyTotals(
+  lines: ReceiptQtyLine[] | null | undefined,
+  orderQtyTotal?: number | null,
+): { received: number; ordered: number } {
+  const rows = lines || []
+  const received = rows.reduce((total, line) => total + Number(line.quantity_received || 0), 0)
+  const fromOrder = Number(orderQtyTotal)
+  const ordered = Number.isFinite(fromOrder) && fromOrder > 0
+    ? fromOrder
+    : rows.reduce((total, line) => total + Number(line.quantity_ordered || 0), 0)
+  return { received, ordered }
+}
+
+export function formatReceiptPercent(received: number, ordered: number): string {
+  if (!(ordered > 0) || !Number.isFinite(received)) return '—'
+  const pct = (received / ordered) * 100
+  const rounded = Math.round(pct * 10) / 10
+  return `${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)}%`
+}
+
+export function receiptReceivedHint(
+  lines: ReceiptQtyLine[] | null | undefined,
+  orderQtyTotal?: number | null,
+): string | undefined {
+  const mixed = !receiptQtyIsHomogeneous(lines)
+  const { received, ordered } = receiptQtyTotals(lines, orderQtyTotal)
+  if (mixed && ordered > 0) {
+    return `${formatReceiptQty(received)} received of ${formatReceiptQty(ordered)} ordered (${formatReceiptPercent(received, ordered)} of the order quantity). Open the receipt for each line.`
+  }
+  if (mixed) {
+    return 'Component quantities are not totaled because they are different items. Open the receipt to see each line.'
+  }
+  return undefined
+}
+
+/** Header qty for a goods receipt. Mixed kit/BOM lines show % of ordered quantity. */
+export function formatReceiptHeaderQty(
+  lines: ReceiptQtyLine[] | null | undefined,
+  orderQtyTotal?: number | null,
+): string {
+  const rows = lines || []
+  if (!rows.length) return '—'
+  const { received, ordered } = receiptQtyTotals(rows, orderQtyTotal)
+  if (!receiptQtyIsHomogeneous(rows)) {
+    return ordered > 0 ? formatReceiptPercent(received, ordered) : 'Mixed items'
+  }
+  const uom = (rows.find((line) => (line.uom || '').trim())?.uom || '').trim()
+  const qty = formatReceiptQty(received)
+  return uom ? `${qty} ${uom}` : qty
+}
+
 export function formatReceiptMoney(value: number | string | null | undefined, currency = 'USD'): string {
   const n = Number(value)
   if (!Number.isFinite(n)) return '—'
@@ -70,6 +137,7 @@ export function toJournalEntry(row: GoodsReceiptJournal): JournalEntry {
   }))
   return {
     id: row.id,
+    journal_number: row.journal_number || null,
     created_at: row.created_at || new Date().toISOString(),
     description: row.description,
     posted_by_user_id: row.posted_by_user_id || null,

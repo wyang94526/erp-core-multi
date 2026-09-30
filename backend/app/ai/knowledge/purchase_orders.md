@@ -37,6 +37,9 @@ Submit requires `carrier_account` when freight is 3rd-party or routing.
 After approval: **Receive Goods** (inventory + GRNI), then **Create Bill / Supplier Invoice**,
 approve the bill (GRNI → AP), then pay (AP → Cash). Freight, customs duty, rent, and similar
 charges without a PO use **Create Non-PO Invoice** (`LANDED_COST` or `EXPENSE`).
+To correct a mistaken received quantity, open the PU67- goods receipt and adjust line quantities
+(`PATCH /api/v1/goods-receipts/{id}/quantities`). That updates on-hand stock and GRNI.
+You cannot exceed remaining ordered qty or reduce below billed qty.
 
 ## Permissions
 - `po:view` — list/detail

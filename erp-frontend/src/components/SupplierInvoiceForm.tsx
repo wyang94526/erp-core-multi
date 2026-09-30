@@ -48,6 +48,30 @@ type DistRow = {
   goods_receipt_id: string
 }
 
+function SupplierInvoiceNumberField({
+  value,
+  loading,
+  hint,
+}: {
+  value: string
+  loading?: boolean
+  hint?: string
+}) {
+  return (
+    <label style={{ ...labelStyle, marginTop: 16 }}>
+      Supplier Invoice Number
+      <input
+        value={loading && !value ? 'Assigning…' : value}
+        readOnly
+        disabled
+        style={{ ...inputStyle, ...disabledInputStyle }}
+        title="Assigned automatically as UX13-YYMMXXXX from the invoice date"
+      />
+      {hint ? <span style={fieldHintStyle}>{hint}</span> : null}
+    </label>
+  )
+}
+
 function newDistRow(): DistRow {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -195,6 +219,15 @@ export function SupplierInvoiceForm() {
     enabled: isNonPo,
   })
 
+  const nextNumberQuery = useQuery({
+    queryKey: ['supplierInvoiceNextNumber', invoiceDate],
+    queryFn: () => vendorInvoiceService.nextNumber(invoiceDate),
+    enabled: !isEdit,
+  })
+  const supplierInvoiceNumber = isEdit
+    ? editQuery.data?.invoice.invoice_number || editBillId
+    : nextNumberQuery.data?.invoice_number || ''
+
   const backPath = isEdit
     ? `/supplier-invoices/${encodeURIComponent(editBillId)}`
     : isNonPo
@@ -282,7 +315,7 @@ export function SupplierInvoiceForm() {
         invoice_type: 'PO_MATCHED',
         source_type: sourceType,
         source_order_id: sourceOrderId,
-        vendor_invoice_number: vendorInvoiceNumber || null,
+        vendor_invoice_number: null,
         invoice_date: invoiceDate || null,
         due_date: dueDate || null,
         payment_term_id: paymentTermId || null,
@@ -332,7 +365,7 @@ export function SupplierInvoiceForm() {
         source_type: 'NON_PO' as const,
         reference_po_number: referencePoNumber.trim() || null,
         vendor_id: vendorId,
-        vendor_invoice_number: vendorInvoiceNumber || null,
+        vendor_invoice_number: isEdit ? vendorInvoiceNumber || null : null,
         invoice_date: invoiceDate || null,
         due_date: dueDate || null,
         payment_term_id: paymentTermId || null,
@@ -495,15 +528,15 @@ export function SupplierInvoiceForm() {
               </select>
             </label>
 
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              Vendor invoice number
-              <input
-                value={vendorInvoiceNumber}
-                onChange={(e) => setVendorInvoiceNumber(e.target.value)}
-                style={inputStyle}
-                placeholder="Supplier's invoice #"
-              />
-            </label>
+            <SupplierInvoiceNumberField
+              value={supplierInvoiceNumber}
+              loading={!isEdit && nextNumberQuery.isLoading}
+              hint={
+                isEdit
+                  ? undefined
+                  : 'Assigned on save with prefix UX13- from the invoice date.'
+              }
+            />
 
             <label style={{ ...labelStyle, marginTop: 16 }}>
               Payment terms
@@ -754,15 +787,15 @@ export function SupplierInvoiceForm() {
               Credit Accounts Payable (with PPV for price variances).
             </p>
 
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              Vendor invoice number
-              <input
-                value={vendorInvoiceNumber}
-                onChange={(e) => setVendorInvoiceNumber(e.target.value)}
-                style={inputStyle}
-                placeholder="Supplier's invoice #"
-              />
-            </label>
+            <SupplierInvoiceNumberField
+              value={supplierInvoiceNumber}
+              loading={!isEdit && nextNumberQuery.isLoading}
+              hint={
+                isEdit
+                  ? undefined
+                  : 'Assigned on save with prefix UX13- from the invoice date.'
+              }
+            />
 
             <label style={{ ...labelStyle, marginTop: 16 }}>
               Invoice date
@@ -913,6 +946,13 @@ const disabledInputStyle: React.CSSProperties = {
   opacity: 0.7,
   cursor: 'not-allowed',
   backgroundColor: 'var(--bg-muted, #f5f5f5)',
+}
+const fieldHintStyle: React.CSSProperties = {
+  display: 'block',
+  marginTop: 6,
+  fontSize: 12,
+  fontWeight: 400,
+  color: 'var(--text)',
 }
 const twoColStyle: React.CSSProperties = {
   display: 'grid',

@@ -109,6 +109,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
       { kind: 'link', label: 'Sales Orders', to: '/sales-orders', permission: 'sales_order:view' },
       { kind: 'link', label: 'Item Fulfillments', to: '/fulfillments', permission: 'sales_order:view' },
       { kind: 'link', label: 'Purchase Orders', to: '/purchase-orders', permission: 'po:view' },
+      { kind: 'link', label: 'Goods Receipts', to: '/goods-receipts', permission: 'po:view' },
     ],
   },
   {

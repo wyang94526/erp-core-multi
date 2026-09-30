@@ -50,6 +50,7 @@ from app.models import (
     SupplierInvoice,
     SupplierInvoiceDistribution,
 )
+from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.financial_reports import signed_balance
 from app.services.payment_terms import due_days_for, due_days_from_string
 from app.services.journal_source import (
@@ -378,6 +379,7 @@ def _post_balanced_journal_entry(
     today = posting_date or datetime.utcnow().date()
     period = today.strftime("%Y-%m")
     entry = JournalEntry(
+        journal_number=generate_document_number(db, DOC_JOURNAL, today),
         description=description,
         period=period,
         posting_date=today,

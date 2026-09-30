@@ -31,7 +31,7 @@ import {
   journalExportFilename,
   MONTH_END_CLOSE_PATH,
   YEAR_END_CLOSE_PATH,
-  shortJournalId,
+  journalDisplayId,
   sourceDocumentLabel,
 } from '../utils/journalEntries'
 
@@ -177,7 +177,7 @@ function GeneralLedger() {
           return {
             entryId: entry.id,
             date: entry.posting_date || entry.created_at,
-            journalId: shortJournalId(entry.id),
+            journalId: journalDisplayId(entry),
             description: posting.description || entry.description,
             accountCode,
             accountName,
@@ -209,7 +209,7 @@ function GeneralLedger() {
       approval_status: 'string',
     },
     getValue: (entry, key) => {
-      if (key === 'id') return shortJournalId(entry.id)
+      if (key === 'id') return journalDisplayId(entry)
       if (key === 'approval_status') return entry.approval_status || 'DRAFT'
       if (key === 'created_at') return entry.posting_date || entry.created_at
       if (key === 'source_document_type') {
@@ -307,7 +307,7 @@ function GeneralLedger() {
         <div ref={approvalPanelRef} style={approvalAnchorStyle}>
           <div style={approvalContextStyle}>
             <div>
-              <strong>Journal {shortJournalId(selectedId)}</strong>
+              <strong>Journal {journalDisplayId(selectedEntry || { id: selectedId })}</strong>
               {selectedEntry?.description ? ` — ${selectedEntry.description}` : ''}
             </div>
             <button type="button" style={closeButtonStyle} onClick={() => setSelectedId(null)}>
@@ -416,7 +416,7 @@ function GeneralLedger() {
                     <td style={directoryTdStyle}>
                       {formatDate(entry.posting_date || entry.created_at)}
                     </td>
-                    <td style={directoryTdStyle}>{shortJournalId(entry.id)}</td>
+                    <td style={directoryTdStyle}>{journalDisplayId(entry)}</td>
                     <td style={directoryTdStyle}>
                       <div style={descriptionCellStyle}>
                         {isInferredSystemJournal(entry) && (

@@ -17,6 +17,12 @@ export function shortJournalId(id: string) {
   return id.split('-')[0].toUpperCase()
 }
 
+export function journalDisplayId(entry?: { id?: string; journal_number?: string | null } | null) {
+  const number = (entry?.journal_number || '').trim()
+  if (number) return number
+  return entry?.id ? shortJournalId(entry.id) : '—'
+}
+
 export function isSystemJournal(entry: Pick<JournalEntry, 'is_system_generated'>) {
   return Boolean(entry.is_system_generated)
 }
@@ -162,7 +168,8 @@ export function journalSearchText(entry: JournalEntry) {
   ])
   return [
     entry.id,
-    shortJournalId(entry.id),
+    entry.journal_number,
+    journalDisplayId(entry),
     entry.description,
     entry.reference,
     entry.period,
@@ -295,7 +302,7 @@ export function journalEntriesToCsv(entries: JournalEntry[], rules: PostingRule[
     const source = inferredJournalSource(entry)
     const header = {
       date: journalPostedDate(entry),
-      journalId: shortJournalId(entry.id),
+      journalId: journalDisplayId(entry),
       uuid: entry.id,
       description: entry.description || '',
       reference: entry.reference || '',

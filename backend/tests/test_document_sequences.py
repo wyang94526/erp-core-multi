@@ -25,13 +25,20 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.entities import DocumentSequence
 from app.services.document_sequences import (
+    DOC_BILL,
+    DOC_FINISHED_GOODS_RECEIPT,
+    DOC_FULFILLMENT,
+    DOC_GOODS_RECEIPT,
     DOC_INVOICE,
+    DOC_JOURNAL,
+    DOC_MATERIAL_ISSUE,
     DOC_PURCHASE_ORDER,
     DOC_SALES_ORDER,
     DOC_SUBCONTRACT_ORDER,
     format_document_number,
     generate_document_number,
     parse_document_date,
+    peek_document_number,
     plan_document_renames,
     remap_legacy_sales_order_id,
 )
@@ -42,7 +49,13 @@ class DocumentSequenceFormatTests(unittest.TestCase):
         self.assertEqual(format_document_number("PU61-", date(2026, 9, 14), 1), "PU61-26090001")
         self.assertEqual(format_document_number("PU62-", date(2026, 9, 1), 2), "PU62-26090002")
         self.assertEqual(format_document_number("UP23-", date(2026, 12, 31), 99), "UP23-26120099")
-        self.assertEqual(format_document_number("PU65-", date(2027, 1, 5), 12), "PU65-27010012")
+        self.assertEqual(format_document_number("USS5-", date(2027, 1, 5), 12), "USS5-27010012")
+        self.assertEqual(format_document_number("US51-", date(2026, 8, 1), 1), "US51-26080001")
+        self.assertEqual(format_document_number("PU67-", date(2026, 8, 1), 1), "PU67-26080001")
+        self.assertEqual(format_document_number("UM31-", date(2026, 8, 1), 1), "UM31-26080001")
+        self.assertEqual(format_document_number("UP72-", date(2026, 8, 1), 1), "UP72-26080001")
+        self.assertEqual(format_document_number("UX13-", date(2026, 8, 1), 1), "UX13-26080001")
+        self.assertEqual(format_document_number("UG11-", date(2026, 8, 1), 1), "UG11-26080001")
 
     def test_parse_document_date_prefers_selected_date(self):
         self.assertEqual(parse_document_date(date(2026, 3, 8)), date(2026, 3, 8))
@@ -72,12 +85,28 @@ class DocumentSequencePersistenceTests(unittest.TestCase):
         self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, october), "PU61-26100001")
         self.assertEqual(generate_document_number(self.db, DOC_PURCHASE_ORDER, september), "PU62-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_SUBCONTRACT_ORDER, september), "UP23-26090001")
-        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, september), "PU65-26090001")
-        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, "2026-09-20"), "PU65-26090002")
+        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, september), "USS5-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, "2026-09-20"), "USS5-26090002")
+        self.assertEqual(generate_document_number(self.db, DOC_FULFILLMENT, september), "US51-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_GOODS_RECEIPT, september), "PU67-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_MATERIAL_ISSUE, september), "UM31-26090001")
+        self.assertEqual(
+            generate_document_number(self.db, DOC_FINISHED_GOODS_RECEIPT, september),
+            "UP72-26090001",
+        )
+        self.assertEqual(generate_document_number(self.db, DOC_BILL, september), "UX13-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_JOURNAL, september), "UG11-26090001")
 
     def test_unknown_document_type_is_rejected(self):
         with self.assertRaises(ValueError):
             generate_document_number(self.db, "UNKNOWN", date(2026, 9, 1))
+
+    def test_peek_does_not_consume_sequence(self):
+        september = date(2026, 9, 30)
+        self.assertEqual(peek_document_number(self.db, DOC_BILL, september), "UX13-26090001")
+        self.assertEqual(peek_document_number(self.db, DOC_BILL, september), "UX13-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_BILL, september), "UX13-26090001")
+        self.assertEqual(peek_document_number(self.db, DOC_BILL, september), "UX13-26090002")
 
 
 class DocumentRenamePlanTests(unittest.TestCase):

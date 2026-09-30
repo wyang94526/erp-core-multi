@@ -62,3 +62,22 @@ export function purchaseOrderLockReason(
 export function isPurchaseOrderEditable(po: PurchaseOrderLockFields): boolean {
   return purchaseOrderLockReason(po) == null
 }
+
+export function purchaseOrderDeleteReason(po: PurchaseOrderLockFields): string | null {
+  if (po.has_posted_receipts) {
+    return 'Posted goods receipts exist. Open Goods Receipts to view the PU67- receipt and journal.'
+  }
+  if (po.has_supplier_invoices) {
+    return 'Supplier invoices exist for this purchase order. It cannot be deleted.'
+  }
+  const approval = normalizePoFlag(po.approval_status || 'DRAFT')
+  const status = po.status || ''
+  if (!['DRAFT', 'REJECTED'].includes(approval) || (status && status !== 'Draft')) {
+    return 'Only draft purchase orders with no receipts or invoices can be deleted.'
+  }
+  return null
+}
+
+export function canDeletePurchaseOrder(po: PurchaseOrderLockFields): boolean {
+  return purchaseOrderDeleteReason(po) == null
+}

@@ -358,6 +358,7 @@ def adjust_stock(
     notes: str | None = None,
     warehouse_id: str | None = None,
     bin_id: str | None = None,
+    reference: str | None = None,
 ) -> InventoryStockItemRead:
     if quantity_delta == 0:
         raise HTTPException(status_code=400, detail="quantity_delta must be non-zero")
@@ -375,7 +376,7 @@ def adjust_stock(
         quantity=quantity_delta,
         warehouse_id=stock.warehouse_id,
         bin_id=stock.bin_id,
-        reference=f"ADJ-{uuid4().hex[:8].upper()}",
+        reference=reference or f"ADJ-{uuid4().hex[:8].upper()}",
         notes=notes or "Manual stock adjustment",
         movement_date=date.today(),
     )

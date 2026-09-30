@@ -128,7 +128,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     tips: [
       'Use the left sidebar accordion: only one top-level module stays open at a time.',
-      'The AI Assistant (top right) can count and look up live records, and it can open posted financial statements. Ask “Income Statement for June 2026”, “P&L for September 2026”, or “Balance Sheet as of 2026-09”. Use “Open the full report” to jump to Financial Reports with that period. “Revenue by month” is posted G/L revenue; “sales by month” is sales-order totals.',
+      'The AI Assistant (top right) can count and look up live records, and it can open posted financial statements. Ask “Income Statement for June 2026”, “Show me the revenue for September 2027”, “P&L for September 2026”, or “Balance Sheet as of 2026-09”. Use “Open the full report” to jump to Financial Reports with that period. “Revenue by month” is posted G/L revenue; “sales by month” is sales-order totals.',
     ],
     faqs: [
       {
@@ -144,7 +144,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'Can the AI Assistant show a P&L?',
         answer:
-          'Yes. Ask “Income Statement for June 2026” or “P&L for September 2026”. The assistant uses posted journals (not document RAG). If that month is empty, it lists other months that already have posted P&L. Open the full report opens Financial Reports for that period. “Revenue by month” is G/L revenue; “sales by month” is sales-order totals.',
+          'Yes. Ask “Income Statement for June 2026”, “Show me the revenue for September 2027”, or “P&L for September 2026”. The assistant uses posted journals (not document RAG). If that month is empty, it lists other months that already have posted P&L. Open the full report opens Financial Reports for that period. “Revenue by month” is G/L revenue; “sales by month” is sales-order totals.',
       },
     ],
     troubleshooting: [
@@ -163,6 +163,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       '/fulfillments',
       '/sales-invoices',
       '/purchase-orders',
+      '/goods-receipts',
       '/customers',
       '/vendors',
       '/items',
@@ -227,12 +228,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
       'Add item lines by searching the internal part number. Customer P/N fills from the item master and can be overridden.',
       'Save as Draft, then Submit for approval if your workflow requires it.',
-      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. A sales order cannot be billed past its total; voiding an invoice releases that amount.',
+      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. If a linked subcontract is only partially received, fulfill the received quantity now and ship the remainder after the next finished-goods receipt. A sales order cannot be billed past its total; voiding an invoice releases that amount.',
       'To change an approved order that is not yet shipped, fulfilled, or fully billed, click Create Revision. The PU61 number stays the same. The approved snapshot is frozen, then you edit and re-submit for approval. Revision history and field-level change logs appear on the detail page after re-approval.',
     ],
     callouts: [
       { kind: 'required', text: 'Customer, at least one ship-to, and at least one order line are required before submit.' },
       { kind: 'important', text: 'Fulfillment and invoicing are separate steps. Shipping does not automatically create the AR invoice.' },
+      { kind: 'important', text: 'Subcontracted sales orders cannot ship more than finished-goods received. Partial receipts create a partial fulfillment; remaining quantity waits for the next receipt.' },
+      { kind: 'important', text: 'After a partial shipment, use Cancel remaining to close leftover quantity. The sales order is then fulfilled for what shipped and cannot ship more. The detail page shows shipped / fulfilled quantity and cancelled quantity.' },
       { kind: 'important', text: 'Create Revision is blocked once the sales order is shipped, fulfilled, invoiced, or fully billed. Use a credit memo or a new sales order instead of overwriting billed quantities.' },
     ],
     tips: [
@@ -244,6 +247,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'Can I edit an order after approval?',
         answer:
           'Not directly. Click Create Revision on the approved sales order (same PU61 number), edit the draft, then submit and approve again. If the order is already shipped, fulfilled, invoiced, or fully billed (for example PU61-26080001), Create Revision stays hidden — use a credit memo or a new sales order.',
+      },
+      {
+        question: 'Can I ship part of a sales order when the subcontract is only partially received?',
+        answer:
+          'Yes. Fulfill defaults to finished-goods received so far. Ship that quantity now; the sales order stays partially fulfilled until the remaining quantity is received and shipped. If the rest will not ship, click Cancel remaining.',
+      },
+      {
+        question: 'How do I cancel leftover quantity after a partial shipment?',
+        answer:
+          'On a sales order, click Cancel remaining after a partial shipment. The order then shows shipped / fulfilled quantity and cancelled quantity. On a purchase order or subcontract order, first create the supplier invoice for the received quantity, then click Cancel remaining. That closes leftover quantity so the document is no longer open for the rest.',
       },
     ],
     troubleshooting: [
@@ -281,14 +294,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Set Freight Payment Terms. Prepaid shipping is added to the vendor Grand Total. 3rd-party / collect freight is estimated landed cost only and excluded from the vendor invoice total.',
       'Search and add item lines by internal part number (type to search the catalog). Save Draft anytime.',
       'Submit for approval. Approvers follow the purchasing workflow (amount bands).',
-      'When the PO is Approved, open it and click Receive Goods to post a receipt (GRNI).',
-      'Create a Supplier Invoice / Bill against received quantities under Finance → Supplier Invoices.',
+      'When the PO is Approved, open it and click Receive Goods. Enter the quantity arriving now — a short shipment is a partial receipt; remaining quantity can be received later. If a received quantity was entered incorrectly, open the PU67- receipt and click Adjust quantities. Each receipt posts GRNI.',
+      'Create a Supplier Invoice / Bill against received quantities under Finance → Supplier Invoices. If the vendor will not ship the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change an approved or in-approval PO before any posted receipt or supplier invoice, click Create Revision. The PU62 number stays the same. The last approved snapshot is frozen, the PO returns to Draft, and Receive Goods / Create Bill stay blocked until it is approved again. Revision history and field changes appear on the PO after re-approval.',
     ],
     callouts: [
       { kind: 'required', text: 'Vendor and at least one line item are required to submit (empty lines are allowed only on Draft).' },
       { kind: 'important', text: '3rd-party freight must not appear on the goods vendor bill. Confirm Freight Payment Terms before submit; carrier account is required when freight is collect or routing.' },
       { kind: 'important', text: 'Create Revision is blocked once posted goods receipts or supplier invoices exist. Do not overwrite received or billed quantities on the same PO.' },
+      { kind: 'important', text: 'Cancel remaining is blocked until the received quantity has a supplier invoice. Create the bill first, then close leftover quantity.' },
+      { kind: 'important', text: 'Delete is only for draft / rejected POs with no posted receipts or supplier invoices. A posted PU67- receipt and its UG11- journal stay in Goods Receipts and the General Ledger.' },
     ],
     tips: [
       'Use PDF print for vendor confirmation.',
@@ -319,6 +334,48 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Create Revision is disabled',
         fix: 'Posted goods receipts or supplier invoices lock the PO. Voided POs cannot be revised. After a revision is opened, receive and bill stay blocked until the PO is approved again.',
+      },
+      {
+        issue: 'Delete is disabled or returns 409',
+        fix: 'The PO has posted goods receipts or supplier invoices, or it is not a draft. Open Sales & Procurement → Goods Receipts to find the PU67- receipt. Its GRNI journal remains on the General Ledger.',
+      },
+    ],
+  },
+  {
+    id: 'goods-receipts',
+    module: 'sales',
+    title: 'Finding Goods Receipts',
+    routeMatch: ['/goods-receipts'],
+    summary:
+      'Goods Receipts lists every posted PO / SCO receipt (PU67- / UP72-) and opens the GRNI journal. Receipts stay here even if the source purchase order is later removed.',
+    steps: [
+      'Go to Sales & Procurement → Goods Receipts.',
+      'Search by receipt number (PU67-), source PO (PU62-), or vendor.',
+      'Open a receipt to see lines, warehouse, and the posted journal (UG11-). Use View Source Document on that journal to return here. Adjust quantities if a received qty was entered incorrectly (PO receipts only).',
+      'Receive new quantity from the approved purchase order (Receive Goods). Partial receipts are allowed; remaining quantity can be received later.',
+    ],
+    callouts: [
+      {
+        kind: 'important',
+        text: 'A goods receipt is an accounting document. Deleting the purchase order does not delete the receipt or reverse its journal.',
+      },
+    ],
+    faqs: [
+      {
+        question: 'How do I correct a mistaken goods receipt quantity?',
+        answer:
+          'Open Sales & Procurement → Goods Receipts → the PU67- document, then Adjust quantities. You cannot exceed the PO ordered quantity or reduce below quantity already billed. Stock and the GRNI journal are updated.',
+      },
+      {
+        question: 'The purchase order is gone. How do I open the receipt?',
+        answer:
+          'Use Sales & Procurement → Goods Receipts and search the PU67- number or the original PU62- number. The General Ledger journal for that receipt also links to the same receipt page.',
+      },
+    ],
+    troubleshooting: [
+      {
+        issue: 'Cannot find PU67- after the PO was deleted',
+        fix: 'Open Goods Receipts (not the Purchase Orders list). Search the receipt number. The journal stays in General Ledger and still links to the receipt.',
       },
     ],
   },
@@ -383,8 +440,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Save the SCO. Open the detail page to review required components.',
       'Submit and approve the SCO while it is still Planned / Draft. Issue Materials stays locked until approval.',
       'After approval, issue materials to the vendor when the kit is picked. Print the shipping document from that issue and send it with the kit.',
-      'When finished goods return, record a receipt (Receipt ID + quantity). GRNI is posted for the value received.',
-      'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you.',
+      'When finished goods return, record a receipt (Receipt ID + quantity). A short shipment is a partial receipt; remaining quantity can be received later. GRNI is posted for the value received. The parent sales order can then fulfill only the quantity received so far.',
+      'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you. If the processor will not return the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change vendor charges or finished-good quantity after approval, open the SCO and click Create Revision. Edit the sheet, then submit for approval again. The SCO number stays the same. Linked purchase orders stay on the same SCO.',
     ],
     callouts: [
@@ -482,7 +539,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     troubleshooting: [
       {
         issue: 'Receipt from PO not listed',
-        fix: 'Confirm Receive Goods succeeded on the PO, then clear extra filters on Stock Movements (type, SKU, dashboard metric).',
+        fix: 'Confirm Receive Goods succeeded on the PO. Open Sales & Procurement → Goods Receipts for the PU67- document, then clear extra filters on Stock Movements (type, SKU, dashboard metric).',
       },
     ],
   },
@@ -620,7 +677,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'From an approved, shipped sales order, choose Invoice (or Finance → Sales Invoices).',
       'Confirm bill-to, lines, tax, and dates, then save / post per your workflow.',
-      'Open Finance → Sales Invoices and click an Invoice # (PU65-YYMMXXXX) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
+      'Open Finance → Sales Invoices and click an Invoice # (USS5-YYMMXXXX) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
       'The same Invoice ID on AR Aging & Collections also opens that detail page.',
       'Dashboard finance KPIs (outstanding AR, overdue invoices) deep-link here with filters applied.',
     ],
@@ -671,9 +728,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Receive goods on the PO or SCO first (GRNI) for PO-matched bills.',
       'Go to Finance → Supplier Invoices / Bills. Use Create Bill from an approved PO/SCO, or Create Non-PO Invoice for freight, customs duty, rent, utilities, or salaries.',
       'For Non-PO invoices, choose Expense (GL distribution) or Landed Cost (optional goods-receipt allocation). No purchase order is required.',
-      'Select the vendor / source document. PO-matched lines default to unbilled received quantities at order prices.',
+      'Select the vendor / source document. The Supplier Invoice Number (UX13-YYMMXXXX) is assigned on save from the invoice date. PO-matched lines default to unbilled received quantities at order prices.',
       'Save as draft or submit for approval. A Non-PO draft (or a rejected bill) can be opened and edited, then saved or submitted again. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
-      'Open Finance → Supplier Invoices and click a Bill # (VBILL-YYYY-NNNN) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
+      'Open Finance → Supplier Invoices and click a Bill # (UX13-YYMMXXXX) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
       'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add or edit company banks under Cash & Treasury → Bank Accounts. Open a bank with View to see the detail page, or Edit to change the mapped G/L account. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
     ],

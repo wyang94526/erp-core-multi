@@ -233,6 +233,15 @@ def list_sales_order_revisions(order_id: str, db: Session = Depends(get_db)) -> 
     return list_revisions(db, "SALES_ORDER", order_id)
 
 
+@router.post("/{order_id}/close-remaining", response_model=SalesOrderRead)
+def close_sales_order_remaining(order_id: str, db: Session = Depends(get_db)) -> SalesOrder:
+    order = o2c.close_sales_order_remaining(db, order_id)
+    db.commit()
+    db.refresh(order)
+    o2c.attach_sales_order_billing(db, [order])
+    return order
+
+
 @router.get("/{order_id}/change-logs", response_model=list[DocumentChangeLogRead])
 def list_sales_order_change_logs(order_id: str, db: Session = Depends(get_db)) -> list:
     if db.get(SalesOrder, order_id) is None:

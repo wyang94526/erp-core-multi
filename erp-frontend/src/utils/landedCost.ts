@@ -12,6 +12,7 @@ type LandedLine = {
   quantity?: number | null
   unit_price?: number | null
   line_subtotal?: number | null
+  line_tax?: number | null
   sku?: string | null
   item_type?: string | null
   estimated_landed_unit_cost?: number
@@ -25,6 +26,7 @@ export function isAllocatedExpenseLine(item: LandedLine): boolean {
   return isNonStockItem(item.item_type, item.sku)
 }
 
+/** Spread freight/duty/tax extras onto merchandise. Estimated landed excludes unit price. */
 export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
   items: T[],
   shippingFee: number,
@@ -34,7 +36,9 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
     shipping +
       items.reduce((sum, item) => {
         if (!isAllocatedExpenseLine(item)) return sum
-        return sum + Math.max(0, Number(item.line_subtotal) || 0)
+        const charge = Math.max(0, Number(item.line_subtotal) || 0)
+        const tax = Math.max(0, Number(item.line_tax) || 0)
+        return sum + charge + tax
       }, 0),
   )
   const merchandise = items.filter((item) => !isAllocatedExpenseLine(item))
@@ -51,8 +55,8 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
       return {
         ...item,
         allocated_landed_expense: 0,
-        estimated_landed_unit_cost: price > 0 ? round4(price) : 0,
-        actual_unit_cost: item.actual_unit_cost ?? (price > 0 ? round4(price) : 0),
+        estimated_landed_unit_cost: 0,
+        actual_unit_cost: price > 0 ? round4(price) : 0,
       }
     }
     const merchIndex = merchandise.indexOf(item)
@@ -65,13 +69,13 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
         remaining = round2(remaining - allocated)
       }
     }
-    const combined = round2(allocated + actualExtra)
+    const estimatedPerUnit = allocated / qty
     return {
       ...item,
-      allocated_landed_expense: combined,
-      estimated_landed_unit_cost: round4(price + combined / qty),
+      allocated_landed_expense: round2(allocated + actualExtra),
+      estimated_landed_unit_cost: round4(estimatedPerUnit),
       actual_unit_cost:
-        actualExtra > 0 ? round4(price + actualExtra / qty) : item.actual_unit_cost ?? round4(price + allocated / qty),
+        actualExtra > 0 ? round4(price + actualExtra / qty) : round4(price + estimatedPerUnit),
     }
   })
 }

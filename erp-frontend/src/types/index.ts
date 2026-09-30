@@ -477,6 +477,10 @@ export interface SalesOrder {
   root_document_id?: string | null;
   can_revise?: boolean;
   revise_blocked_reason?: string | null;
+  remaining_closed?: boolean;
+  remaining_closed_at?: string | null;
+  closed_billable_amount?: number | null;
+  can_close_remaining?: boolean;
   total_amount: number; // Decimal from backend
   billed_amount?: number;
   remaining_billable_amount?: number;
@@ -638,6 +642,9 @@ export interface PurchaseOrder {
   receive_blocked_reason?: string | null;
   can_create_bill?: boolean;
   bill_blocked_reason?: string | null;
+  remaining_closed?: boolean;
+  remaining_closed_at?: string | null;
+  can_close_remaining?: boolean;
 }
 
 export interface EligibleMaterialPoSco {
@@ -785,6 +792,7 @@ export interface GoodsReceiptJournalPosting {
 
 export interface GoodsReceiptJournal {
   id: string;
+  journal_number?: string | null;
   created_at?: string | null;
   description: string;
   posted_by_user_id?: string | null;
@@ -832,6 +840,7 @@ export interface GoodsReceipt {
   received_by?: string | null;
   operational_receipt_id?: string | null;
   total_amount?: number | string | null;
+  can_adjust_quantities?: boolean;
   lines: GoodsReceiptLine[];
   journals?: GoodsReceiptJournal[];
   related_invoices?: GoodsReceiptInvoiceRef[];
@@ -864,6 +873,9 @@ export interface SubcontractOrder {
   root_document_id?: string | null;
   can_revise?: boolean;
   revise_blocked_reason?: string | null;
+  remaining_closed?: boolean;
+  remaining_closed_at?: string | null;
+  can_close_remaining?: boolean;
   billing_status?: string;
   order_date: string;
   expected_return_date: string | null;
@@ -1268,6 +1280,7 @@ export interface LedgerPosting {
 
 export interface JournalEntry {
   id: string; // UUID
+  journal_number?: string | null;
   created_at: string; // ISO datetime
   description: string;
   posted_by_user_id: string | null;

@@ -36,6 +36,7 @@ import SubcontractOrderList from './components/SubcontractOrderList'
 import SubcontractOrderForm from './components/SubcontractOrderForm'
 import SubcontractOrderDetail from './components/SubcontractOrderDetail'
 import GoodsReceiptDetail from './components/GoodsReceiptDetail'
+import GoodsReceiptList from './components/GoodsReceiptList'
 
 import ChartOfAccounts from './components/ChartOfAccounts'
 import PostingRules from './components/PostingRules'
@@ -172,6 +173,10 @@ export const router = createBrowserRouter([
       {
         path: 'purchase-orders/:id',
         element: <PurchaseOrderForm />,
+      },
+      {
+        path: 'goods-receipts',
+        element: <GoodsReceiptList />,
       },
       {
         path: 'goods-receipts/:receiptId',

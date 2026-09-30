@@ -9,7 +9,9 @@ from fastapi import HTTPException
 from app.services.o2c import (
     assert_fulfillment_can_be_deleted,
     assert_fulfillment_qty_within_ordered,
+    assert_fulfillment_qty_within_sco_received,
     over_fulfillment_detail,
+    over_sco_receipt_detail,
 )
 
 
@@ -59,6 +61,41 @@ class FulfillmentQtyValidationTests(TestCase):
                 assert_fulfillment_can_be_deleted(SimpleNamespace(status=status))
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertIn("draft", str(ctx.exception.detail).lower())
+
+    def test_sco_receipt_message_includes_received_qty(self):
+        self.assertEqual(
+            over_sco_receipt_detail("PU-WIDGET", 800, ["UP23-26090007"]),
+            (
+                "Cannot fulfill more than the 800 received on subcontract UP23-26090007 "
+                "for item PU-WIDGET. Ship the received quantity now; remaining quantity "
+                "can be fulfilled after the next receipt."
+            ),
+        )
+
+    def test_allows_qty_up_to_sco_received(self):
+        assert_fulfillment_qty_within_sco_received(
+            item_id="A", received=800, already=0, qty=800, sco_numbers=["UP23-1"]
+        )
+
+    def test_blocks_when_cumulative_exceeds_sco_received(self):
+        with self.assertRaises(HTTPException) as ctx:
+            assert_fulfillment_qty_within_sco_received(
+                item_id="A",
+                received=800,
+                already=0,
+                qty=1000,
+                sco_numbers=["UP23-26090007"],
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(
+            ctx.exception.detail,
+            over_sco_receipt_detail("A", 800, ["UP23-26090007"]),
+        )
+
+    def test_skips_sco_cap_when_no_linked_receipt(self):
+        assert_fulfillment_qty_within_sco_received(
+            item_id="A", received=None, already=0, qty=1000
+        )
 
     def test_helper_is_independent_of_sales_order_namespace(self):
         line = SimpleNamespace(item_id="SKU-1", quantity_ordered=3)

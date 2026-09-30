@@ -36,6 +36,16 @@ class FinancialReportIntentTests(unittest.TestCase):
         self.assertFalse(_is_financial_report_question("list purchase orders"))
         self.assertEqual(infer_financial_report_type("list purchase orders"), "")
 
+    def test_revenue_for_named_month_is_income_statement(self):
+        for question in (
+            "Show me the revenue for September 2027",
+            "Show me the revenue for September, 2027",
+        ):
+            self.assertEqual(infer_financial_report_type(question), "income-statement")
+            self.assertEqual(parse_financial_report_period(question), {"period": "2027-09"})
+            self.assertTrue(_is_financial_report_question(question))
+            self.assertFalse(_is_period_question(question))
+
 
 class FinancialReportFormatTests(unittest.TestCase):
     def test_markdown_table_from_income_statement_payload(self):
@@ -114,6 +124,31 @@ class FinancialReportHeuristicTests(unittest.TestCase):
         self.assertEqual(args["question"], "Show me the Income Statement for the month June 2026")
         self.assertIn("Income Statement", reply)
         self.assertNotIn("purchase_orders", reply)
+        self.assertNotIn("Running in local tool mode", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_financial_report")
+    def test_heuristic_revenue_for_month_ignores_page_sco(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Income Statement (Profit & Loss)\n\n"
+            "No posted P&L activity in 2027-09.\n"
+        )
+        reply, pending = _run_heuristic(
+            "Show me the revenue for September, 2027",
+            {
+                "entity_type": "subcontract_order",
+                "entity_id": "UP23-26090007",
+                "subcontract_order_id": "UP23-26090007",
+            },
+        )
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(
+            mock_tool.invoke.call_args[0][0]["question"],
+            "Show me the revenue for September, 2027",
+        )
+        self.assertIn("Income Statement", reply)
+        self.assertNotIn("purchase_orders", reply)
+        self.assertNotIn("UP23-26090007", reply)
         self.assertNotIn("Running in local tool mode", reply)
         self.assertIsNone(pending)
 

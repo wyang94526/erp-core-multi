@@ -20,8 +20,14 @@ from app.models import (
     SalesInvoiceLine,
     SalesOrder,
     SalesOrderItem,
+    SubcontractOrder,
+    SubcontractOrderItem,
 )
-from app.services.document_sequences import DOC_INVOICE, generate_document_number
+from app.services.document_sequences import (
+    DOC_FULFILLMENT,
+    DOC_INVOICE,
+    generate_document_number,
+)
 from app.services import finance, inventory
 from app.services.journal_source import SOURCE_SALES_INVOICE, rule_id
 from app.services.posting_rules import (
@@ -32,6 +38,13 @@ from app.services.posting_rules import (
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
 from app.services.item_types import catalog_item, skip_inventory_movement
+from app.services.remaining_close import (
+    NO_OPEN_REMAINING_DETAIL,
+    REMAINING_ALREADY_CLOSED_DETAIL,
+    REMAINING_CLOSED_FULFILL_DETAIL,
+    assert_can_close_remaining,
+    is_remaining_closed,
+)
 
 ACTIVE_SALES_INVOICE_STATUSES = ("DRAFT", "APPROVED", "PAID")
 _MONEY = Decimal("0.01")
@@ -41,7 +54,7 @@ SALES_ORDER_LOCKED_EDIT_DETAIL = (
 )
 _COMMITTED_FULFILLMENT_STATUSES = frozenset({"PICKED", "PACKED", "SHIPPED"})
 _EDITABLE_APPROVAL = frozenset({"DRAFT", "REJECTED"})
-_LOCKED_STATUS = frozenset({"SHIPPED", "INVOICED", "FULFILLED"})
+_LOCKED_STATUS = frozenset({"SHIPPED", "INVOICED", "FULFILLED", "PARTIALLY_FULFILLED"})
 
 
 def _normalize_so_flag(value: str | None) -> str:
@@ -138,11 +151,12 @@ def attach_sales_order_billing(db: Session, orders: list[SalesOrder]) -> None:
     billed_by = {sales_order_id: _money(amount) for sales_order_id, amount in rows}
     for order in orders:
         billed = billed_by.get(order.sales_order_id, Decimal("0.00"))
-        order_total = _money(order.total_amount)
+        order_total = _billable_order_total(db, order)
         remaining = max(order_total - billed, Decimal("0.00"))
         order.billed_amount = billed
         order.remaining_billable_amount = remaining
         order.invoice_status = invoice_status_label(order_total, billed)
+        order.can_close_remaining = sales_order_can_close_remaining(db, order)
     attach_sales_order_revise_flags(orders)
 
 
@@ -172,11 +186,17 @@ def assert_new_invoice_within_order_balance(
         )
 
 
+def _billable_order_total(db: Session, order: SalesOrder) -> Decimal:
+    if is_remaining_closed(order) and getattr(order, "closed_billable_amount", None) is not None:
+        return _money(order.closed_billable_amount)
+    return _money(order.total_amount)
+
+
 def sync_sales_order_invoice_status(db: Session, order: SalesOrder | None) -> None:
     if order is None or (order.status or "").upper() == "CANCELLED":
         return
     billed = billed_amount_for_order(db, order.sales_order_id)
-    order_total = _money(order.total_amount)
+    order_total = _billable_order_total(db, order)
     if billed >= order_total and order_total > 0:
         order.status = "INVOICED"
         return
@@ -190,25 +210,18 @@ def sync_sales_order_invoice_status(db: Session, order: SalesOrder | None) -> No
         )
         .count()
     )
-    order.status = "FULFILLED" if shipped else "APPROVED"
-
-
-def _next_number(db: Session, model, field, prefix: str) -> str:
-    year = date.today().year
-    like = f"{prefix}-{year}-%"
-    latest = (
-        db.query(getattr(model, field))
-        .filter(getattr(model, field).like(like))
-        .order_by(getattr(model, field).desc())
-        .first()
-    )
-    seq = 1
-    if latest and latest[0]:
-        try:
-            seq = int(str(latest[0]).rsplit("-", 1)[-1]) + 1
-        except ValueError:
-            seq = 1
-    return f"{prefix}-{year}-{seq:04d}"
+    if not shipped:
+        order.status = "APPROVED"
+        return
+    if not order.items:
+        order = (
+            db.query(SalesOrder)
+            .options(joinedload(SalesOrder.items))
+            .filter(SalesOrder.sales_order_id == order.sales_order_id)
+            .first()
+        ) or order
+    remaining = _remaining_fulfillment_qty(db, order)
+    order.status = "FULFILLED" if remaining <= 0 else "PARTIALLY_FULFILLED"
 
 
 def _load_fulfillment(db: Session, fulfillment_id: int) -> ItemFulfillment:
@@ -251,6 +264,103 @@ def over_fulfillment_detail(item_id: str, ordered: int) -> str:
     )
 
 
+def over_sco_receipt_detail(item_id: str, received: int, sco_numbers: list[str] | None = None) -> str:
+    sources = ", ".join(sco_numbers or [])
+    origin = f"subcontract {sources}" if sources else "the linked subcontract"
+    return (
+        f"Cannot fulfill more than the {received} received on {origin} for item {item_id}. "
+        "Ship the received quantity now; remaining quantity can be fulfilled after the next receipt."
+    )
+
+
+def subcontract_receipt_caps(
+    db: Session, sales_order_id: str
+) -> dict[int, tuple[int, list[str]]]:
+    """SO line id -> (finished-goods received, SCO numbers) for subcontracted lines."""
+    scos = (
+        db.query(SubcontractOrder)
+        .options(
+            joinedload(SubcontractOrder.lines),
+            joinedload(SubcontractOrder.finished_goods_receipts),
+        )
+        .filter(
+            SubcontractOrder.sales_order_id == sales_order_id,
+            SubcontractOrder.status != "CANCELLED",
+        )
+        .all()
+    )
+    if not scos:
+        return {}
+
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.items))
+        .filter(SalesOrder.sales_order_id == sales_order_id)
+        .first()
+    )
+    so_items = list(order.items or []) if order else []
+    so_lines_by_item: dict[str, list[int]] = {}
+    for item in so_items:
+        so_lines_by_item.setdefault(item.item_id, []).append(int(item.so_item_id))
+
+    caps: dict[int, tuple[int, list[str]]] = {}
+
+    def _add(line_id: int | None, qty: int, sco_number: str) -> None:
+        if line_id is None:
+            return
+        received, numbers = caps.get(line_id, (0, []))
+        if sco_number not in numbers:
+            numbers = [*numbers, sco_number]
+        caps[line_id] = (received + qty, numbers)
+
+    for sco in scos:
+        receipts = list(sco.finished_goods_receipts or [])
+        by_sco_line: dict[int, int] = {}
+        header_qty = 0
+        for receipt in receipts:
+            qty = int(receipt.quantity_received or 0)
+            if receipt.sco_line_id:
+                by_sco_line[int(receipt.sco_line_id)] = by_sco_line.get(int(receipt.sco_line_id), 0) + qty
+            else:
+                header_qty += qty
+
+        lines = list(sco.lines or [])
+        if lines:
+            for line in lines:
+                qty = by_sco_line.get(int(line.sco_line_id), 0)
+                if line.so_item_id:
+                    _add(int(line.so_item_id), qty, sco.sco_number)
+                else:
+                    for so_line_id in so_lines_by_item.get(line.item_id, []):
+                        _add(so_line_id, qty, sco.sco_number)
+            if header_qty:
+                for so_line_id in so_lines_by_item.get(sco.item_id, []):
+                    _add(so_line_id, header_qty, sco.sco_number)
+        else:
+            total = header_qty + sum(by_sco_line.values())
+            for so_line_id in so_lines_by_item.get(sco.item_id, []):
+                _add(so_line_id, total, sco.sco_number)
+
+    return caps
+
+
+def assert_fulfillment_qty_within_sco_received(
+    *,
+    item_id: str,
+    received: int | None,
+    already: int,
+    qty: int,
+    sco_numbers: list[str] | None = None,
+) -> None:
+    if received is None:
+        return
+    if already + qty > received:
+        raise HTTPException(
+            status_code=400,
+            detail=over_sco_receipt_detail(item_id, received, sco_numbers),
+        )
+
+
 def assert_fulfillment_qty_within_ordered(
     *,
     item_id: str,
@@ -272,6 +382,7 @@ def _fulfilled_qty_by_line(
     sales_order_id: str,
     *,
     exclude_fulfillment_id: int | None = None,
+    statuses: set[str] | None = None,
 ) -> dict[int, int]:
     """Cumulative fulfilled qty per SO line, including draft fulfillments.
 
@@ -288,8 +399,84 @@ def _fulfilled_qty_by_line(
     )
     if exclude_fulfillment_id is not None:
         query = query.filter(ItemFulfillment.id != exclude_fulfillment_id)
+    if statuses is not None:
+        query = query.filter(ItemFulfillment.status.in_(statuses))
     rows = query.group_by(ItemFulfillmentLine.sales_order_line_id).all()
     return {int(line_id): int(qty or 0) for line_id, qty in rows}
+
+
+def _remaining_fulfillment_qty(
+    db: Session, order: SalesOrder, *, already: dict[int, int] | None = None
+) -> int:
+    if is_remaining_closed(order):
+        return 0
+    done = already if already is not None else _fulfilled_qty_by_line(db, order.sales_order_id)
+    remaining = 0
+    for so_line in order.items or []:
+        remaining += max(
+            0,
+            int(so_line.quantity_ordered) - done.get(int(so_line.so_item_id), 0),
+        )
+    return remaining
+
+
+def _shipped_billable_total(db: Session, order: SalesOrder) -> Decimal:
+    shipped = _fulfilled_qty_by_line(db, order.sales_order_id, statuses={"SHIPPED"})
+    total = Decimal("0.00")
+    for so_line in order.items or []:
+        ordered = int(so_line.quantity_ordered or 0)
+        if ordered <= 0:
+            continue
+        shipped_qty = min(shipped.get(int(so_line.so_item_id), 0), ordered)
+        if shipped_qty <= 0:
+            continue
+        total += _money(so_line.total_amount) * Decimal(shipped_qty) / Decimal(ordered)
+    return _money(total)
+
+
+def sales_order_can_close_remaining(db: Session, order: SalesOrder) -> bool:
+    status = _normalize_so_flag(getattr(order, "status", None))
+    if is_remaining_closed(order) or status in {"CANCELLED", "INVOICED", "FULFILLED"}:
+        return False
+    if _normalize_so_flag(getattr(order, "approval_status", None)) != "APPROVED":
+        return False
+    shipped = sum(_fulfilled_qty_by_line(db, order.sales_order_id, statuses={"SHIPPED"}).values())
+    remaining = _remaining_fulfillment_qty(db, order)
+    return shipped > 0 and remaining > 0
+
+
+def close_sales_order_remaining(db: Session, sales_order_id: str) -> SalesOrder:
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.items))
+        .filter(SalesOrder.sales_order_id == sales_order_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    if is_remaining_closed(order):
+        raise HTTPException(status_code=400, detail=REMAINING_ALREADY_CLOSED_DETAIL)
+    status = _normalize_so_flag(getattr(order, "status", None))
+    if status in {"CANCELLED", "INVOICED"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel remaining quantity on a {status.lower()} sales order.",
+        )
+    if _normalize_so_flag(getattr(order, "approval_status", None)) != "APPROVED":
+        raise HTTPException(status_code=400, detail="Sales order must be APPROVED to cancel remaining")
+    shipped = sum(_fulfilled_qty_by_line(db, order.sales_order_id, statuses={"SHIPPED"}).values())
+    remaining = _remaining_fulfillment_qty(db, order)
+    assert_can_close_remaining(progressed=shipped, remaining=remaining)
+    if remaining <= 0:
+        raise HTTPException(status_code=400, detail=NO_OPEN_REMAINING_DETAIL)
+    order.remaining_closed = True
+    order.remaining_closed_at = datetime.utcnow()
+    order.closed_billable_amount = _shipped_billable_total(db, order)
+    if status not in {"INVOICED", "CANCELLED"}:
+        order.status = "FULFILLED"
+    db.flush()
+    attach_sales_order_billing(db, [order])
+    return order
 
 
 def _assert_fulfillment_record_within_ordered(db: Session, fulfillment: ItemFulfillment) -> None:
@@ -307,6 +494,7 @@ def _assert_fulfillment_record_within_ordered(db: Session, fulfillment: ItemFulf
         fulfillment.sales_order_id,
         exclude_fulfillment_id=fulfillment.id,
     )
+    sco_caps = subcontract_receipt_caps(db, fulfillment.sales_order_id)
     pending: dict[int, int] = {}
     for line in fulfillment.lines or []:
         line_id = int(line.sales_order_line_id)
@@ -317,12 +505,22 @@ def _assert_fulfillment_record_within_ordered(db: Session, fulfillment: ItemFulf
                 status_code=400,
                 detail=f"Sales order line {line_id} not found on {fulfillment.sales_order_id}",
             )
+        prior = already.get(line_id, 0) + pending.get(line_id, 0)
         assert_fulfillment_qty_within_ordered(
             item_id=so_line.item_id,
             ordered=int(so_line.quantity_ordered),
-            already=already.get(line_id, 0) + pending.get(line_id, 0),
+            already=prior,
             qty=qty,
         )
+        if line_id in sco_caps:
+            received, sco_numbers = sco_caps[line_id]
+            assert_fulfillment_qty_within_sco_received(
+                item_id=so_line.item_id,
+                received=received,
+                already=prior,
+                qty=qty,
+                sco_numbers=sco_numbers,
+            )
         pending[line_id] = pending.get(line_id, 0) + qty
 
 
@@ -421,16 +619,19 @@ def create_fulfillment(
         raise HTTPException(status_code=404, detail="Sales order not found")
     if (order.approval_status or "").upper() != "APPROVED":
         raise HTTPException(status_code=400, detail="Sales order must be APPROVED to fulfill")
+    if is_remaining_closed(order):
+        raise HTTPException(status_code=400, detail=REMAINING_CLOSED_FULFILL_DETAIL)
 
     if not lines:
         raise HTTPException(status_code=400, detail="At least one fulfillment line is required")
 
     so_lines = {int(li.so_item_id): li for li in (order.items or [])}
     already = _fulfilled_qty_by_line(db, sales_order_id)
+    sco_caps = subcontract_receipt_caps(db, sales_order_id)
     pending: dict[int, int] = {}
 
     fulfillment = ItemFulfillment(
-        fulfillment_number=_next_number(db, ItemFulfillment, "fulfillment_number", "FUL"),
+        fulfillment_number=generate_document_number(db, DOC_FULFILLMENT),
         sales_order_id=order.sales_order_id,
         customer_id=order.customer_id,
         status="DRAFT",
@@ -449,12 +650,22 @@ def create_fulfillment(
                 status_code=400,
                 detail=f"Sales order line {line_id} not found on {sales_order_id}",
             )
+        prior = already.get(line_id, 0) + pending.get(line_id, 0)
         assert_fulfillment_qty_within_ordered(
             item_id=so_line.item_id,
             ordered=int(so_line.quantity_ordered),
-            already=already.get(line_id, 0) + pending.get(line_id, 0),
+            already=prior,
             qty=qty,
         )
+        if line_id in sco_caps:
+            received, sco_numbers = sco_caps[line_id]
+            assert_fulfillment_qty_within_sco_received(
+                item_id=so_line.item_id,
+                received=received,
+                already=prior,
+                qty=qty,
+                sco_numbers=sco_numbers,
+            )
         pending[line_id] = pending.get(line_id, 0) + qty
         db.add(
             ItemFulfillmentLine(
@@ -520,9 +731,15 @@ def update_fulfillment_status(
                 notes=f"Fulfillment shipment for SO {fulfillment.sales_order_id}",
             )
         fulfillment.shipped_date = shipped_date or date.today()
-        order = db.get(SalesOrder, fulfillment.sales_order_id)
-        if order and (order.status or "").upper() not in {"FULFILLED", "INVOICED", "CANCELLED"}:
-            order.status = "FULFILLED"
+        order = (
+            db.query(SalesOrder)
+            .options(joinedload(SalesOrder.items))
+            .filter(SalesOrder.sales_order_id == fulfillment.sales_order_id)
+            .first()
+        )
+        if order and (order.status or "").upper() not in {"INVOICED", "CANCELLED"}:
+            remaining = _remaining_fulfillment_qty(db, order)
+            order.status = "FULFILLED" if remaining <= 0 else "PARTIALLY_FULFILLED"
 
     fulfillment.status = status
     fulfillment.updated_at = datetime.utcnow()
@@ -540,6 +757,37 @@ def assert_fulfillment_can_be_deleted(fulfillment: ItemFulfillment) -> None:
                 f"(current: {status}). Picked, packed, and shipped records cannot be removed."
             ),
         )
+
+
+def update_fulfillment_lines(
+    db: Session,
+    fulfillment_id: int,
+    lines: list[dict],
+) -> dict:
+    fulfillment = _load_fulfillment(db, fulfillment_id)
+    if (fulfillment.status or "").upper() != "DRAFT":
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft fulfillments can change shipment quantities.",
+        )
+    if not lines:
+        raise HTTPException(status_code=400, detail="At least one fulfillment line is required")
+    by_so_line = {int(line.sales_order_line_id): line for line in fulfillment.lines or []}
+    for raw in lines:
+        line_id = int(raw["sales_order_line_id"])
+        qty = int(raw["quantity_fulfilled"])
+        row = by_so_line.get(line_id)
+        if row is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Fulfillment line for sales order line {line_id} was not found",
+            )
+        row.quantity_fulfilled = qty
+    db.flush()
+    _assert_fulfillment_record_within_ordered(db, _load_fulfillment(db, fulfillment_id))
+    fulfillment.updated_at = datetime.utcnow()
+    db.flush()
+    return serialize_fulfillment(_load_fulfillment(db, fulfillment_id))
 
 
 def delete_fulfillment(db: Session, fulfillment_id: int) -> None:
@@ -599,7 +847,7 @@ def create_sales_invoice(
         raise HTTPException(status_code=400, detail="Sales order must be APPROVED")
 
     already_billed = billed_amount_for_order(db, sales_order_id)
-    if already_billed >= _money(order.total_amount):
+    if already_billed >= _billable_order_total(db, order):
         raise HTTPException(
             status_code=400,
             detail=f"Sales Order {sales_order_id} is already fully invoiced.",
@@ -762,7 +1010,7 @@ def create_sales_invoice(
     invoice.outstanding_balance = invoice.total_amount
     assert_new_invoice_within_order_balance(
         sales_order_id=sales_order_id,
-        order_total=Decimal(str(order.total_amount or 0)),
+        order_total=_billable_order_total(db, order),
         billed_amount=already_billed,
         new_invoice_amount=invoice.total_amount,
     )
@@ -829,7 +1077,7 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
         )
 
     # Mirror into AR invoices for payment tracking using the Sales Invoice number
-    # (PU65-YYMMXXXX) so Accounts Receivable shows the same document id.
+    # (USS5-YYMMXXXX) so Accounts Receivable shows the same document id.
     ar = db.get(ARInvoice, invoice.invoice_number)
     if ar is None and invoice.ar_invoice_id:
         ar = db.get(ARInvoice, invoice.ar_invoice_id)

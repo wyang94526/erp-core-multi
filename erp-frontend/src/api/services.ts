@@ -526,6 +526,10 @@ export const salesOrderService = {
     });
   },
 
+  async closeRemaining(orderId: string): Promise<SalesOrder> {
+    return apiClient.post<SalesOrder>(`/api/v1/sales-orders/${orderId}/close-remaining`);
+  },
+
   async reviseSalesOrder(orderId: string, comments?: string): Promise<SalesOrder> {
     return apiClient.post<SalesOrder>(`/api/v1/sales-orders/${orderId}/revise`, {
       comments: comments || null,
@@ -564,6 +568,13 @@ export const fulfillmentService = {
     lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>;
   }): Promise<ItemFulfillment> {
     return apiClient.post<ItemFulfillment>('/api/v1/fulfillments', data);
+  },
+
+  updateLines(
+    id: number,
+    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>,
+  ): Promise<ItemFulfillment> {
+    return apiClient.patch<ItemFulfillment>(`/api/v1/fulfillments/${id}`, { lines });
   },
 
   updateStatus(
@@ -747,6 +758,12 @@ export const vendorInvoiceService = {
   listDepartments() {
     return apiClient.get<Department[]>('/api/v1/vendor-invoices/departments');
   },
+
+  nextNumber(invoiceDate?: string | null) {
+    return apiClient.get<{ invoice_number: string }>('/api/v1/vendor-invoices/next-number', {
+      params: invoiceDate ? { invoice_date: invoiceDate } : {},
+    });
+  },
 };
 
 // ==========================================
@@ -854,7 +871,10 @@ function mapPurchaseOrderFromApi(po: PurchaseOrder): PurchaseOrder {
         estimated_landed_unit_cost: Number(row.estimated_landed_unit_cost ?? 0),
         allocated_landed_expense: Number(row.allocated_landed_expense ?? 0),
         actual_allocated_landed_expense: Number(row.actual_allocated_landed_expense ?? 0),
-        actual_unit_cost: Number(row.actual_unit_cost ?? row.estimated_landed_unit_cost ?? 0),
+        actual_unit_cost: Number(
+          row.actual_unit_cost ??
+            Number(row.unit_price ?? 0) + Number(row.estimated_landed_unit_cost ?? 0),
+        ),
         quantity_received: Number(row.quantity_received ?? 0),
         quantity_remaining_to_receive: Number(row.quantity_remaining_to_receive ?? 0),
         quantity_billed: Number(row.quantity_billed ?? 0),
@@ -993,6 +1013,13 @@ export const purchaseOrderService = {
     return apiClient.delete<void>(`/api/v1/purchase-orders/${poNumber}`);
   },
 
+  async closeRemaining(poNumber: string): Promise<PurchaseOrder> {
+    const po = await apiClient.post<PurchaseOrder>(
+      `/api/v1/purchase-orders/${poNumber}/close-remaining`,
+    );
+    return mapPurchaseOrderFromApi(po);
+  },
+
   async receiveGoods(
     poNumber: string,
     data: {
@@ -1034,6 +1061,7 @@ export const goodsReceiptService = {
     source_type?: string;
     source_order_id?: string;
     status?: string;
+    q?: string;
     skip?: number;
     limit?: number;
   } = {}) {
@@ -1045,12 +1073,26 @@ export const goodsReceiptService = {
     if (params.source_type) query.source_type = params.source_type;
     if (params.source_order_id) query.source_order_id = params.source_order_id;
     if (params.status) query.status = params.status;
+    if (params.q) query.q = params.q;
     return apiClient.get<GoodsReceipt[]>('/api/v1/goods-receipts', { params: query });
   },
 
   get(receiptKey: string) {
     return apiClient.get<GoodsReceipt>(
       `/api/v1/goods-receipts/${encodeURIComponent((receiptKey || '').trim())}`,
+    );
+  },
+
+  adjustQuantities(
+    receiptKey: string,
+    payload: {
+      lines: Array<{ id: number; quantity_received: number }>;
+      notes?: string | null;
+    },
+  ) {
+    return apiClient.patch<GoodsReceipt>(
+      `/api/v1/goods-receipts/${encodeURIComponent((receiptKey || '').trim())}/quantities`,
+      payload,
     );
   },
 };
@@ -1323,7 +1365,7 @@ export const subcontractOrderService = {
   async issueMaterials(
     scoNumber: string,
     data: {
-      issue_id: string;
+      issue_id?: string;
       issue_date?: string;
       notes?: string;
       lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }>;
@@ -1341,7 +1383,7 @@ export const subcontractOrderService = {
   async receiveGoods(
     scoNumber: string,
     data: {
-      receipt_id: string;
+      receipt_id?: string;
       quantity_received: number;
       receipt_date?: string;
       notes?: string;
@@ -1358,6 +1400,12 @@ export const subcontractOrderService = {
   /**
    * Cancel a subcontract order (updates status to CANCELLED)
    */
+  async closeRemaining(scoNumber: string): Promise<SubcontractOrder> {
+    return apiClient.post<SubcontractOrder>(
+      `/api/v1/subcontract-orders/${scoNumber}/close-remaining`,
+    );
+  },
+
   async cancelSubcontractOrder(scoNumber: string): Promise<SubcontractOrder> {
     return apiClient.patch<SubcontractOrder>(`/api/v1/subcontract-orders/${scoNumber}`, {
       status: 'CANCELLED',

@@ -3,7 +3,7 @@
 Finance documents are live records. Use tools, not this file, for counts.
 
 ## Accounts receivable
-- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.). Numbers are `PU65-{YY}{MM}{XXXX}` from the issue date.
+- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.). Numbers are `USS5-{YY}{MM}{XXXX}` from the issue date.
 - **AR invoices** — collections / aging (`Unpaid`, `Partial`, `Paid`) plus approval_status
 
 Ask: "How many unpaid AR invoices?" · "List sales invoices"
@@ -30,5 +30,6 @@ Statements (Balance Sheet, P&L, Cash Flow), AR/AP aging, trial balance, fixed-as
 
 Ask live numbers with `get_financial_report`, not this file:
 - "Show me the Income Statement for the month June 2026"
+- "Show me the revenue for September 2027"
 - "Balance sheet as of June 2026"
 - "Trial balance for 2026-06"

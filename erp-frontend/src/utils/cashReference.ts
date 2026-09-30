@@ -44,13 +44,13 @@ export function cashReferenceHref(
   if (!id) return null
   const upper = id.toUpperCase()
   const type = (tx.type || '').toLowerCase()
-  if (upper.startsWith('INV-') || upper.startsWith('PU65-')) {
+  if (upper.startsWith('INV-') || upper.startsWith('PU65-') || upper.startsWith('USS5-')) {
     return invoiceDetailHref(id)
   }
   if (upper.startsWith('ARINV-')) {
     return `/accounts-receivable?invoice=${encodeURIComponent(id)}`
   }
-  if (upper.startsWith('VBILL-') || upper.startsWith('APBILL-')) {
+  if (upper.startsWith('VBILL-') || upper.startsWith('APBILL-') || upper.startsWith('UX13-')) {
     return billDetailHref(id)
   }
   if (type.includes('deposit')) {

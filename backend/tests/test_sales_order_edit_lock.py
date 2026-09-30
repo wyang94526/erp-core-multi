@@ -50,6 +50,11 @@ class SalesOrderEditLockTests(TestCase):
         )
         self.assertFalse(
             sales_order_is_editable(
+                SimpleNamespace(status="PARTIALLY_FULFILLED", approval_status="APPROVED")
+            )
+        )
+        self.assertFalse(
+            sales_order_is_editable(
                 SimpleNamespace(status="APPROVED", approval_status="DRAFT", invoice_status="FULLY_BILLED")
             )
         )

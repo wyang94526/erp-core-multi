@@ -9,15 +9,22 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { fulfillmentService, itemService, salesOrderService } from '../api/services'
+import { fulfillmentService, itemService, salesOrderService, subcontractOrderService } from '../api/services'
 import { isStockItemType } from '../utils/itemTypes'
-import { fulfilledQtyByLine, overFulfillmentMessage } from '../utils/fulfillmentQty'
+import {
+  fulfilledQtyByLine,
+  overFulfillmentMessage,
+  overScoReceiptMessage,
+  subcontractReceivedBySoLine,
+} from '../utils/fulfillmentQty'
 
 type LineDraft = {
   sales_order_line_id: number
   item_id: string
   quantity_ordered: number
   already_fulfilled: number
+  quantity_received: number | null
+  sco_numbers: string[]
   quantity_fulfilled: number
 }
 
@@ -46,9 +53,16 @@ export function ItemFulfillmentForm() {
     queryFn: () => itemService.listItems(0, 1000),
   })
 
+  const { data: subcontractOrders = [] } = useQuery({
+    queryKey: ['subcontractOrders', 'bySalesOrder', id],
+    queryFn: () => subcontractOrderService.listSubcontractOrders(0, 200, id),
+    enabled: Boolean(id),
+  })
+
   const drafts: LineDraft[] = useMemo(() => {
     if (!order?.items) return []
     const already = fulfilledQtyByLine(fulfillments, order.sales_order_id)
+    const scoCaps = subcontractReceivedBySoLine(order, subcontractOrders)
     return order.items
       .filter((item) => {
         const catalog = catalogItems.find((row) => row.item_id === item.item_id)
@@ -56,23 +70,38 @@ export function ItemFulfillmentForm() {
       })
       .map((item) => {
       const done = already[item.so_item_id] || 0
-      const remaining = Math.max(0, item.quantity_ordered - done)
+      const cap = scoCaps[item.so_item_id]
+      const remainingOrdered = Math.max(0, item.quantity_ordered - done)
+      const remainingReceived =
+        cap != null ? Math.max(0, cap.received - done) : remainingOrdered
+      const remaining = Math.min(remainingOrdered, remainingReceived)
       return {
         sales_order_line_id: item.so_item_id,
         item_id: item.item_id,
         quantity_ordered: item.quantity_ordered,
         already_fulfilled: done,
+        quantity_received: cap != null ? cap.received : null,
+        sco_numbers: cap?.scoNumbers || [],
         quantity_fulfilled: lineQty[item.so_item_id] ?? remaining,
       }
     })
-  }, [order, fulfillments, lineQty, catalogItems])
+  }, [order, fulfillments, lineQty, catalogItems, subcontractOrders])
 
   const lineErrors = useMemo(() => {
     const errors: Record<number, string> = {}
     for (const d of drafts) {
-      const remaining = d.quantity_ordered - d.already_fulfilled
-      if (d.quantity_fulfilled > remaining) {
+      const remainingOrdered = d.quantity_ordered - d.already_fulfilled
+      if (d.quantity_fulfilled > remainingOrdered) {
         errors[d.sales_order_line_id] = overFulfillmentMessage(d.quantity_ordered, d.item_id)
+      } else if (
+        d.quantity_received != null &&
+        d.quantity_fulfilled > Math.max(0, d.quantity_received - d.already_fulfilled)
+      ) {
+        errors[d.sales_order_line_id] = overScoReceiptMessage(
+          d.quantity_received,
+          d.item_id,
+          d.sco_numbers,
+        )
       }
     }
     return errors
@@ -80,7 +109,7 @@ export function ItemFulfillmentForm() {
   const hasOverFulfill = Object.keys(lineErrors).length > 0
   const firstOverFulfillError = drafts.find((d) => lineErrors[d.sales_order_line_id])
   const overFulfillBanner = firstOverFulfillError
-    ? overFulfillmentMessage(firstOverFulfillError.quantity_ordered, firstOverFulfillError.item_id)
+    ? lineErrors[firstOverFulfillError.sales_order_line_id]
     : null
 
   const mutation = useMutation({
@@ -139,7 +168,8 @@ export function ItemFulfillmentForm() {
         <div>
           <h2 style={pageTitleStyle}>Fulfill Items</h2>
           <p style={pageSubStyle}>
-            Sales order {order.sales_order_id} · {order.customer_id}
+            Sales order {order.sales_order_id} · {order.customer_id}. Partial shipments are
+            allowed — subcontracted items default to finished-goods received so far.
           </p>
         </div>
         <button type="button" style={secondaryButtonStyle} onClick={() => navigate(`/orders/${id}`)}>
@@ -165,18 +195,27 @@ export function ItemFulfillmentForm() {
               <tr style={theadRowStyle}>
                 <th style={thStyle}>Item</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Already fulfilled</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>This shipment</th>
               </tr>
             </thead>
             <tbody>
               {drafts.map((d) => {
-                const max = Math.max(0, d.quantity_ordered - d.already_fulfilled)
+                const remainingOrdered = Math.max(0, d.quantity_ordered - d.already_fulfilled)
+                const remainingReceived =
+                  d.quantity_received != null
+                    ? Math.max(0, d.quantity_received - d.already_fulfilled)
+                    : remainingOrdered
+                const max = Math.min(remainingOrdered, remainingReceived)
                 const error = lineErrors[d.sales_order_line_id]
                 return (
                   <tr key={d.sales_order_line_id} style={tbodyRowStyle}>
                     <td style={tdStyle}>{d.item_id}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{d.quantity_ordered}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      {d.quantity_received == null ? '—' : d.quantity_received}
+                    </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{d.already_fulfilled}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <input

@@ -8,14 +8,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { fulfillmentService, salesOrderService } from '../api/services'
+import { fulfillmentService, salesOrderService, subcontractOrderService } from '../api/services'
 import { isFullyInvoiced } from '../utils/soBilling'
 import type { ItemFulfillment } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
-import { validateFulfillmentAgainstOrder } from '../utils/fulfillmentQty'
+import {
+  overScoReceiptMessage,
+  subcontractReceivedBySoLine,
+  validateFulfillmentAgainstOrder,
+} from '../utils/fulfillmentQty'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 
 const PAGE_SIZE = 10
@@ -50,6 +54,7 @@ export function ItemFulfillmentList() {
   const queryClient = useQueryClient()
   const [skip, setSkip] = useState(0)
   const [selected, setSelected] = useState<ItemFulfillment | null>(null)
+  const [lineQtyDraft, setLineQtyDraft] = useState<Record<number, number>>({})
   const [busy, setBusy] = useState(false)
   const { values } = useListFilterParams(FILTERS)
 
@@ -63,18 +68,57 @@ export function ItemFulfillmentList() {
     queryFn: () => salesOrderService.getSalesOrder(selected!.sales_order_id),
     enabled: Boolean(selected?.sales_order_id),
   })
+  const { data: selectedScos = [] } = useQuery({
+    queryKey: ['subcontractOrders', 'bySalesOrder', selected?.sales_order_id],
+    queryFn: () => subcontractOrderService.listSubcontractOrders(0, 200, selected!.sales_order_id),
+    enabled: Boolean(selected?.sales_order_id),
+  })
   const selectedFullyInvoiced = Boolean(selectedOrder && isFullyInvoiced(selectedOrder))
   const invoiceActionBlocked = selectedOrderLoading || selectedFullyInvoiced
+  const selectedLines = useMemo(() => {
+    if (!selected) return []
+    return selected.lines.map((line) => ({
+      ...line,
+      quantity_fulfilled: lineQtyDraft[line.sales_order_line_id] ?? line.quantity_fulfilled,
+    }))
+  }, [selected, lineQtyDraft])
   const overFulfillErrors = useMemo(() => {
     if (!selected || !selectedOrder || selected.status === 'SHIPPED') return []
-    return validateFulfillmentAgainstOrder(selectedOrder, rows, selected.lines, {
+    return validateFulfillmentAgainstOrder(selectedOrder, rows, selectedLines, {
       excludeFulfillmentId: selected.id,
     })
-  }, [selected, selectedOrder, rows])
-  const overFulfillBanner = overFulfillErrors[0]?.message
+  }, [selected, selectedOrder, rows, selectedLines])
+  const scoCaps = useMemo(
+    () => (selectedOrder ? subcontractReceivedBySoLine(selectedOrder, selectedScos) : {}),
+    [selectedOrder, selectedScos],
+  )
+  const overScoErrors = useMemo(() => {
+    if (!selected || selected.status === 'SHIPPED') return []
+    return selectedLines.flatMap((line) => {
+      const cap = scoCaps[line.sales_order_line_id]
+      if (!cap) return []
+      if (Number(line.quantity_fulfilled) <= cap.received) return []
+      return [
+        {
+          sales_order_line_id: line.sales_order_line_id,
+          message: overScoReceiptMessage(cap.received, line.item_id, cap.scoNumbers),
+        },
+      ]
+    })
+  }, [selected, selectedLines, scoCaps])
+  const overFulfillBanner = overFulfillErrors[0]?.message || overScoErrors[0]?.message
+  const hasUnsavedQty = Object.keys(lineQtyDraft).length > 0
   const shipBlocked =
     Boolean(selected) &&
-    (selectedOrderLoading || !selectedOrder || overFulfillErrors.length > 0)
+    (selectedOrderLoading ||
+      !selectedOrder ||
+      overFulfillErrors.length > 0 ||
+      overScoErrors.length > 0 ||
+      hasUnsavedQty)
+
+  useEffect(() => {
+    setLineQtyDraft({})
+  }, [selected?.id])
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -102,6 +146,26 @@ export function ItemFulfillmentList() {
       shipped_date: 'date',
     },
   })
+
+  const handleSaveQty = async (ful: ItemFulfillment) => {
+    setBusy(true)
+    try {
+      const updated = await fulfillmentService.updateLines(
+        ful.id,
+        selectedLines.map((line) => ({
+          sales_order_line_id: line.sales_order_line_id,
+          quantity_fulfilled: Number(line.quantity_fulfilled),
+        })),
+      )
+      setSelected(updated)
+      setLineQtyDraft({})
+      await queryClient.invalidateQueries({ queryKey: ['fulfillments'] })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update fulfillment quantity')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const handleDelete = async (ful: ItemFulfillment) => {
     if (ful.status !== 'DRAFT') return
@@ -278,22 +342,28 @@ export function ItemFulfillmentList() {
                 <tr style={theadRowStyle}>
                   <th style={thStyle}>Item</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>This shipment</th>
                 </tr>
               </thead>
               <tbody>
-                {selected.lines.map((line) => {
+                {selectedLines.map((line) => {
                   const ordered = selectedOrder?.items?.find(
                     (item) => item.so_item_id === line.sales_order_line_id,
                   )?.quantity_ordered
-                  const lineError = overFulfillErrors.find(
-                    (err) => err.sales_order_line_id === line.sales_order_line_id,
-                  )
+                  const received = scoCaps[line.sales_order_line_id]?.received
+                  const lineError =
+                    overFulfillErrors.find((err) => err.sales_order_line_id === line.sales_order_line_id) ||
+                    overScoErrors.find((err) => err.sales_order_line_id === line.sales_order_line_id)
+                  const canEditQty = selected.status === 'DRAFT'
                   return (
                     <tr key={line.id} style={tbodyRowStyle}>
                       <td style={tdStyle}>{line.item_id}</td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>
                         {ordered == null ? '—' : ordered}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {received == null ? '—' : received}
                       </td>
                       <td
                         style={{
@@ -303,7 +373,25 @@ export function ItemFulfillmentList() {
                           fontWeight: lineError ? 700 : 400,
                         }}
                       >
-                        {line.quantity_fulfilled}
+                        {canEditQty ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={received != null && ordered != null ? Math.min(received, ordered) : ordered}
+                            value={line.quantity_fulfilled}
+                            disabled={busy}
+                            onChange={(event) => {
+                              const n = Math.max(0, Number(event.target.value) || 0)
+                              setLineQtyDraft((prev) => ({
+                                ...prev,
+                                [line.sales_order_line_id]: n,
+                              }))
+                            }}
+                            style={qtyInputStyle}
+                          />
+                        ) : (
+                          line.quantity_fulfilled
+                        )}
                       </td>
                     </tr>
                   )
@@ -318,6 +406,22 @@ export function ItemFulfillmentList() {
             ) : null}
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
+              {selected.status === 'DRAFT' && Object.keys(lineQtyDraft).length > 0 ? (
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    ...(busy || overFulfillErrors.length > 0 || overScoErrors.length > 0
+                      ? disabledPrimaryButtonStyle
+                      : {}),
+                  }}
+                  disabled={busy || overFulfillErrors.length > 0 || overScoErrors.length > 0}
+                  title={overFulfillBanner || 'Save this shipment quantity'}
+                  onClick={() => void handleSaveQty(selected)}
+                >
+                  Save quantity
+                </button>
+              ) : null}
               {selected.status === 'DRAFT' ? (
                 <button
                   type="button"
@@ -326,7 +430,11 @@ export function ItemFulfillmentList() {
                     ...(busy || shipBlocked ? disabledPrimaryButtonStyle : {}),
                   }}
                   disabled={busy || shipBlocked}
-                  title={overFulfillBanner || 'Mark this fulfillment as picked'}
+                  title={
+                    hasUnsavedQty
+                      ? 'Save the shipment quantity first'
+                      : overFulfillBanner || 'Mark this fulfillment as picked'
+                  }
                   onClick={() => advanceStatus(selected, 'PICKED')}
                 >
                   Mark Picked
@@ -477,6 +585,15 @@ const secondaryButtonStyle: React.CSSProperties = {
 const disabledPrimaryButtonStyle: React.CSSProperties = {
   backgroundColor: '#9e9e9e',
   cursor: 'not-allowed',
+}
+const qtyInputStyle: React.CSSProperties = {
+  width: 88,
+  padding: '6px 8px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontFamily: 'inherit',
+  fontSize: 13,
+  textAlign: 'right',
 }
 const warningBannerStyle: React.CSSProperties = {
   marginTop: 16,

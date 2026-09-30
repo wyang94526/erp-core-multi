@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -22,6 +23,12 @@ from app.models import (
 )
 from app.services.bom_versions import get_active_header
 from app.services.catalog import material_bom_lines
+from app.services.remaining_close import (
+    REMAINING_ALREADY_CLOSED_DETAIL,
+    REMAINING_CLOSED_RECEIVE_DETAIL,
+    assert_can_close_remaining,
+    is_remaining_closed,
+)
 
 MONEY_2 = Decimal("0.01")
 MONEY_4 = Decimal("0.0001")
@@ -266,8 +273,101 @@ def assert_sco_fulfillment_allowed(sco, action_label: str = "this action") -> No
         raise HTTPException(status_code=400, detail=SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL)
 
 
+def _sco_received_and_remaining(sco) -> tuple[int, int]:
+    receipts = list(getattr(sco, "finished_goods_receipts", None) or [])
+    received_by_line: dict[int, int] = {}
+    header_qty = 0
+    for receipt in receipts:
+        qty = int(receipt.quantity_received or 0)
+        if receipt.sco_line_id:
+            line_id = int(receipt.sco_line_id)
+            received_by_line[line_id] = received_by_line.get(line_id, 0) + qty
+        else:
+            header_qty += qty
+    lines = list(getattr(sco, "lines", None) or [])
+    if lines:
+        received = 0
+        remaining = 0
+        for line in lines:
+            got = received_by_line.get(int(line.sco_line_id), 0)
+            if line.line_number == 1:
+                got += header_qty
+            received += got
+            remaining += max(0, int(line.quantity_ordered) - got)
+        return received, remaining
+    received = header_qty + sum(received_by_line.values())
+    remaining = max(0, int(sco.quantity_ordered or 0) - received)
+    return received, remaining
+
+
+def _sco_unbilled_received(db: Session | None, sco, received: int | float) -> Decimal:
+    if db is None or received <= 0:
+        return Decimal(str(received or 0))
+    from app.services import p2p
+
+    billed_map = p2p._billed_qty_by_item(db, "SUBCONTRACT_ORDER", sco.sco_number)
+    keys = {str(sco.item_id)} if getattr(sco, "item_id", None) else set()
+    for line in getattr(sco, "lines", None) or []:
+        if getattr(line, "item_id", None):
+            keys.add(str(line.item_id))
+    billed = sum((billed_map.get(key, Decimal("0")) for key in keys), Decimal("0"))
+    leftover = Decimal(str(received)) - billed
+    return leftover if leftover > 0 else Decimal("0")
+
+
+def attach_sco_remaining_flags(sco, db: Session | None = None) -> None:
+    if sco is None:
+        return
+    received, remaining = _sco_received_and_remaining(sco)
+    status = (getattr(sco, "status", None) or "").upper()
+    unbilled = _sco_unbilled_received(db, sco, received)
+    sco.can_close_remaining = (
+        not is_remaining_closed(sco)
+        and status not in CLOSED_SCO_STATUSES
+        and received > 0
+        and remaining > 0
+        and unbilled <= 0
+    )
+
+
+def close_subcontract_order_remaining(db: Session, sco_number: str):
+    sco = (
+        db.query(SubcontractOrder)
+        .options(
+            joinedload(SubcontractOrder.lines),
+            joinedload(SubcontractOrder.finished_goods_receipts),
+        )
+        .filter(SubcontractOrder.sco_number == sco_number)
+        .first()
+    )
+    if not sco:
+        raise HTTPException(status_code=404, detail="Subcontract order not found")
+    if is_remaining_closed(sco):
+        raise HTTPException(status_code=400, detail=REMAINING_ALREADY_CLOSED_DETAIL)
+    status = (sco.status or "").upper()
+    if status in CLOSED_SCO_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel remaining quantity on a {status.lower()} subcontract order.",
+        )
+    received, remaining = _sco_received_and_remaining(sco)
+    unbilled = _sco_unbilled_received(db, sco, received)
+    assert_can_close_remaining(progressed=received, remaining=remaining, unbilled=unbilled)
+    sco.remaining_closed = True
+    sco.remaining_closed_at = datetime.utcnow()
+    sco.status = "COMPLETED"
+    db.flush()
+    from app.services import p2p
+
+    p2p._update_billing_status(db, "SUBCONTRACT_ORDER", sco.sco_number)
+    attach_sco_remaining_flags(sco, db)
+    return sco
+
+
 def assert_sco_receive_allowed(sco) -> None:
     """Finished goods may be received only after the SCO is fully approved."""
+    if is_remaining_closed(sco):
+        raise HTTPException(status_code=400, detail=REMAINING_CLOSED_RECEIVE_DETAIL)
     status = (getattr(sco, "status", None) or "").upper()
     if status in CLOSED_SCO_STATUSES:
         raise HTTPException(

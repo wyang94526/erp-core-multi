@@ -16,7 +16,7 @@ import {
   JOURNAL_CREATE_PATH,
   journalEditPath,
   isJournalDraft,
-  shortJournalId,
+  journalDisplayId,
   YEAR_END_CLOSE_PATH,
 } from '../utils/journalEntries'
 import { JournalEntryViewModal } from './JournalEntryViewModal'
@@ -163,7 +163,7 @@ export function MonthEndClosePage() {
           <p style={hintStyle}>
             A legacy monthly close journal{' '}
             <Link to={journalEditPath(existing.id)} style={inlineLink}>
-              {shortJournalId(existing.id)}
+              {journalDisplayId(existing)}
             </Link>{' '}
             is {existing.approval_status || 'DRAFT'} / {existing.posting_status || 'Draft'}. Review
             it if it still needs approval or deletion.
@@ -278,7 +278,7 @@ function EntryTable({
             return (
               <tr key={entry.id} style={tbodyRow}>
                 <td style={tdStyle}>{formatDate(entry.posting_date || entry.created_at)}</td>
-                <td style={tdStyle}>{shortJournalId(entry.id)}</td>
+                <td style={tdStyle}>{journalDisplayId(entry)}</td>
                 <td style={tdStyle}>{entry.description}</td>
                 <td style={tdStyle}>{entry.reference || '—'}</td>
                 <td style={tdStyle}>{entry.period || '—'}</td>

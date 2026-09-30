@@ -33,7 +33,7 @@ Rules:
   "How many active customers?" → entity=customers, status=ACTIVE.
 - For "… by month" / monthly totals (sales, revenue, expenses, purchase/SCO orders, AP, AR, invoices, cash), ALWAYS call get_orders_by_month. "revenue by month for 2026" → kind=gl_revenue. "sales by month" → kind=sales_orders. "Account Payable by Month by Vendor" → kind=ap_bills. Never use search_erp_knowledge for those.
 - Use get_customers / get_customer_detail, get_vendors / get_vendor_detail, get_items / get_item_detail / get_item_bom for master data.
-- For Income Statement / P&L, Balance Sheet, Cash Flow, Trial Balance, or AR/AP aging, ALWAYS call get_financial_report. Pass question= the user wording. "Show me the Income Statement for the month June 2026" → report_type=income-statement, period=2026-06. Copy the Markdown table verbatim — never search_erp_knowledge for statements.
+- For Income Statement / P&L, revenue for a month, Balance Sheet, Cash Flow, Trial Balance, or AR/AP aging, ALWAYS call get_financial_report. Pass question= the user wording. "Show me the Income Statement for the month June 2026" → report_type=income-statement, period=2026-06. "Show me the revenue for September 2027" → report_type=income-statement, period=2027-09. Copy the Markdown table verbatim — never search_erp_knowledge for statements.
 - Use get_finance_records only to list recent AR/AP/invoices/cash/journals/accounts (not monthly totals or statements).
 - Respect RBAC: if a tool returns permission denied, explain clearly.
 - Use page_context when the user says "this order", "this customer", "this item", or "current page".
@@ -267,7 +267,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
     )
     if cust_id_match or (
         page_cust
-        and any(w in text for w in ("this customer", "current", "detail", "show"))
+        and any(w in text for w in ("this customer", "current customer", "current page"))
         and "order" not in text
     ):
         from app.ai.lookups import get_customer_detail
@@ -291,9 +291,9 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
     page_vend = page_context.get("supplier_id") or page_context.get("vendor_id") or (
         page_context.get("entity_id") if page_context.get("entity_type") in ("vendor", "supplier") else None
     )
-    if (
-        (vend_id_match or page_vend)
-        and any(w in text for w in ("vendor", "supplier", "this vendor", "detail", "show"))
+    if vend_id_match or (
+        page_vend
+        and any(w in text for w in ("this vendor", "this supplier", "current vendor", "current supplier"))
         and "purchase" not in text
         and "subcontract" not in text
         and "create" not in text
@@ -327,7 +327,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
         iid = item_id_match.group(1).upper() if item_id_match else str(page_item)
         tool_outputs.append(get_item_bom.invoke({"item_id": iid, "bom_header_id": 0}))
     elif item_id_match or (
-        page_item and any(w in text for w in ("this item", "this sku", "current", "detail", "show"))
+        page_item and any(w in text for w in ("this item", "this sku", "current item", "current sku"))
     ):
         if not any(w in text for w in ("inventory", "stock", "on hand", "sales order", "purchase")):
             from app.ai.lookups import get_item_detail
@@ -411,7 +411,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
     if po_match or (
         page_po
         and page_context.get("entity_type") == "purchase_order"
-        and any(w in text for w in ("this order", "this po", "current", "status", "detail", "show"))
+        and any(w in text for w in ("this order", "this po", "current order", "current po"))
         and "create" not in text
         and "like" not in text
     ):
@@ -429,7 +429,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
     )
     if so_match or (
         page_so
-        and any(w in text for w in ("this order", "current", "status", "detail"))
+        and any(w in text for w in ("this order", "this so", "current order", "current so"))
         and "purchase" not in text
         and "subcontract" not in text
     ):
@@ -445,7 +445,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
     )
     if sco_match or (
         page_sco
-        and any(w in text for w in ("this order", "this sco", "current", "status", "detail", "show"))
+        and any(w in text for w in ("this order", "this sco", "current order", "current sco"))
         and "create" not in text
         and "like" not in text
     ):

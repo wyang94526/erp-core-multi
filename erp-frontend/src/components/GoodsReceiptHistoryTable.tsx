@@ -7,16 +7,18 @@ import { Link } from 'react-router-dom'
 import type { CSSProperties } from 'react'
 import type { GoodsReceipt } from '../types'
 import {
+  formatReceiptHeaderQty,
   formatReceiptMoney,
-  formatReceiptQty,
   goodsReceiptHref,
   goodsReceiptStatusColors,
   goodsReceiptStatusLabel,
   receiptLinkStyle,
+  receiptReceivedHint,
 } from '../utils/goodsReceipts'
 
 type GoodsReceiptHistoryTableProps = {
   receipts: GoodsReceipt[]
+  orderQtyTotal?: number | null
   emptyText?: string
 }
 
@@ -28,6 +30,7 @@ function formatDate(value: string | null | undefined): string {
 
 export function GoodsReceiptHistoryTable({
   receipts,
+  orderQtyTotal,
   emptyText = 'No goods receipts posted yet.',
 }: GoodsReceiptHistoryTableProps) {
   if (!receipts.length) {
@@ -43,14 +46,14 @@ export function GoodsReceiptHistoryTable({
             <th style={thStyle}>Posting Date</th>
             <th style={thStyle}>Status</th>
             <th style={{ ...thStyle, textAlign: 'right' }}>Lines</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Received Qty</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
             <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
           </tr>
         </thead>
         <tbody>
           {receipts.map((receipt) => {
             const badge = goodsReceiptStatusColors(receipt.status)
-            const qty = (receipt.lines || []).reduce((sum, line) => sum + Number(line.quantity_received || 0), 0)
+            const hint = receiptReceivedHint(receipt.lines, orderQtyTotal)
             return (
               <tr key={receipt.id || receipt.receipt_number} style={tbodyRowStyle}>
                 <td style={tdStyle}>
@@ -69,7 +72,16 @@ export function GoodsReceiptHistoryTable({
                   </span>
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>{receipt.lines?.length || 0}</td>
-                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{formatReceiptQty(qty)}</td>
+                <td
+                  style={{
+                    ...tdStyle,
+                    textAlign: 'right',
+                    fontFamily: 'monospace',
+                  }}
+                  title={hint}
+                >
+                  {formatReceiptHeaderQty(receipt.lines, orderQtyTotal)}
+                </td>
                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatReceiptMoney(receipt.total_amount)}
                 </td>

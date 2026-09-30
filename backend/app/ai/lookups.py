@@ -1261,6 +1261,20 @@ REPORT_TYPE_ALIASES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+_GROUPED_TOTALS_PHRASES = (
+    "by month",
+    "per month",
+    "monthly",
+    "by year",
+    "per year",
+    "month by month",
+    "by vendor",
+    "by customer",
+    "by account",
+    "by supplier",
+)
+
+
 def infer_financial_report_type(question: str) -> str:
     """Map wording onto a financial-report catalog id, or empty if not a report."""
     text = re.sub(r"&\s*", "&", (question or "").lower())
@@ -1269,6 +1283,12 @@ def infer_financial_report_type(question: str) -> str:
         if any(needle in text for needle in needles):
             return report_id
     if any(phrase in text for phrase in ("financial report", "financial statement", "financial statements")):
+        return "income-statement"
+    # "Show me the revenue for September 2027" is a P&L ask, not a knowledge search.
+    # Leave "revenue by month" / "revenue by vendor" to get_orders_by_month.
+    if any(phrase in text for phrase in _GROUPED_TOTALS_PHRASES):
+        return ""
+    if re.search(r"\b(revenue|net income|gross profit)\b", text):
         return "income-statement"
     return ""
 

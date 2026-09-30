@@ -12,7 +12,7 @@ export const PARENT_SO_MUST_BE_APPROVED_FOR_SCO_MESSAGE =
   'The parent Sales Order must be approved before a subcontract order can be created or updated.'
 
 const EDITABLE_APPROVAL = new Set(['DRAFT', 'REJECTED'])
-const LOCKED_STATUS = new Set(['SHIPPED', 'INVOICED', 'FULFILLED'])
+const LOCKED_STATUS = new Set(['SHIPPED', 'INVOICED', 'FULFILLED', 'PARTIALLY_FULFILLED'])
 
 function normalizeFlag(value: string | null | undefined): string {
   return (value || '').trim().toUpperCase().replace(/[\s-]+/g, '_')

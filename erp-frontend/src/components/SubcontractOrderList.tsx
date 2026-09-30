@@ -258,11 +258,31 @@ export function SubcontractOrderList() {
                     const statusColors = getStatusColors(sco.status)
                     return (
                       <tr key={sco.sco_number} style={directoryTbodyRowStyle}>
-                        <td style={directoryTdStyle}>{sco.sco_number}</td>
-                        <td style={directoryTdStyle}>{sco.supplier_id}</td>
+                        <td style={directoryTdStyle}>
+                          <Link
+                            to={`/subcontract-orders/${encodeURIComponent(sco.sco_number)}`}
+                            style={soLinkStyle}
+                            title="View subcontract order details"
+                          >
+                            {sco.sco_number}
+                          </Link>
+                        </td>
+                        <td style={directoryTdStyle}>
+                          {sco.supplier_id ? (
+                            <Link
+                              to={`/vendors/${encodeURIComponent(sco.supplier_id)}/edit`}
+                              style={soLinkStyle}
+                              title="View supplier details"
+                            >
+                              {sco.supplier_id}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                         <td style={directoryTdStyle}>
                           {sco.sales_order_id ? (
-                            <Link to={salesOrderDetailPath(sco.sales_order_id)} style={soLinkStyle}>
+                            <Link to={salesOrderDetailPath(sco.sales_order_id)} style={soLinkStyle} title="View sales order details">
                               {sco.sales_order_id}
                             </Link>
                           ) : (

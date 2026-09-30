@@ -65,4 +65,4 @@ class LandedCostAllocationTests(TestCase):
         self.assertEqual(po_line.actual_allocated_landed_expense, Decimal("20.00"))
         self.assertEqual(po_line.allocated_landed_expense, Decimal("30.00"))
         self.assertEqual(po_line.actual_unit_cost, Decimal("7.0000"))
-        self.assertEqual(po_line.estimated_landed_unit_cost, Decimal("8.0000"))
+        self.assertEqual(po_line.estimated_landed_unit_cost, Decimal("1.0000"))

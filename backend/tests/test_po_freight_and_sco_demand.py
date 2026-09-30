@@ -122,8 +122,10 @@ def test_landed_unit_cost_allocates_header_freight_by_line_value():
     apply_po_totals(po)
     assert cheap.unit_price == Decimal("10")
     assert dear.unit_price == Decimal("30")
-    assert cheap.estimated_landed_unit_cost == Decimal("11.0000")
-    assert dear.estimated_landed_unit_cost == Decimal("33.0000")
+    assert cheap.estimated_landed_unit_cost == Decimal("1.0000")
+    assert dear.estimated_landed_unit_cost == Decimal("3.0000")
+    assert cheap.actual_unit_cost == Decimal("11.0000")
+    assert dear.actual_unit_cost == Decimal("33.0000")
     assert po.grand_total == Decimal("400.00")
 
 
@@ -145,8 +147,10 @@ def test_landed_unit_cost_spreads_expense_lines_onto_inventory():
     )
     apply_po_totals(po)
     assert goods.unit_price == Decimal("8")
-    assert goods.estimated_landed_unit_cost == Decimal("16.0000")
-    assert freight.estimated_landed_unit_cost == Decimal("25.0000")
+    assert goods.estimated_landed_unit_cost == Decimal("8.0000")
+    assert goods.actual_unit_cost == Decimal("16.0000")
+    assert freight.estimated_landed_unit_cost == Decimal("0.00")
+    assert freight.actual_unit_cost == Decimal("25.0000")
 
 
 def test_zero_quantity_landed_cost_falls_back_to_unit_price():
@@ -159,7 +163,8 @@ def test_zero_quantity_landed_cost_falls_back_to_unit_price():
         freight_terms=FREIGHT_PREPAID,
     )
     apply_po_totals(po)
-    assert line.estimated_landed_unit_cost == Decimal("85.5000")
+    assert line.estimated_landed_unit_cost == Decimal("0.00")
+    assert line.actual_unit_cost == Decimal("85.5000")
 
 
 def test_missing_unit_price_and_zero_qty_landed_cost_is_zero():

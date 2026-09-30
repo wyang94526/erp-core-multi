@@ -11,7 +11,7 @@ import {
   isSystemJournal,
   postingRuleDisplay,
   postingRulePath,
-  shortJournalId,
+  journalDisplayId,
   sourceDocumentLabel,
   sourceDocumentPath,
 } from '../utils/journalEntries'
@@ -65,7 +65,7 @@ export function JournalEntryViewModal({ entry, rules = [], onClose }: JournalEnt
         <div style={headerStyle}>
           <div>
             <h2 id="journal-view-title" style={titleStyle}>
-              Journal {shortJournalId(entry.id)}
+              Journal {journalDisplayId(entry)}
             </h2>
             <p style={hintStyle}>
               {isSystemJournal(entry)
@@ -81,7 +81,7 @@ export function JournalEntryViewModal({ entry, rules = [], onClose }: JournalEnt
         <dl style={metaGrid}>
           <div>
             <dt style={dtStyle}>Journal ID</dt>
-            <dd style={ddStyle}>{shortJournalId(entry.id)}</dd>
+            <dd style={ddStyle}>{journalDisplayId(entry)}</dd>
           </div>
           <div>
             <dt style={dtStyle}>Posting Date</dt>

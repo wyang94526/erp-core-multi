@@ -316,6 +316,7 @@ class JournalEntryUpdate(BaseModel):
 
 class JournalEntryRead(ORMModel):
     id: UUID
+    journal_number: str | None = None
     created_at: datetime
     description: str
     posted_by_user_id: UUID | None
@@ -1045,6 +1046,10 @@ class SalesOrderRead(ORMModel):
     root_document_id: str | None = None
     can_revise: bool = False
     revise_blocked_reason: str | None = None
+    remaining_closed: bool = False
+    remaining_closed_at: datetime | None = None
+    closed_billable_amount: Decimal | None = None
+    can_close_remaining: bool = False
     total_amount: Decimal
     billed_amount: Decimal = Decimal("0.00")
     remaining_billable_amount: Decimal = Decimal("0.00")
@@ -1606,7 +1611,7 @@ class MaterialIssueLineRead(ORMModel):
 
 
 class MaterialIssueCreate(BaseModel):
-    issue_id: str = Field(max_length=50)
+    issue_id: str | None = Field(default=None, max_length=50)
     issue_date: date | None = None
     notes: str | None = None
     lines: list[MaterialIssueLineCreate] = Field(min_length=1)
@@ -1621,7 +1626,7 @@ class MaterialIssueRead(ORMModel):
 
 
 class FinishedGoodsReceiptCreate(BaseModel):
-    receipt_id: str = Field(max_length=50)
+    receipt_id: str | None = Field(default=None, max_length=50)
     quantity_received: int = Field(gt=0)
     receipt_date: date | None = None
     notes: str | None = None
@@ -1708,6 +1713,9 @@ class SubcontractOrderRead(ORMModel):
     root_document_id: str | None = None
     can_revise: bool = False
     revise_blocked_reason: str | None = None
+    remaining_closed: bool = False
+    remaining_closed_at: datetime | None = None
+    can_close_remaining: bool = False
     billing_status: str = 'UNBILLED'
     order_date: date
     expected_return_date: date | None
@@ -2039,6 +2047,9 @@ class PurchaseOrderRead(ORMModel):
     receive_blocked_reason: str | None = None
     can_create_bill: bool = False
     bill_blocked_reason: str | None = None
+    remaining_closed: bool = False
+    remaining_closed_at: datetime | None = None
+    can_close_remaining: bool = False
 
 
 class PurchaseOrderRecallRequest(BaseModel):
@@ -2767,6 +2778,10 @@ class ItemFulfillmentCreate(BaseModel):
     lines: list[ItemFulfillmentLineCreate] = Field(min_length=1)
 
 
+class ItemFulfillmentLinesUpdate(BaseModel):
+    lines: list[ItemFulfillmentLineCreate] = Field(min_length=1)
+
+
 class ItemFulfillmentStatusUpdate(BaseModel):
     status: str = Field(min_length=1, max_length=20)
     shipped_date: date | None = None
@@ -2862,6 +2877,16 @@ class GoodsReceiptCreate(BaseModel):
     lines: list[GoodsReceiptLineCreate] = Field(min_length=1)
 
 
+class GoodsReceiptLineQtyUpdate(BaseModel):
+    id: int
+    quantity_received: Decimal = Field(gt=0)
+
+
+class GoodsReceiptQtyAdjust(BaseModel):
+    lines: list[GoodsReceiptLineQtyUpdate] = Field(min_length=1)
+    notes: str | None = None
+
+
 class GoodsReceiptLineRead(BaseModel):
     id: int
     receipt_id: int
@@ -2894,6 +2919,7 @@ class GoodsReceiptJournalPostingRead(BaseModel):
 
 class GoodsReceiptJournalRead(BaseModel):
     id: UUID
+    journal_number: str | None = None
     created_at: datetime | None = None
     description: str
     posted_by_user_id: UUID | None = None
@@ -2941,6 +2967,7 @@ class GoodsReceiptRead(BaseModel):
     received_by: str | None = None
     operational_receipt_id: str | None = None
     total_amount: Decimal | None = None
+    can_adjust_quantities: bool = False
     lines: list[GoodsReceiptLineRead] = Field(default_factory=list)
     journals: list[GoodsReceiptJournalRead] = Field(default_factory=list)
     related_invoices: list[GoodsReceiptInvoiceRead] = Field(default_factory=list)

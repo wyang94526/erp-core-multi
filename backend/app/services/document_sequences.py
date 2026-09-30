@@ -21,12 +21,24 @@ DOC_SALES_ORDER: Final = "SALES_ORDER"
 DOC_PURCHASE_ORDER: Final = "PURCHASE_ORDER"
 DOC_SUBCONTRACT_ORDER: Final = "SUBCONTRACT_ORDER"
 DOC_INVOICE: Final = "INVOICE"
+DOC_FULFILLMENT: Final = "FULFILLMENT"
+DOC_GOODS_RECEIPT: Final = "GOODS_RECEIPT"
+DOC_MATERIAL_ISSUE: Final = "MATERIAL_ISSUE"
+DOC_FINISHED_GOODS_RECEIPT: Final = "FINISHED_GOODS_RECEIPT"
+DOC_BILL: Final = "BILL"
+DOC_JOURNAL: Final = "JOURNAL"
 
 DOCUMENT_PREFIXES: Final[dict[str, str]] = {
     DOC_SALES_ORDER: "PU61-",
     DOC_PURCHASE_ORDER: "PU62-",
     DOC_SUBCONTRACT_ORDER: "UP23-",
-    DOC_INVOICE: "PU65-",
+    DOC_INVOICE: "USS5-",
+    DOC_FULFILLMENT: "US51-",
+    DOC_GOODS_RECEIPT: "PU67-",
+    DOC_MATERIAL_ISSUE: "UM31-",
+    DOC_FINISHED_GOODS_RECEIPT: "UP72-",
+    DOC_BILL: "UX13-",
+    DOC_JOURNAL: "UG11-",
 }
 
 LEGACY_SALES_ORDER_PREFIX: Final = "PUB61-"
@@ -58,6 +70,46 @@ def format_document_number(prefix: str, document_date: date, sequence: int) -> s
     if sequence < 1 or sequence > 9999:
         raise ValueError(f"Sequence {sequence} is outside 0001-9999")
     return f"{prefix}{document_date:%y}{document_date:%m}{sequence:04d}"
+
+
+def next_document_number(
+    db: Session,
+    doc_type: str,
+    document_date: date | datetime | str | None = None,
+    preferred: str | None = None,
+) -> str:
+    """Use *preferred* when it is unused and already canonical; otherwise allocate."""
+    prefix = DOCUMENT_PREFIXES.get(doc_type)
+    if prefix is None:
+        raise ValueError(f"Unknown document type: {doc_type}")
+    parsed = parse_document_date(document_date)
+    candidate = str(preferred or "").strip()
+    if candidate and is_canonical_for_date(candidate, prefix, parsed):
+        return candidate
+    return generate_document_number(db, doc_type, parsed)
+
+
+def peek_document_number(
+    db: Session,
+    doc_type: str,
+    document_date: date | datetime | str | None = None,
+) -> str:
+    """Return the next number without consuming the sequence."""
+    prefix = DOCUMENT_PREFIXES.get(doc_type)
+    if prefix is None:
+        raise ValueError(f"Unknown document type: {doc_type}")
+    parsed = parse_document_date(document_date)
+    year_month = parsed.strftime("%Y%m")
+    row = (
+        db.query(DocumentSequence)
+        .filter(
+            DocumentSequence.doc_type == doc_type,
+            DocumentSequence.year_month == year_month,
+        )
+        .first()
+    )
+    next_value = int(row.last_value or 0) + 1 if row else 1
+    return format_document_number(prefix, parsed, next_value)
 
 
 def generate_document_number(

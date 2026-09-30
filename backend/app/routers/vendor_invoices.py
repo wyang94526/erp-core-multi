@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,6 +21,7 @@ from app.schemas import (
     SupplierInvoiceUpdate,
 )
 from app.services import p2p
+from app.services.document_sequences import DOC_BILL, peek_document_number
 
 router = APIRouter(prefix="/vendor-invoices", tags=["vendor-invoices"])
 
@@ -58,6 +61,14 @@ def list_posted_goods_receipts(
 @router.get("/departments", response_model=list[DepartmentRead])
 def list_departments(db: Session = Depends(get_db)):
     return p2p.list_departments(db)
+
+
+@router.get("/next-number")
+def preview_supplier_invoice_number(
+    invoice_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    return {"invoice_number": peek_document_number(db, DOC_BILL, invoice_date)}
 
 
 @router.get("/{invoice_id}", response_model=SupplierInvoiceRead)

@@ -65,6 +65,7 @@ def apply_journal_list_filters(
         like = f"%{text}%"
         query = query.filter(
             or_(
+                JournalEntry.journal_number.ilike(like),
                 JournalEntry.description.ilike(like),
                 JournalEntry.reference.ilike(like),
                 JournalEntry.source_record_id.ilike(like),

@@ -19,6 +19,7 @@ import {
   sourceDocumentLabel,
   sourceDocumentPath,
 } from '../utils/journalEntries'
+import AccountLookup from './AccountLookup'
 
 function todayISO() {
   const now = new Date()
@@ -274,7 +275,13 @@ export function ManualJournalEntryPage() {
         <div style={headerStyle}>
           <div>
             <h1 style={titleStyle}>
-              {readOnly ? 'System Journal Entry' : isEdit ? 'Edit Journal Entry' : 'Manual Journal Entry'}
+              {loadedEntry?.journal_number
+                ? loadedEntry.journal_number
+                : readOnly
+                  ? 'System Journal Entry'
+                  : isEdit
+                    ? 'Edit Journal Entry'
+                    : 'Manual Journal Entry'}
             </h1>
             <p style={hintStyle}>
               {readOnly
@@ -374,19 +381,13 @@ export function ManualJournalEntryPage() {
                 return (
                   <tr key={line.key}>
                     <td style={tdStyle}>
-                      <select
+                      <AccountLookup
+                        accounts={accounts}
                         value={line.account_id}
-                        onChange={(e) => updateLine(line.key, { account_id: e.target.value })}
                         disabled={readOnly}
-                        style={inputStyle}
-                      >
-                        <option value="">Select account…</option>
-                        {accounts.map((row) => (
-                          <option key={row.id} value={row.id}>
-                            {row.account_code} · {row.account_name}
-                          </option>
-                        ))}
-                      </select>
+                        ariaLabel={`Account for line ${line.key}`}
+                        onSelect={(account) => updateLine(line.key, { account_id: account?.id || '' })}
+                      />
                     </td>
                     <td style={tdStyle}>
                       <input value={account?.account_name || ''} readOnly style={readOnlyStyle} />

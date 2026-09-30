@@ -11,7 +11,9 @@ from app.services.p2p import (
     ALL_PO_ITEMS_RECEIVED_MESSAGE,
     PURCHASE_ORDER_LOCKED_EDIT_DETAIL,
     assert_po_approved_for_p2p,
+    assert_purchase_order_deletable,
     assert_purchase_order_editable,
+    purchase_order_delete_reason,
     purchase_order_is_editable,
     purchase_order_lock_reason,
     recall_status_blocker,
@@ -143,6 +145,48 @@ def test_remaining_to_bill_matches_received_qty():
         line_amount=Decimal("25"),
         amount_only=True,
     ) == Decimal("0")
+
+
+class _FlagDb:
+    def __init__(self, receipts=False, invoices=False):
+        self.receipts = receipts
+        self.invoices = invoices
+        self._step = 0
+
+    def query(self, _col):
+        return self
+
+    def filter(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        self._step += 1
+        if self._step == 1:
+            return object() if self.receipts else None
+        return object() if self.invoices else None
+
+
+def test_purchase_order_with_receipts_cannot_be_deleted():
+    po = SimpleNamespace(po_number="PU62-26090008", status="Approved", approval_status="APPROVED")
+    reason = purchase_order_delete_reason(_FlagDb(receipts=True), po)
+    assert reason is not None
+    assert "goods receipts" in reason
+    with pytest.raises(HTTPException) as blocked:
+        assert_purchase_order_deletable(_FlagDb(receipts=True), po)
+    assert blocked.value.status_code == 409
+
+
+def test_draft_purchase_order_without_downstream_docs_can_be_deleted():
+    po = SimpleNamespace(po_number="PU62-26090099", status="Draft", approval_status="DRAFT")
+    assert purchase_order_delete_reason(_FlagDb(), po) is None
+    assert_purchase_order_deletable(_FlagDb(), po)
+
+
+def test_approved_purchase_order_without_receipts_cannot_be_deleted():
+    po = SimpleNamespace(po_number="PU62-26090100", status="Approved", approval_status="APPROVED")
+    reason = purchase_order_delete_reason(_FlagDb(), po)
+    assert reason is not None
+    assert "draft" in reason.lower()
 
 
 def test_fully_received_message_constant():

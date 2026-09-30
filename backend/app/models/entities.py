@@ -303,6 +303,7 @@ class JournalEntry(Base):
     __tablename__ = 'journal_entries'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    journal_number = Column(String(50), unique=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
     description = Column(Text, nullable=False)
     posted_by_user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
@@ -579,6 +580,9 @@ class SalesOrder(Base):
     current_approval_step = Column(Integer, nullable=True)
     revision_number = Column(Integer, nullable=False, server_default=text("0"))
     root_document_id = Column(String(50), nullable=True)
+    remaining_closed = Column(Boolean, nullable=False, server_default=text('false'))
+    remaining_closed_at = Column(DateTime, nullable=True)
+    closed_billable_amount = Column(Numeric(12, 2), nullable=True)
     total_amount = Column(Numeric(12, 2), nullable=False)
     
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
@@ -871,6 +875,8 @@ class SubcontractOrder(Base):
     quantity_ordered = Column(Integer, nullable=False)
     unit_price = Column(Numeric(12, 4), nullable=False, server_default=text('0'))
     status = Column(String(30), nullable=False, default='PLANNED')
+    remaining_closed = Column(Boolean, nullable=False, server_default=text('false'))
+    remaining_closed_at = Column(DateTime, nullable=True)
     approval_status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
     current_approval_step = Column(Integer, nullable=True)
     amendment_number = Column(Integer, nullable=False, server_default=text("0"))
@@ -1197,6 +1203,8 @@ class PurchaseOrder(Base):
     revision_number = Column(Integer, nullable=False, server_default=text("0"))
     root_document_id = Column(String(50), nullable=True)
     billing_status = Column(String(30), nullable=False, server_default=text("'UNBILLED'"))
+    remaining_closed = Column(Boolean, nullable=False, server_default=text('false'))
+    remaining_closed_at = Column(DateTime, nullable=True)
 
     shipping_fee = Column(Numeric(12, 2), nullable=False, default=0)
     discount_type = Column(String(20), nullable=False, default='percentage')  # percentage or fixed

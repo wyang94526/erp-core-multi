@@ -11,14 +11,19 @@
 import { useRef, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FileDown, Loader2, Mail, Pencil, Receipt, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Ban, FileDown, Loader2, Mail, Pencil, Receipt, RotateCcw } from 'lucide-react'
 import { itemService, purchaseOrderService, subcontractOrderService, vendorService } from '../api/services'
 import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { defaultCostSheet } from '../utils/scoCostSheet'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
 import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
-import { scoCanReceiveFinishedGoods, scoReceiveBlockedReason } from '../utils/scoReceive'
+import {
+  scoCanReceiveFinishedGoods,
+  scoCanShowCloseRemaining,
+  scoCloseRemainingBlockedReason,
+  scoReceiveBlockedReason,
+} from '../utils/scoReceive'
 import {
   HoverTip,
   actionRowStyle,
@@ -122,15 +127,14 @@ export function SubcontractOrderDetail() {
 
   const issueMutation = useMutation({
     mutationFn: (data: {
-      issue_id: string
+      issue_id?: string
       issue_date?: string
       notes?: string
       lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }>
     }) => subcontractOrderService.issueMaterials(id, data),
     onSuccess: (updated) => {
-      const created = updated.material_issues?.find(
-        (row) => row.issue_id === issueForm.issue_id,
-      )
+      const known = new Set((sco?.material_issues || []).map((row) => row.issue_id))
+      const created = updated.material_issues?.find((row) => !known.has(row.issue_id))
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
       queryClient.invalidateQueries({
@@ -150,7 +154,7 @@ export function SubcontractOrderDetail() {
 
   const receiveMutation = useMutation({
     mutationFn: (data: {
-      receipt_id: string
+      receipt_id?: string
       quantity_received: number
       receipt_date?: string
       notes?: string
@@ -172,6 +176,18 @@ export function SubcontractOrderDetail() {
     },
     onError: (err: any) => {
       setFormErrors({ receive: err.message || 'Failed to receive goods' })
+    },
+  })
+
+  const closeRemainingMutation = useMutation({
+    mutationFn: () => subcontractOrderService.closeRemaining(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
+      queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] })
+    },
+    onError: (err: Error) => {
+      setFormErrors({ receive: err.message || 'Failed to cancel remaining quantity' })
     },
   })
 
@@ -498,11 +514,6 @@ export function SubcontractOrderDetail() {
       return
     }
 
-    if (!issueForm.issue_id.trim()) {
-      setFormErrors({ issue: 'Issue ID is required' })
-      return
-    }
-
     const lines: Array<{ component_item_id: string; quantity_issued: number; sco_line_id?: number }> = []
     for (const component of sco.components) {
       const key = `${component.sco_line_id || 'line'}:${component.component_item_id}`
@@ -521,7 +532,6 @@ export function SubcontractOrderDetail() {
     }
 
     issueMutation.mutate({
-      issue_id: issueForm.issue_id,
       issue_date: issueForm.issue_date || undefined,
       notes: issueForm.notes || undefined,
       lines,
@@ -539,17 +549,12 @@ export function SubcontractOrderDetail() {
       return
     }
 
-    if (!receiveForm.receipt_id.trim()) {
-      setFormErrors({ receive: 'Receipt ID is required' })
-      return
-    }
     if (!receiveForm.quantity_received || Number(receiveForm.quantity_received) <= 0) {
       setFormErrors({ receive: 'Quantity received must be greater than 0' })
       return
     }
 
     receiveMutation.mutate({
-      receipt_id: receiveForm.receipt_id,
       quantity_received: Number(receiveForm.quantity_received),
       receipt_date: receiveForm.receipt_date || undefined,
       notes: receiveForm.notes || undefined,
@@ -584,6 +589,11 @@ export function SubcontractOrderDetail() {
             {Number(sco.revision_number || amendmentNumber || 0) > 0 ? (
               <span style={{ ...badgeStyle, backgroundColor: '#fff3e0', color: '#e65100' }}>
                 Rev {sco.revision_number || amendmentNumber}
+              </span>
+            ) : null}
+            {sco.remaining_closed ? (
+              <span style={{ ...badgeStyle, backgroundColor: '#eceff1', color: '#455a64' }}>
+                Remaining cancelled
               </span>
             ) : null}
           </div>
@@ -674,6 +684,36 @@ export function SubcontractOrderDetail() {
                 >
                   <Receipt size={15} />
                   Create Bill
+                </button>
+              </HoverTip>
+            ) : null}
+            {scoCanShowCloseRemaining(sco) ? (
+              <HoverTip
+                label={
+                  scoCloseRemainingBlockedReason(sco) ||
+                  'Cancel leftover finished-goods quantity after this partial receipt.'
+                }
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...dangerButtonStyle,
+                    ...disabledActionStyle(Boolean(sco.can_close_remaining) && !closeRemainingMutation.isPending),
+                  }}
+                  disabled={closeRemainingMutation.isPending || !sco.can_close_remaining}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Cancel the remaining unreceived quantity on ${sco.sco_number}? Further finished-goods receipts will be closed.`,
+                      )
+                    ) {
+                      return
+                    }
+                    closeRemainingMutation.mutate()
+                  }}
+                >
+                  <Ban size={15} />
+                  {closeRemainingMutation.isPending ? 'Closing…' : 'Cancel remaining'}
                 </button>
               </HoverTip>
             ) : null}
@@ -1096,17 +1136,10 @@ export function SubcontractOrderDetail() {
 
         {showIssueForm && canOperateKit && (
           <form onSubmit={handleIssueSubmit} style={{ marginBottom: '20px' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)' }}>
+              Issue ID is assigned automatically as UM31-YYMMXXXX
+            </p>
             <div style={gridStyle}>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle}>Issue ID *</label>
-                <input
-                  type="text"
-                  value={issueForm.issue_id}
-                  onChange={(e) => setIssueForm((prev) => ({ ...prev, issue_id: e.target.value }))}
-                  style={inputStyle}
-                  placeholder="e.g. ISS-0001"
-                />
-              </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Issue Date</label>
                 <input
@@ -1352,17 +1385,10 @@ export function SubcontractOrderDetail() {
 
         {showReceiveForm && canReceiveFinishedGoods && (
           <form onSubmit={handleReceiveSubmit} style={{ marginBottom: '20px' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)' }}>
+              Receipt ID is assigned automatically as UP72-YYMMXXXX
+            </p>
             <div style={gridStyle}>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle}>Receipt ID *</label>
-                <input
-                  type="text"
-                  value={receiveForm.receipt_id}
-                  onChange={(e) => setReceiveForm((prev) => ({ ...prev, receipt_id: e.target.value }))}
-                  style={inputStyle}
-                  placeholder="e.g. RCV-0001"
-                />
-              </div>
               {(sco.lines || []).length > 1 && (
                 <div style={fieldGroupStyle}>
                   <label style={labelStyle}>Assembly line *</label>

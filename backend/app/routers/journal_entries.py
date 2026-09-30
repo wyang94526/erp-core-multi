@@ -30,6 +30,7 @@ from app.services.accounting import (
     validate_posting_rows,
 )
 from app.services import month_end_close, year_end_close
+from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.journal_list import apply_journal_list_filters
 from app.services.journal_source import assert_journal_mutable
 
@@ -203,6 +204,7 @@ def _create_journal_entry(db: Session, payload: JournalEntryCreate, user: User) 
     reference = (payload.reference or "").strip() or None
 
     entry = JournalEntry(
+        journal_number=generate_document_number(db, DOC_JOURNAL, posting_date),
         description=payload.description.strip(),
         posted_by_user_id=user.id,
         posting_date=posting_date,

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import (
     ItemFulfillmentCreate,
+    ItemFulfillmentLinesUpdate,
     ItemFulfillmentRead,
     ItemFulfillmentStatusUpdate,
 )
@@ -38,6 +39,21 @@ def create_fulfillment(payload: ItemFulfillmentCreate, db: Session = Depends(get
         carrier=payload.carrier,
         tracking_number=payload.tracking_number,
         status=payload.status,
+    )
+    db.commit()
+    return result
+
+
+@router.patch("/{fulfillment_id}", response_model=ItemFulfillmentRead)
+def update_fulfillment(
+    fulfillment_id: int,
+    payload: ItemFulfillmentLinesUpdate,
+    db: Session = Depends(get_db),
+):
+    result = o2c.update_fulfillment_lines(
+        db,
+        fulfillment_id,
+        lines=[line.model_dump() for line in payload.lines],
     )
     db.commit()
     return result

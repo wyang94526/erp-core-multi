@@ -50,13 +50,21 @@ from app.schemas import (
 )
 from app.services import approval, inventory
 from app.services.document_revisions import list_change_logs, list_revisions, resync_sco_bom_quantities
-from app.services.document_sequences import DOC_SUBCONTRACT_ORDER, generate_document_number
+from app.services.document_sequences import (
+    DOC_FINISHED_GOODS_RECEIPT,
+    DOC_MATERIAL_ISSUE,
+    DOC_SUBCONTRACT_ORDER,
+    generate_document_number,
+    next_document_number,
+)
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
 from app.services.subcontract import (
     apply_line_charge_sheet,
+    attach_sco_remaining_flags,
     attach_sco_revise_flags,
+    close_subcontract_order_remaining,
     assert_linked_sales_order_approved,
     assert_sco_fulfillment_allowed,
     assert_sco_receive_allowed,
@@ -92,6 +100,7 @@ def _load_sco(db: Session, sco_number: str) -> SubcontractOrder | None:
     )
     if sco is not None:
         attach_sco_revise_flags(sco)
+        attach_sco_remaining_flags(sco, db)
     return sco
 
 
@@ -213,6 +222,7 @@ def list_subcontract_orders(
     )
     for sco in rows:
         attach_sco_revise_flags(sco)
+        attach_sco_remaining_flags(sco, db)
     return rows
 
 
@@ -868,6 +878,16 @@ def list_subcontract_order_change_logs(sco_number: str, db: Session = Depends(ge
     return list_change_logs(db, "SUBCONTRACT_ORDER", sco_number)
 
 
+@router.post("/{sco_number}/close-remaining", response_model=SubcontractOrderRead)
+def close_subcontract_remaining(sco_number: str, db: Session = Depends(get_db)) -> SubcontractOrder:
+    close_subcontract_order_remaining(db, sco_number)
+    db.commit()
+    sco = _load_sco(db, sco_number)
+    if not sco:
+        raise HTTPException(status_code=404, detail="Subcontract order not found")
+    return sco
+
+
 @router.post(
     "/{sco_number}/issue-materials",
     response_model=SubcontractOrderRead,
@@ -885,8 +905,10 @@ def issue_materials(
     if sco.status in _CLOSED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Cannot issue materials on a {sco.status.lower()} order")
 
-    if db.get(MaterialIssue, payload.issue_id) is not None:
-        raise HTTPException(status_code=400, detail="Material issue ID already exists")
+    issue_date = payload.issue_date or date.today()
+    issue_id = next_document_number(db, DOC_MATERIAL_ISSUE, issue_date, payload.issue_id)
+    if db.get(MaterialIssue, issue_id) is not None:
+        issue_id = generate_document_number(db, DOC_MATERIAL_ISSUE, issue_date)
 
     components = (
         db.query(SubcontractOrderComponent)
@@ -894,7 +916,7 @@ def issue_materials(
         .all()
     )
 
-    issue = MaterialIssue(issue_id=payload.issue_id, sco_number=sco_number, notes=payload.notes)
+    issue = MaterialIssue(issue_id=issue_id, sco_number=sco_number, notes=payload.notes)
     if payload.issue_date is not None:
         issue.issue_date = payload.issue_date
     db.add(issue)
@@ -999,8 +1021,12 @@ def receive_goods(
 
     assert_sco_receive_allowed(sco)
 
-    if db.get(FinishedGoodsReceipt, payload.receipt_id) is not None:
-        raise HTTPException(status_code=400, detail="Receipt ID already exists")
+    receipt_date = payload.receipt_date or date.today()
+    receipt_id = next_document_number(
+        db, DOC_FINISHED_GOODS_RECEIPT, receipt_date, payload.receipt_id
+    )
+    if db.get(FinishedGoodsReceipt, receipt_id) is not None:
+        receipt_id = generate_document_number(db, DOC_FINISHED_GOODS_RECEIPT, receipt_date)
 
     sco_lines = list(sco.lines or [])
     target_line = None
@@ -1044,7 +1070,7 @@ def receive_goods(
     product.wip_quantity = int(wip - deduct)
 
     receipt = FinishedGoodsReceipt(
-        receipt_id=payload.receipt_id,
+        receipt_id=receipt_id,
         sco_number=sco_number,
         sco_line_id=target_line.sco_line_id if target_line else None,
         quantity_received=payload.quantity_received,
@@ -1059,7 +1085,7 @@ def receive_goods(
         db,
         item_id=item_id,
         quantity=int(payload.quantity_received),
-        reference=payload.receipt_id,
+        reference=receipt_id,
         notes=payload.notes or f"Finished goods from subcontract order {sco_number}",
     )
 
@@ -1072,7 +1098,7 @@ def receive_goods(
         unit_cost=payload.unit_cost if payload.unit_cost is not None else unit_price,
         receipt_date=payload.receipt_date,
         notes=payload.notes,
-        external_receipt_id=payload.receipt_id,
+        external_receipt_id=receipt_id,
         item_id=item_id,
         source_line_id=target_line.sco_line_id if target_line else None,
         received_by_user_id=user.id,

@@ -10,6 +10,7 @@ import { itemBomService, itemService, subcontractOrderService } from '../api/ser
 import ItemLookup from './ItemLookup';
 import { ImportScoComponentsDialog } from './ImportScoComponentsDialog';
 import { isAmountOnlyLine, isStockItemType } from '../utils/itemTypes';
+import { remainingReceiveQty } from '../utils/poP2p';
 import {
   ALL_SCO_COMPONENTS_IMPORTED_MESSAGE,
   remainingScoImportQty,
@@ -273,16 +274,16 @@ export function POLineItemsTable({
                   PO price only
                 </div>
               </th>
-              <th style={{ ...thStyle, width: '160px', textAlign: 'right' }} title="Includes allocated freight, duty, and fees for estimation only.">
+              <th style={{ ...thStyle, width: '160px', textAlign: 'right' }} title="Allocated freight, duty, and tax only. Does not include vendor unit price.">
                 Est. Landed Unit Cost ($)
                 <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
-                  Freight / duty / fees
+                  Freight / duty / tax
                 </div>
               </th>
-              <th style={{ ...thStyle, width: '150px', textAlign: 'right' }} title="Vendor unit price plus freight/duty allocated from supplier invoices.">
+              <th style={{ ...thStyle, width: '150px', textAlign: 'right' }} title="Vendor unit price plus estimated landed cost.">
                 Unit Cost ($)
                 <div style={{ fontWeight: 'normal', fontSize: 10, color: '#666', marginTop: 2 }}>
-                  After allocated AP
+                  Price + landed
                 </div>
               </th>
               <th style={{ ...thStyle, width: '120px', textAlign: 'right' }}>Tax Rate (%)</th>
@@ -351,8 +352,13 @@ export function POLineItemsTable({
                   {/* Quantity */}
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isReadOnly ? (
-                      <div style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end' }}>
+                      <div style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}>
                         {item.quantity}
+                        {item.quantity_received != null || item.quantity_remaining_to_receive != null ? (
+                          <span style={{ fontSize: 11, color: '#666', fontWeight: 'normal', marginTop: 4 }}>
+                            Recv {Number(item.quantity_received || 0)} · left {remainingReceiveQty(item)}
+                          </span>
+                        ) : null}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -438,9 +444,9 @@ export function POLineItemsTable({
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     <div
                       style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}
-                      title="Includes allocated freight, duty, and fees for estimation only."
+                      title="Allocated freight, duty, and tax only. Does not include vendor unit price."
                     >
-                      {formatCurrency(item.estimated_landed_unit_cost ?? item.unit_price)}
+                      {formatCurrency(item.estimated_landed_unit_cost ?? 0)}
                       <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
                         Estimation only
                       </span>
@@ -450,16 +456,19 @@ export function POLineItemsTable({
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     <div
                       style={{ ...readOnlyCellText, textAlign: 'right', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}
-                      title="Purchase price plus freight/duty allocated from supplier invoices."
+                      title="Vendor unit price plus estimated landed cost."
                     >
-                      {formatCurrency(item.actual_unit_cost ?? item.unit_price)}
+                      {formatCurrency(
+                        item.actual_unit_cost ??
+                          (Number(item.unit_price) || 0) + (Number(item.estimated_landed_unit_cost) || 0),
+                      )}
                       {(item.actual_allocated_landed_expense || 0) > 0 ? (
                         <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
                           Incl. allocated AP
                         </span>
                       ) : (
                         <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: 4 }}>
-                          PO unit price
+                          Price + landed
                         </span>
                       )}
                     </div>
