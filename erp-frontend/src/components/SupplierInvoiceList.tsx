@@ -6,14 +6,14 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { vendorInvoiceService } from '../api/services'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
-import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
+import { billDetailHref, billEditHref, sourceOrderHref } from '../utils/cashReference'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import {
   matchesDeliveryDate,
@@ -21,6 +21,11 @@ import {
   type DeliveryDateFilter,
   type RelativeDateFilter,
 } from '../utils/listDateFilters'
+
+function isNonPoInvoice(inv: { invoice_type?: string | null; source_type?: string | null }): boolean {
+  const kind = (inv.invoice_type || '').toUpperCase()
+  return kind === 'EXPENSE' || kind === 'LANDED_COST' || (inv.source_type || '').toUpperCase() === 'NON_PO'
+}
 
 const PAGE_SIZE = 10
 
@@ -56,6 +61,7 @@ const FILTERS: FilterField[] = [
       { value: 'ALL', label: 'All' },
       { value: 'DRAFT', label: 'Draft' },
       { value: 'PENDING_APPROVAL', label: 'Pending' },
+      { value: 'REJECTED', label: 'Returned' },
       { value: 'APPROVED', label: 'Approved' },
       { value: 'PAID', label: 'Paid' },
       { value: 'CANCELLED', label: 'Cancelled' },
@@ -78,6 +84,7 @@ function statusColors(status: string): { bg: string; text: string } {
   const map: Record<string, { bg: string; text: string }> = {
     DRAFT: { bg: '#f5f5f5', text: '#616161' },
     PENDING_APPROVAL: { bg: '#fff3e0', text: '#e65100' },
+    REJECTED: { bg: '#ffebee', text: '#c62828' },
     APPROVED: { bg: '#e3f2fd', text: '#1565c0' },
     PAID: { bg: '#e8f5e9', text: '#2e7d32' },
     CANCELLED: { bg: '#ffebee', text: '#c62828' },
@@ -90,10 +97,12 @@ const money = (n: number) =>
 
 export function SupplierInvoiceList() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const sourceOrderId = searchParams.get('source_order_id') || undefined
   const focusInvoice = (searchParams.get('invoice') || '').trim()
   const [skip, setSkip] = useState(0)
+  const [returningId, setReturningId] = useState<number | null>(null)
   const { values, hasActiveFilters } = useListFilterParams(FILTERS)
   const invoiceDateFilter = (values.invoice_date || 'all') as RelativeDateFilter
   const dueFilter = (values.due || 'all') as DeliveryDateFilter
@@ -271,9 +280,77 @@ export function SupplierInvoiceList() {
                         </span>
                       </td>
                       <td style={tdStyle}>
-                        <Link to={billDetailHref(inv.invoice_number)} style={linkStyle} title="View bill details">
-                          View
-                        </Link>
+                        <div style={actionCellStyle}>
+                          <Link to={billDetailHref(inv.invoice_number)} style={linkStyle} title="View bill details">
+                            View
+                          </Link>
+                          {isNonPoInvoice(inv) &&
+                          (inv.status === 'DRAFT' ||
+                            inv.status === 'REJECTED' ||
+                            inv.status === 'PENDING_APPROVAL') ? (
+                            <Link
+                              to={billEditHref(inv.invoice_number)}
+                              style={linkStyle}
+                              title="Edit this Non-PO invoice"
+                            >
+                              Edit
+                            </Link>
+                          ) : null}
+                          {isNonPoInvoice(inv) && inv.status === 'APPROVED' ? (
+                            <button
+                              type="button"
+                              style={returnLinkStyle}
+                              disabled={returningId === inv.id}
+                              onClick={async () => {
+                                if (
+                                  !window.confirm(
+                                    `Rescind approval for ${inv.invoice_number}? The AP posting will be reversed so it can be edited.`,
+                                  )
+                                ) {
+                                  return
+                                }
+                                setReturningId(inv.id)
+                                try {
+                                  await vendorInvoiceService.rescind(inv.id)
+                                  await queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] })
+                                } catch (err) {
+                                  window.alert(err instanceof Error ? err.message : 'Rescind failed')
+                                } finally {
+                                  setReturningId(null)
+                                }
+                              }}
+                            >
+                              {returningId === inv.id ? 'Rescinding…' : 'Rescind'}
+                            </button>
+                          ) : null}
+                          {isNonPoInvoice(inv) && inv.status === 'PENDING_APPROVAL' ? (
+                            <button
+                              type="button"
+                              style={returnLinkStyle}
+                              disabled={returningId === inv.id}
+                              onClick={async () => {
+                                if (
+                                  !window.confirm(
+                                    `Return ${inv.invoice_number} to the requester so they can edit and resubmit?`,
+                                  )
+                                ) {
+                                  return
+                                }
+                                setReturningId(inv.id)
+                                try {
+                                  await vendorInvoiceService.reject(inv.id)
+                                  await queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] })
+                                } catch (err) {
+                                  window.alert(err instanceof Error ? err.message : 'Return failed')
+                                } finally {
+                                  setReturningId(null)
+                                }
+                              }}
+                            >
+                              {returningId === inv.id ? 'Returning…' : 'Return'}
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -338,6 +415,18 @@ const tagStyle: React.CSSProperties = {
   fontWeight: 700,
 }
 const linkStyle: React.CSSProperties = { color: '#1565c0', textDecoration: 'underline', fontWeight: 600 }
+const actionCellStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }
+const returnLinkStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: '#c62828',
+  textDecoration: 'underline',
+  fontWeight: 600,
+  cursor: 'pointer',
+  padding: 0,
+  fontFamily: 'inherit',
+  fontSize: 13,
+}
 const pagerStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16 }
 const primaryButtonStyle: React.CSSProperties = {
   padding: '10px 18px',

@@ -99,7 +99,7 @@ export function DashboardContextBanner({
         {subtitle ? <div style={contextSubStyle}>{subtitle}</div> : null}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <Link to="/" style={linkBtnStyle}>
+        <Link to="/" className="erp-button-link" style={linkBtnStyle}>
           ← Back to Dashboard
         </Link>
         {showClear && onClear ? (

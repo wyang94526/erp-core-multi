@@ -22,6 +22,7 @@ def list_goods_receipts(
     source_order_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    unbilled_only: bool = Query(default=False),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -33,6 +34,7 @@ def list_goods_receipts(
         source_order_id=source_order_id,
         status=status,
         q=q,
+        unbilled_only=unbilled_only,
         skip=skip,
         limit=limit,
     )

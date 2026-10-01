@@ -6,11 +6,10 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, Pencil, Save, X } from 'lucide-react'
+import { ArrowLeft, FileText, Loader2, Pencil, Save, X } from 'lucide-react'
 import { goodsReceiptService } from '../api/services'
-import type { GoodsReceiptJournal, JournalEntry } from '../types'
-import { JournalEntryViewModal } from './JournalEntryViewModal'
-import { billDetailHref, cashReferenceLinkStyle, sourceOrderHref } from '../utils/cashReference'
+import type { GoodsReceiptJournal } from '../types'
+import { billDetailHref, sourceOrderHref } from '../utils/cashReference'
 import {
   formatReceiptMoney,
   formatReceiptQty,
@@ -19,15 +18,13 @@ import {
   journalPurposeLabel,
   receiptLinkStyle,
   receiptWarehouseLabel,
-  toJournalEntry,
 } from '../utils/goodsReceipts'
-import { journalDisplayId } from '../utils/journalEntries'
+import { journalDisplayId, journalEditPath } from '../utils/journalEntries'
 import {
   HoverTip,
   actionRowStyle,
   badgeStyle,
   documentPageHeaderStyle,
-  documentPageSubStyle,
   documentPageTitleBlockStyle,
   documentPageTitleStyle,
   headerActionsStyle,
@@ -63,7 +60,6 @@ export function GoodsReceiptDetail() {
   const receiptKey = decodeURIComponent(rawId || '').trim()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [viewingJournal, setViewingJournal] = useState<JournalEntry | null>(null)
   const [editing, setEditing] = useState(false)
   const [qtyByLine, setQtyByLine] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -187,19 +183,6 @@ export function GoodsReceiptDetail() {
               {sourceLabel(detail.source_type)}
             </span>
           </div>
-          <p style={documentPageSubStyle}>
-            Receipt of goods against {sourceLabel(detail.source_type).toLowerCase()}{' '}
-            {sourceHref ? (
-              <Link to={sourceHref} style={cashReferenceLinkStyle}>
-                {detail.source_order_id}
-              </Link>
-            ) : (
-              detail.source_order_id
-            )}
-            {detail.operational_receipt_id && detail.operational_receipt_id !== detail.receipt_number
-              ? ` · Warehouse ticket ${detail.operational_receipt_id}`
-              : null}
-          </p>
         </div>
         <div style={headerActionsStyle}>
           <div style={actionRowStyle}>
@@ -237,6 +220,22 @@ export function GoodsReceiptDetail() {
                 </HoverTip>
               </>
             ) : null}
+            {detail.status === 'POSTED' && Number(detail.quantity_unbilled || 0) > 0 ? (
+              <HoverTip label="Create a supplier invoice from this receipt">
+                <button
+                  type="button"
+                  style={headerButtonStyle}
+                  onClick={() =>
+                    navigate(
+                      `/supplier-invoices/new?receipt_id=${encodeURIComponent(String(detail.id))}&source_type=${encodeURIComponent(detail.source_type)}`,
+                    )
+                  }
+                >
+                  <FileText size={15} />
+                  Create Bill
+                </button>
+              </HoverTip>
+            ) : null}
             <HoverTip label="Back to Goods Receipts">
               <button type="button" style={headerButtonStyle} onClick={() => navigate(backHref)}>
                 <ArrowLeft size={15} />
@@ -261,6 +260,9 @@ export function GoodsReceiptDetail() {
                 detail.source_order_id
               )}
             </MetaRow>
+            {detail.operational_receipt_id && detail.operational_receipt_id !== detail.receipt_number ? (
+              <MetaRow label="Warehouse Ticket">{detail.operational_receipt_id}</MetaRow>
+            ) : null}
             <MetaRow label="Vendor / Supplier">
               {detail.vendor_id}
               {detail.vendor_name ? ` · ${detail.vendor_name}` : ''}
@@ -393,7 +395,7 @@ export function GoodsReceiptDetail() {
                   <JournalRow
                     key={journal.id}
                     journal={journal}
-                    onView={() => setViewingJournal(toJournalEntry(journal))}
+                    journalHref={journalEditPath(journal.id, { from: `/goods-receipts/${encodeURIComponent(receiptKey)}` })}
                   />
                 ))}
               </tbody>
@@ -445,7 +447,6 @@ export function GoodsReceiptDetail() {
         )}
       </section>
 
-      <JournalEntryViewModal entry={viewingJournal} onClose={() => setViewingJournal(null)} />
     </div>
   )
 }
@@ -456,10 +457,10 @@ function journalSideTotal(journal: GoodsReceiptJournal, side: 'debit' | 'credit'
 
 function JournalRow({
   journal,
-  onView,
+  journalHref,
 }: {
   journal: GoodsReceiptJournal
-  onView: () => void
+  journalHref: string
 }) {
   return (
     <tr style={tbodyRowStyle}>
@@ -477,9 +478,9 @@ function JournalRow({
         {formatReceiptMoney(journalSideTotal(journal, 'credit'))}
       </td>
       <td style={tdStyle}>
-        <button type="button" style={linkButtonStyle} onClick={onView}>
+        <Link to={journalHref} style={linkButtonStyle}>
           View
-        </button>
+        </Link>
       </td>
     </tr>
   )
@@ -542,7 +543,7 @@ const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text, #4242
 const linkButtonStyle: CSSProperties = {
   background: 'none',
   border: 'none',
-  color: 'var(--accent, #1565c0)',
+  color: 'var(--link, #1565c0)',
   fontWeight: 700,
   cursor: 'pointer',
   fontFamily: 'inherit',

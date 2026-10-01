@@ -16,9 +16,9 @@ import {
   journalEditPath,
   isJournalDraft,
   MONTH_END_CLOSE_PATH,
+  YEAR_END_CLOSE_PATH,
   journalDisplayId,
 } from '../utils/journalEntries'
-import { JournalEntryViewModal } from './JournalEntryViewModal'
 import {
   HoverTip,
   actionRowStyle,
@@ -62,7 +62,6 @@ export function YearEndClosePage() {
   const [fiscalYear, setFiscalYear] = useState(currentYear)
   const [resultMessage, setResultMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
 
   const previewQuery = useQuery({
     queryKey: ['yearEndClosePreview', fiscalYear],
@@ -96,8 +95,9 @@ export function YearEndClosePage() {
         <div style={documentPageTitleBlockStyle}>
           <h1 style={documentPageTitleStyle}>Year-End Close</h1>
           <p style={documentPageSubStyle}>
-            Close FY {fiscalYear} revenue and expense into retained earnings (3350). The generated
-            journal stays Draft and must be submitted for approval before it posts.
+            Close FY {fiscalYear} P&amp;L into retained earnings (3350), then reverse the monthly
+            current-period NI park (Debit 3353 / Credit 3354). The generated journal stays Draft
+            and must be submitted for approval before it posts.
           </p>
           <label style={periodControlStyle}>
             <span style={periodLabelTextStyle}>Fiscal year</span>
@@ -124,7 +124,7 @@ export function YearEndClosePage() {
               <HoverTip
                 label={
                   preview?.can_run
-                    ? 'Generate a Draft P&L closing journal for approval'
+                    ? 'Generate a Draft journal that closes P&L to 3350 and reverses 3353 / 3354'
                     : preview?.blockers?.[0] || 'Closing journal cannot be generated yet'
                 }
               >
@@ -154,7 +154,7 @@ export function YearEndClosePage() {
                 General Ledger
               </button>
             </HoverTip>
-            <HoverTip label="Post month-end adjustments on Month-End Close">
+            <HoverTip label="Park monthly NI on Month-End Close">
               <button type="button" style={headerButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
                 <CalendarRange size={15} />
                 Month-End Close
@@ -171,7 +171,7 @@ export function YearEndClosePage() {
           {closeMutation.data?.journal ? (
             <>
               {' '}
-              <Link to={journalEditPath(closeMutation.data.journal.id)} style={inlineLink}>
+              <Link to={journalEditPath(closeMutation.data.journal.id, { from: YEAR_END_CLOSE_PATH })} style={inlineLink}>
                 Open {journalDisplayId(closeMutation.data.journal)}
               </Link>
             </>
@@ -182,8 +182,8 @@ export function YearEndClosePage() {
       {preview?.year_still_open ? (
         <div style={infoBox}>
           FY {fiscalYear} is still open. You can generate the closing journal now; it remains Draft
-          until it is approved. Post month-end adjustments each month, including December. Revenue
-          and expense stay open until this year-end journal is approved.
+          until it is approved. Approve monthly park journals first. Revenue and expense stay open
+          until this year-end journal is approved.
         </div>
       ) : null}
 
@@ -218,7 +218,7 @@ export function YearEndClosePage() {
         {existing ? (
           <p style={hintStyle}>
             Existing close journal{' '}
-            <Link to={journalEditPath(existing.id)} style={inlineLink}>
+            <Link to={journalEditPath(existing.id, { from: YEAR_END_CLOSE_PATH })} style={inlineLink}>
               {journalDisplayId(existing)}
             </Link>{' '}
             is {existing.approval_status || 'DRAFT'} / {existing.posting_status || 'Draft'}. Review
@@ -226,8 +226,9 @@ export function YearEndClosePage() {
           </p>
         ) : (
           <p style={hintStyle}>
-            Approving the closing journal zeros FY {fiscalYear} P&amp;L and transfers the net to
-            retained earnings. Month-end adjustments do not close revenue or expense.
+            Approving the closing journal zeros FY {fiscalYear} P&amp;L into 3350 and reverses
+            parked current-period NI (3353 / 3354). Month-end only parks monthly NI; it does not
+            close revenue or expense.
           </p>
         )}
       </section>
@@ -274,8 +275,8 @@ export function YearEndClosePage() {
       <section style={cardStyle}>
         <h2 style={sectionTitle}>Approved drafts still unposted ({ready.length})</h2>
         <p style={hintStyle}>
-          Approve and post these journals before generating the year-end journal. Month-end
-          adjustments are posted from{' '}
+          Approve and post these journals before generating the year-end journal. Monthly NI is
+          parked from{' '}
           <Link to={MONTH_END_CLOSE_PATH} style={inlineLink}>
             Month-End Close
           </Link>
@@ -284,7 +285,7 @@ export function YearEndClosePage() {
         {ready.length === 0 ? (
           <p style={emptyStyle}>No approved draft journals in FY {fiscalYear}.</p>
         ) : (
-          <EntryTable rows={ready} onView={setViewingEntry} />
+          <EntryTable rows={ready} from={YEAR_END_CLOSE_PATH} />
         )}
       </section>
 
@@ -294,11 +295,9 @@ export function YearEndClosePage() {
         {held.length === 0 ? (
           <p style={emptyStyle}>No unapproved draft journals in FY {fiscalYear}.</p>
         ) : (
-          <EntryTable rows={held} allowEdit onView={setViewingEntry} />
+          <EntryTable rows={held} allowEdit from={YEAR_END_CLOSE_PATH} />
         )}
       </section>
-
-      <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
@@ -316,11 +315,11 @@ function Summary({ label, value }: { label: string; value: string }) {
 function EntryTable({
   rows,
   allowEdit = false,
-  onView,
+  from,
 }: {
   rows: JournalEntry[]
   allowEdit?: boolean
-  onView: (entry: JournalEntry) => void
+  from: string
 }) {
   const navigate = useNavigate()
   const { hasPermission } = useAuth()
@@ -357,12 +356,12 @@ function EntryTable({
                       <button
                         type="button"
                         style={editBtn}
-                        onClick={() => navigate(journalEditPath(entry.id))}
+                        onClick={() => navigate(journalEditPath(entry.id, { from }))}
                       >
                         Edit
                       </button>
                     ) : (
-                      <button type="button" style={viewBtn} onClick={() => onView(entry)}>
+                      <button type="button" style={viewBtn} onClick={() => navigate(journalEditPath(entry.id, { from }))}>
                         View
                       </button>
                     )}

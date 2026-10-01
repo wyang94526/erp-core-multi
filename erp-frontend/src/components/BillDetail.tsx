@@ -6,15 +6,16 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Pencil, Send, XCircle } from 'lucide-react'
+import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Pencil, Send, Undo2, XCircle } from 'lucide-react'
 import { apBillService, vendorInvoiceService } from '../api/services'
 import type { APBillDetail } from '../types'
 import { generateSupplierBillPdf } from '../utils/generateSupplierBillPdf'
-import { cashReferenceLinkStyle, purchaseOrderHref, sourceOrderHref } from '../utils/cashReference'
+import { cashReferenceLinkStyle, goodsReceiptHref, purchaseOrderHref, sourceOrderHref } from '../utils/cashReference'
 import {
   HoverTip,
   actionRowStyle,
   badgeStyle,
+  dangerButtonStyle,
   documentPageHeaderStyle,
   documentPageSubStyle,
   documentPageTitleBlockStyle,
@@ -60,7 +61,10 @@ function statusColors(status: string): { bg: string; text: string } {
 
 function payTooltip(detail: APBillDetail, canPay: boolean): string {
   if (canPay) {
-    return 'Record an outgoing payment and post AP / cash to the general ledger'
+    if ((detail.payments || []).length > 0) {
+      return 'Record another outgoing payment against the remaining balance'
+    }
+    return 'Record an outgoing payment. You can pay part of the balance now and the rest later.'
   }
   const paid = (detail.display_status || detail.status) === 'Paid' || detail.status === 'Paid'
   if (paid) {
@@ -81,6 +85,7 @@ export function BillDetail() {
   const [approving, setApproving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [rescinding, setRescinding] = useState(false)
   const [paying, setPaying] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
 
@@ -109,10 +114,14 @@ export function BillDetail() {
   const poId = detail?.purchase_order_id || detail?.po_number || detail?.reference_po_number || null
   const sourceId = poId || detail?.source_order_id || ''
   const sourceHref = poId ? purchaseOrderHref(poId) : sourceOrderHref(detail?.source_type, sourceId)
-  const unpaid = Boolean(detail) && detail!.status !== 'Paid' && (detail!.display_status || '') !== 'Paid'
+  const goodsReceipts = detail?.goods_receipts || []
+  const outstanding = Number(detail?.outstanding_balance)
+  const hasRemaining = Number.isFinite(outstanding)
+    ? outstanding > 0
+    : Boolean(detail) && detail!.status !== 'Paid' && (detail!.display_status || '') !== 'Paid'
   const approved =
     (detail?.approval_status || '').toUpperCase() === 'APPROVED' || siStatus === 'APPROVED'
-  const canPay = unpaid && approved
+  const canPay = hasRemaining && approved
   const canSubmit =
     (siStatus === 'DRAFT' || siStatus === 'REJECTED') && Boolean(detail?.supplier_invoice_id)
   const canApprove =
@@ -125,8 +134,25 @@ export function BillDetail() {
     (detail?.source_type || '').toUpperCase() === 'NON_PO'
   const canEdit =
     isNonPo &&
-    (siStatus === 'DRAFT' || siStatus === 'REJECTED') &&
+    (siStatus === 'DRAFT' || siStatus === 'REJECTED' || siStatus === 'PENDING_APPROVAL') &&
     Boolean(detail?.supplier_invoice_id)
+  const canRescind =
+    isNonPo &&
+    siStatus === 'APPROVED' &&
+    Boolean(detail?.supplier_invoice_id) &&
+    (detail?.status || '') !== 'Paid' &&
+    (detail?.display_status || '') !== 'Paid'
+  const workflowHint = !isNonPo
+    ? null
+    : siStatus === 'DRAFT'
+      ? 'This Non-PO invoice is still a draft. Use Edit to change vendor, GL, or amounts, then Submit.'
+      : siStatus === 'REJECTED'
+        ? 'This Non-PO invoice was returned. Use Edit to correct it, then Submit again.'
+        : siStatus === 'PENDING_APPROVAL'
+          ? 'Awaiting approval. The reviewer can Edit the voucher or Return it to the requester.'
+          : siStatus === 'APPROVED' && canRescind
+            ? 'Approved. Use Rescind to reverse the AP posting if the voucher is wrong, then Edit and resubmit.'
+            : null
 
   const handlePrint = () => {
     if (!detail) return
@@ -157,6 +183,33 @@ export function BillDetail() {
       ].join('\n'),
     )
     window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank')
+  }
+
+  const handleRescind = async () => {
+    if (!detail?.supplier_invoice_id) return
+    if (
+      !window.confirm(
+        'Rescind approval for this Non-PO invoice? The AP posting will be reversed so you can edit and resubmit.',
+      )
+    ) {
+      return
+    }
+    setRescinding(true)
+    setError(null)
+    try {
+      await vendorInvoiceService.rescind(detail.supplier_invoice_id)
+      await Promise.all([
+        load(),
+        queryClient.invalidateQueries({ queryKey: ['vendorInvoices'] }),
+        queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
+        queryClient.invalidateQueries({ queryKey: ['postedGoodsReceipts'] }),
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rescind failed')
+    } finally {
+      setRescinding(false)
+    }
   }
 
   const handleReject = async () => {
@@ -293,16 +346,6 @@ export function BillDetail() {
           <p style={documentPageSubStyle}>
             {detail.vendor_id}
             {detail.vendor_name ? ` · ${detail.vendor_name}` : ''}
-            {sourceHref && sourceId ? (
-              <>
-                {' · '}
-                <Link to={sourceHref} style={cashReferenceLinkStyle}>
-                  {sourceId}
-                </Link>
-              </>
-            ) : sourceId ? (
-              ` · ${sourceId}`
-            ) : null}
           </p>
         </div>
         <div style={headerActionsStyle}>
@@ -320,10 +363,16 @@ export function BillDetail() {
               </button>
             </HoverTip>
             {canEdit ? (
-              <HoverTip label="Edit this Non-PO invoice while it is draft or rejected">
+              <HoverTip
+                label={
+                  siStatus === 'PENDING_APPROVAL'
+                    ? 'Correct this Non-PO invoice before approving or returning it'
+                    : 'Edit vendor, GL accounts, or amounts on this Non-PO invoice'
+                }
+              >
                 <button
                   type="button"
-                  style={secondaryButtonStyle}
+                  style={siStatus === 'PENDING_APPROVAL' ? secondaryButtonStyle : primaryButtonStyle}
                   onClick={() => navigate(`/supplier-invoices/${encodeURIComponent(detail.bill_id)}/edit`)}
                 >
                   <Pencil size={15} />
@@ -345,15 +394,28 @@ export function BillDetail() {
               </HoverTip>
             ) : null}
             {canReject ? (
-              <HoverTip label="Reject this bill so the requester can correct it and resubmit">
+              <HoverTip label="Return this bill to the requester so they can correct it and resubmit">
                 <button
                   type="button"
-                  style={secondaryButtonStyle}
+                  style={dangerButtonStyle}
                   disabled={rejecting}
                   onClick={() => void handleReject()}
                 >
                   {rejecting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={15} />}
-                  Reject
+                  Return
+                </button>
+              </HoverTip>
+            ) : null}
+            {canRescind ? (
+              <HoverTip label="Reverse the AP posting and return this Non-PO invoice to draft so it can be edited">
+                <button
+                  type="button"
+                  style={dangerButtonStyle}
+                  disabled={rescinding}
+                  onClick={() => void handleRescind()}
+                >
+                  {rescinding ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Undo2 size={15} />}
+                  Rescind
                 </button>
               </HoverTip>
             ) : null}
@@ -410,6 +472,12 @@ export function BillDetail() {
         </div>
       ) : null}
 
+      {workflowHint ? (
+        <div style={workflowBannerStyle} role="status">
+          {workflowHint}
+        </div>
+      ) : null}
+
       {(detail.match_warnings || []).length > 0 && !isNonPo ? (
         <div style={warningBannerStyle}>
           <strong>3-way match warnings</strong>
@@ -443,6 +511,30 @@ export function BillDetail() {
               )}
             </div>
             <div style={metaRowStyle}>
+              <div style={labelStyle}>Goods Receipt</div>
+              {goodsReceipts.length > 0 ? (
+                <div>
+                  {goodsReceipts.map((receipt, index) => {
+                    const href = goodsReceiptHref(receipt.receipt_number)
+                    return (
+                      <span key={receipt.receipt_number}>
+                        {index > 0 ? ', ' : null}
+                        {href ? (
+                          <Link to={href} style={cashReferenceLinkStyle} title="Open goods receipt">
+                            {receipt.receipt_number}
+                          </Link>
+                        ) : (
+                          receipt.receipt_number
+                        )}
+                      </span>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div>—</div>
+              )}
+            </div>
+            <div style={metaRowStyle}>
               <div style={labelStyle}>Issue Date</div>
               <div>{formatDate(detail.issue_date)}</div>
             </div>
@@ -455,6 +547,10 @@ export function BillDetail() {
             <div style={metaRowStyle}>
               <div style={labelStyle}>Payment Date</div>
               <div>{formatDate(detail.payment_date)}</div>
+            </div>
+            <div style={metaRowStyle}>
+              <div style={labelStyle}>Outstanding</div>
+              <div>{money(detail.outstanding_balance ?? detail.total_amount ?? detail.amount, currency)}</div>
             </div>
             <div style={metaRowStyle}>
               <div style={labelStyle}>Terms</div>
@@ -471,6 +567,7 @@ export function BillDetail() {
             <thead>
               <tr style={theadRowStyle}>
                 <th style={thStyle}>Part # / Description</th>
+                <th style={thStyle}>Receipt</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Quantity</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Unit Price ($)</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal ($)</th>
@@ -479,7 +576,7 @@ export function BillDetail() {
             <tbody>
               {(detail.lines || []).length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={tdStyle}>
+                  <td colSpan={5} style={tdStyle}>
                     No line items on this bill.
                   </td>
                 </tr>
@@ -501,6 +598,19 @@ export function BillDetail() {
                         )}
                       </div>
                       <div style={{ color: 'var(--text)', fontSize: 12 }}>{line.description || '—'}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      {line.goods_receipt_number && goodsReceiptHref(line.goods_receipt_number) ? (
+                        <Link
+                          to={goodsReceiptHref(line.goods_receipt_number)!}
+                          style={cashReferenceLinkStyle}
+                          title="Open goods receipt"
+                        >
+                          {line.goods_receipt_number}
+                        </Link>
+                      ) : (
+                        line.goods_receipt_number || '—'
+                      )}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{formatQty(line.quantity)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{money(line.unit_price, currency)}</td>
@@ -551,8 +661,8 @@ export function BillDetail() {
       <RecordCashPaymentDialog
         open={payOpen}
         title={`Pay ${detail.bill_id}`}
-        subtitle="Choose the bank account and payment instrument for this disbursement."
-        amount={detail.total_amount ?? detail.amount}
+        subtitle="Enter the amount and date for this disbursement. You can record additional payments later until the balance is zero."
+        amount={detail.outstanding_balance ?? detail.total_amount ?? detail.amount}
         confirmLabel="Pay"
         submitting={paying}
         onCancel={() => setPayOpen(false)}
@@ -628,6 +738,15 @@ const warningBannerStyle: CSSProperties = {
   backgroundColor: '#fff8e1',
   color: '#6d4c41',
   border: '1px solid #ffe082',
+  borderRadius: 6,
+  padding: '10px 12px',
+  marginBottom: 16,
+  fontSize: 13,
+}
+const workflowBannerStyle: CSSProperties = {
+  backgroundColor: '#e3f2fd',
+  color: '#1565c0',
+  border: '1px solid #bbdefb',
   borderRadius: 6,
   padding: '10px 12px',
   marginBottom: 16,

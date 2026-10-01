@@ -20,6 +20,16 @@ function accountLabel(code?: string | null, name?: string | null) {
   return name ? `${code} — ${name}` : code
 }
 
+function debitLabel(rule: PostingRule) {
+  if (rule.debit_display_label) return rule.debit_display_label
+  return accountLabel(rule.debit_account_code, rule.debit_account_name)
+}
+
+const EVENT_GROUP_ORDER = [
+  'Month-end close',
+  'Year-end close',
+]
+
 function PostingRules() {
   const { hash } = useLocation()
   const { hasPermission } = useAuth()
@@ -92,7 +102,14 @@ function PostingRules() {
       list.push(rule)
       byEvent.set(key, list)
     }
-    return [...byEvent.entries()]
+    return [...byEvent.entries()].sort(([left], [right]) => {
+      const leftRank = EVENT_GROUP_ORDER.indexOf(left)
+      const rightRank = EVENT_GROUP_ORDER.indexOf(right)
+      if (leftRank === -1 && rightRank === -1) return 0
+      if (leftRank === -1) return 1
+      if (rightRank === -1) return -1
+      return leftRank - rightRank
+    })
   }, [filteredRules])
 
   const openEdit = (rule: PostingRule) => {
@@ -178,9 +195,9 @@ function PostingRules() {
           <p style={pageSubStyle}>
             Auto-generated journals read these debit and credit accounts. Change them here to
             maintain your chart — the next posting uses the new setup. Vendor AP mapping and
-            bank-account G/L still override AP and cash. Month-end rules are adjustments only
-            (GRNI cutoff, prepayments, accruals, depreciation, FX). Year-end close zeros P&amp;L into retained
-            earnings and clears leftover current-period NI.
+            bank-account G/L still override AP and cash. Month-end close parks current-period NI
+            (3354 / 3353). Year-end close zeros all P&amp;L into retained earnings (3350) and
+            reverses the monthly NI park (3353 / 3354).
           </p>
         </div>
       </header>
@@ -199,7 +216,7 @@ function PostingRules() {
               rule.event_label || rule.event_code,
               rule.variant_label || rule.variant,
               rule.party_label || rule.party_scope,
-              rule.debit_account_code,
+              rule.debit_display_label || rule.debit_account_code,
               rule.credit_account_code,
             ]),
           )
@@ -214,19 +231,29 @@ function PostingRules() {
           <p style={pageSubStyle}>
             {editing.event_label} · {editing.variant_label} · {editing.party_label}
           </p>
+          {editing.debit_display_label ? (
+            <p style={pageSubStyle}>
+              Year-end close iterates every Income and Expense account. Only the retained
+              earnings destination (3350) is stored on this rule.
+            </p>
+          ) : null}
           {!canEdit && (
             <p style={errorStyle}>You can view this rule, but journal:create is required to save changes.</p>
           )}
           <div style={formGridStyle}>
             <label style={labelStyle}>
               Debit account
-              <select style={inputStyle} value={debitId} onChange={(e) => setDebitId(e.target.value)}>
-                {accounts.map((acct) => (
-                  <option key={acct.id} value={acct.id}>
-                    {acct.account_code} — {acct.account_name}
-                  </option>
-                ))}
-              </select>
+              {editing.debit_display_label ? (
+                <input style={{ ...inputStyle, opacity: 0.75 }} value={editing.debit_display_label} readOnly disabled />
+              ) : (
+                <select style={inputStyle} value={debitId} onChange={(e) => setDebitId(e.target.value)}>
+                  {accounts.map((acct) => (
+                    <option key={acct.id} value={acct.id}>
+                      {acct.account_code} — {acct.account_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </label>
             <label style={labelStyle}>
               Credit account
@@ -305,8 +332,8 @@ function PostingRules() {
                       >
                         <td style={directoryTdStyle}>{rule.variant_label}</td>
                         <td style={directoryTdStyle}>{rule.party_label}</td>
-                        <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }}>
-                          {accountLabel(rule.debit_account_code, rule.debit_account_name)}
+                        <td style={{ ...directoryTdStyle, fontFamily: rule.debit_display_label ? 'inherit' : 'monospace' }}>
+                          {debitLabel(rule)}
                         </td>
                         <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }}>
                           {accountLabel(rule.credit_account_code, rule.credit_account_name)}

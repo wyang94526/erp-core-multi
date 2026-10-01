@@ -69,18 +69,31 @@ def annotate_receipt_line(line: Any, allocated: Decimal) -> None:
     line.actual_unit_cost = line.landed_unit_cost
 
 
-def annotate_po_line(line: Any, extra_allocated: Decimal) -> None:
-    qty = _d(getattr(line, "quantity", 0))
+def annotate_po_line(
+    line: Any,
+    extra_allocated: Decimal,
+    received_qty: Any | None = None,
+) -> None:
+    ordered_qty = _d(getattr(line, "quantity", 0))
+    recv_qty = _d(
+        received_qty if received_qty is not None else getattr(line, "quantity_received", 0)
+    )
     price = max(_d(getattr(line, "unit_price", 0)), ZERO)
     extra = money(extra_allocated)
     estimated_alloc = money(getattr(line, "allocated_landed_expense", 0))
     line.allocated_landed_expense = money(estimated_alloc + extra)
     line.actual_allocated_landed_expense = extra
-    if qty <= 0:
+    if ordered_qty <= 0:
         line.estimated_landed_unit_cost = ZERO
         line.actual_unit_cost = money4(price + extra) if extra > 0 else money4(price)
         return
-    estimated_per_unit = estimated_alloc / qty
+    estimated_per_unit = estimated_alloc / ordered_qty
     line.estimated_landed_unit_cost = money4(estimated_per_unit)
-    extra_per_unit = extra / qty if extra > 0 else estimated_per_unit
+    # Actual AP freight/duty is capitalized on received units so the PO
+    # unit cost matches the goods receipt. Unreceived leftover qty is excluded.
+    if extra > 0:
+        actual_qty = recv_qty if recv_qty > 0 else ordered_qty
+        extra_per_unit = extra / actual_qty
+    else:
+        extra_per_unit = estimated_per_unit
     line.actual_unit_cost = money4(price + extra_per_unit)

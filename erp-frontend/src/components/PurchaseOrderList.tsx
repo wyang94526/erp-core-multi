@@ -7,7 +7,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { purchaseOrderService, vendorService } from '../api/services'
 import type { PurchaseOrder, Supplier } from '../types'
 import { useEffect, useMemo, useState } from 'react'
@@ -317,11 +317,31 @@ export function PurchaseOrderList() {
                     const deleteLockReason = purchaseOrderDeleteReason(po)
                     return (
                       <tr key={po.po_number} style={directoryTbodyRowStyle}>
-                        <td style={directoryTdStyle}>{po.po_number}</td>
+                        <td style={directoryTdStyle}>
+                          <Link
+                            to={`/purchase-orders/${encodeURIComponent(po.po_number)}`}
+                            style={listLinkStyle}
+                            title="View purchase order"
+                          >
+                            {po.po_number}
+                          </Link>
+                        </td>
                         <td style={directoryTdStyle}>
                           {po.po_type === 'SUBCONTRACT' ? 'Subcontract / 外發加工' : 'Material'}
                         </td>
-                        <td style={directoryTdStyle}>{supplierName}</td>
+                        <td style={directoryTdStyle}>
+                          {po.supplier_id ? (
+                            <Link
+                              to={`/vendors/${encodeURIComponent(po.supplier_id)}/edit`}
+                              style={listLinkStyle}
+                              title="View vendor"
+                            >
+                              {supplierName}
+                            </Link>
+                          ) : (
+                            supplierName || '—'
+                          )}
+                        </td>
                         <td style={directoryTdStyle}>
                           {po.order_date
                             ? new Date(po.order_date).toLocaleDateString()
@@ -554,6 +574,12 @@ const directoryTdStyle: React.CSSProperties = {
   padding: '12px 10px',
   color: 'var(--text)',
   verticalAlign: 'middle',
+}
+
+const listLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  textDecoration: 'none',
+  fontWeight: 600,
 }
 
 const directoryEmptyTdWrapperStyle: React.CSSProperties = {

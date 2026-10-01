@@ -4,7 +4,12 @@
 import unittest
 from unittest.mock import patch
 
-from app.ai.agent import _is_financial_report_question, _is_period_question, _run_heuristic
+from app.ai.agent import (
+    _is_financial_report_question,
+    _is_howto_question,
+    _is_period_question,
+    _run_heuristic,
+)
 from app.ai.lookups import (
     format_financial_report_answer,
     infer_financial_report_type,
@@ -36,15 +41,42 @@ class FinancialReportIntentTests(unittest.TestCase):
         self.assertFalse(_is_financial_report_question("list purchase orders"))
         self.assertEqual(infer_financial_report_type("list purchase orders"), "")
 
+    def test_show_me_is_not_a_howto_question(self):
+        self.assertFalse(_is_howto_question("show me the revenue for September 2026"))
+        self.assertFalse(_is_howto_question("show me the revenuse for the September 2026"))
+        self.assertFalse(_is_howto_question("what is the expense for September 2026"))
+        self.assertTrue(_is_howto_question("how do I create a purchase order"))
+        self.assertTrue(_is_howto_question("what is a purchase order"))
+
     def test_revenue_for_named_month_is_income_statement(self):
         for question in (
             "Show me the revenue for September 2027",
             "Show me the revenue for September, 2027",
+            "show me the revenuse for the September 2026",
         ):
             self.assertEqual(infer_financial_report_type(question), "income-statement")
-            self.assertEqual(parse_financial_report_period(question), {"period": "2027-09"})
             self.assertTrue(_is_financial_report_question(question))
             self.assertFalse(_is_period_question(question))
+        self.assertEqual(
+            parse_financial_report_period("Show me the revenue for September 2027"),
+            {"period": "2027-09"},
+        )
+        self.assertEqual(
+            parse_financial_report_period("show me the revenuse for the September 2026"),
+            {"period": "2026-09"},
+        )
+
+    def test_expense_for_named_month_is_income_statement(self):
+        for question in (
+            "what is the expense for September 2026",
+            "show me expense for September 2026",
+            "show me the expenses for September 2026",
+        ):
+            self.assertEqual(infer_financial_report_type(question), "income-statement", question)
+            self.assertEqual(parse_financial_report_period(question), {"period": "2026-09"})
+            self.assertTrue(_is_financial_report_question(question), question)
+            self.assertFalse(_is_period_question(question), question)
+            self.assertFalse(_is_howto_question(question), question)
 
 
 class FinancialReportFormatTests(unittest.TestCase):
@@ -150,6 +182,42 @@ class FinancialReportHeuristicTests(unittest.TestCase):
         self.assertNotIn("purchase_orders", reply)
         self.assertNotIn("UP23-26090007", reply)
         self.assertNotIn("Running in local tool mode", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_financial_report")
+    def test_heuristic_revenue_typo_does_not_search_knowledge(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Income Statement (Profit & Loss)\n\n"
+            "| Account | Amount |\n| :--- | ---: |\n| **Revenue** | $1.00 |"
+        )
+        reply, pending = _run_heuristic(
+            "show me the revenuse for the September 2026", None
+        )
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(
+            mock_tool.invoke.call_args[0][0]["question"],
+            "show me the revenuse for the September 2026",
+        )
+        self.assertIn("Income Statement", reply)
+        self.assertNotIn("purchase_orders", reply)
+        self.assertNotIn("Running in local tool mode", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_financial_report")
+    def test_heuristic_expense_for_month_ignores_docs(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Income Statement (Profit & Loss)\n\n"
+            "| Account | Amount |\n| :--- | ---: |\n| **Total Operating Expenses** | $1.00 |"
+        )
+        reply, pending = _run_heuristic("show me expense for September 2026", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(
+            mock_tool.invoke.call_args[0][0]["question"],
+            "show me expense for September 2026",
+        )
+        self.assertIn("Operating Expenses", reply)
+        self.assertNotIn("schema_0", reply)
+        self.assertNotIn("purchase_orders", reply)
         self.assertIsNone(pending)
 
 

@@ -228,7 +228,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
       'Add item lines by searching the internal part number. Customer P/N fills from the item master and can be overridden.',
       'Save as Draft, then Submit for approval if your workflow requires it.',
-      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. If a linked subcontract is only partially received, fulfill the received quantity now and ship the remainder after the next finished-goods receipt. A sales order cannot be billed past its total; voiding an invoice releases that amount.',
+      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. If remaining quantity was cancelled, the invoice uses shipped quantity only (voiding a draft releases that amount so you can recreate it). If a linked subcontract is only partially received, fulfill the received quantity now and ship the remainder after the next finished-goods receipt. A sales order cannot be billed past its remaining billable total.',
       'To change an approved order that is not yet shipped, fulfilled, or fully billed, click Create Revision. The PU61 number stays the same. The approved snapshot is frozen, then you edit and re-submit for approval. Revision history and field-level change logs appear on the detail page after re-approval.',
     ],
     callouts: [
@@ -729,8 +729,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance → Supplier Invoices / Bills. Use Create Bill from an approved PO/SCO, or Create Non-PO Invoice for freight, customs duty, rent, utilities, or salaries.',
       'For Non-PO invoices, choose Expense (GL distribution) or Landed Cost (optional goods-receipt allocation). No purchase order is required.',
       'Select the vendor / source document. The Supplier Invoice Number (UX13-YYMMXXXX) is assigned on save from the invoice date. PO-matched lines default to unbilled received quantities at order prices.',
-      'Save as draft or submit for approval. A Non-PO draft (or a rejected bill) can be opened and edited, then saved or submitted again. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
-      'Open Finance → Supplier Invoices and click a Bill # (UX13-YYMMXXXX) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible.',
+      'Save as draft or submit for approval. A Non-PO draft, returned, or pending bill can be opened and edited from the list or bill page. After Submit, the reviewer can Return it or Edit the voucher before approving. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
+      'Open Finance → Supplier Invoices and click a Bill # (UX13-YYMMXXXX) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible. Pay can be recorded more than once — enter each amount and payment date until the outstanding balance is zero.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
       'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add or edit company banks under Cash & Treasury → Bank Accounts. Open a bank with View to see the detail page, or Edit to change the mapped G/L account. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
     ],
@@ -754,14 +754,19 @@ export const HELP_ARTICLES: HelpArticle[] = [
           'Click the Bill ID in AP Aging or the Bill # in Supplier Invoices. Payment & transaction history lists Check Issue cash references and amounts applied.',
       },
       {
+        question: 'Can I pay a supplier invoice in more than one payment?',
+        answer:
+          'Yes. Use Pay on the bill and enter the amount and date for each disbursement. The bill stays Partial until the remaining balance is cleared.',
+      },
+      {
         question: 'How do I enter freight or rent without a purchase order?',
         answer:
-          'Use Create Non-PO Invoice. Choose Landed Cost for freight/duty (optionally allocate to a goods receipt) or Expense for rent, utilities, and salaries, then distribute amounts to GL accounts.',
+          'Use Create Non-PO Invoice. Choose Landed Cost for freight/duty: search the goods PO, then pick that PO’s receipt (allocation stores the receipt ID). Or choose Expense for rent, utilities, and salaries and distribute amounts to GL accounts.',
       },
       {
         question: 'Can I edit a Non-PO bill after I save it as draft?',
         answer:
-          'Yes. Open the bill and click Edit while it is Draft or Rejected. After Submit, the approver can Reject it so you can correct the voucher and resubmit. Approved bills cannot be edited.',
+          'Yes. Open the bill and click Edit while it is Draft, Returned, or Pending. After Submit, the reviewer can Return it or Edit it before approving. After Approve, use Rescind on an unpaid Non-PO bill to reverse the AP posting, then Edit and resubmit. Paid bills cannot be rescinded.',
       },
       {
         question: 'Where is the Chart of Accounts?',
@@ -819,7 +824,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
       'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted).',
       'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. Export CSV downloads the journals (and their posting lines) that match the current filters. System-generated journals show a System chip and link back to the source document and posting rule.',
-      'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads the YEC_CLOSE / YEC_NI_CLEAR targets; month-end adjustments use the MEC GRNI, prepay, accrual, depreciation, and FX rules; bank transfers use each bank’s G/L.',
+      'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads YEC_CLOSE (P&L → 3350) and YEC_NI_CLEAR (reverse 3353 / 3354); month-end parks NI with MEC_PARK_NI; bank transfers use each bank’s G/L.',
     ],
     callouts: [
       { kind: 'required', text: 'Debits must equal credits before submit.' },
@@ -845,11 +850,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Posting Rules',
     routeMatch: ['/posting-rules', '/chart-of-accounts'],
     summary:
-      'Posting rules tell the engine which Chart of Accounts pair to use for operational events (sales invoice, GRNI, AP, cash, month-end adjustments, and year-end close). Users maintain the accounts; the engine only reads them.',
+      'Posting rules tell the engine which Chart of Accounts pair to use for operational events (sales invoice, GRNI, AP, cash, month-end close, and year-end close). Users maintain the accounts; the engine only reads them.',
     steps: [
       'Go to Finance & Accounting → General Ledger & Setup → Posting Rules.',
-      'Review each event (for example sales invoice revenue, PO goods receipt, supplier bill, month-end adjustments, YEC_CLOSE).',
-      'Set or change the debit and credit G/L accounts. Year-end close stores the P&L-to-retained-earnings target (4110001 / 3350) and the current-period NI clear (3353 / 3350). Month-end rules are adjustments only.',
+      'Review each event (for example sales invoice revenue, PO goods receipt, supplier bill, month-end close, YEC_CLOSE).',
+      'Set or change the debit and credit G/L accounts. Month-end parks current-period NI (3354 / 3353). Year-end close stores the P&L-to-retained-earnings target (4110001 / 3350) and the reverse monthly NI pair (3353 / 3354).',
       'Keep Chart of Accounts codes active before you point a rule at them (Finance → Chart of Accounts).',
       'After you change a rule, new postings use the new pair. Already-posted journals are not rewritten.',
     ],
@@ -877,13 +882,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Month-End and Year-End Close',
     routeMatch: ['/general-ledger/month-end-close', '/general-ledger/year-end-close'],
     summary:
-      'Month-End Close is for period adjustments only (GRNI cutoff, prepayments, accruals, depreciation, FX revaluation). Revenue and expense stay open and keep accumulating. Year-End Close generates the Draft journal that zeros full-year P&L into 3350 retained earnings.',
+      'Month-End Close parks current-period net income to temporary accounts 3354 (IS) and 3353 (BS). Revenue and expense stay open. Year-End Close zeros full-year P&L into 3350 and reverses the monthly NI park.',
     steps: [
       'Each month, including December, open General Ledger → Month-End Close and select the period.',
-      'Review period activity (informational) and the adjustment posting rules. Post adjustment journals as needed; do not close P&L.',
+      'Generate the MEC park journal (Debit 3354 / Credit 3353 for net income; reverse on a loss). Do not close P&L.',
       'Operational journals post when they are approved; they are not batch-posted here.',
-      'When the fiscal year is ready, open Year-End Close. Approve remaining operational and adjustment journals first.',
-      'Generate the YEC-YYYY journal (P&L and leftover 3353 to 3350), then submit it for approval.',
+      'When the fiscal year is ready, open Year-End Close. Approve remaining operational and monthly park journals first.',
+      'Generate the YEC-YYYY journal (close P&L to 3350, then reverse 3353 / 3354), then submit it for approval.',
     ],
     callouts: [
       {
@@ -892,14 +897,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
       },
       {
         kind: 'tip',
-        text: 'You can generate the year-end journal before December 31; it stays Draft until approved. Month-end adjustments can be posted at any time.',
+        text: 'You can generate the year-end journal before December 31; it stays Draft until approved.',
       },
     ],
     faqs: [
       {
         question: 'Can I use Month-End Close instead of Year-End Close in December?',
         answer:
-          'No. Month-End Close only posts adjustments and leaves revenue and expense intact. Year-End Close is required to transfer full-year P&L (and leftover current-period NI) into retained earnings (3350).',
+          'No. Month-End Close parks monthly NI to 3353/3354 and leaves revenue and expense intact. Year-End Close is required to transfer full-year P&L into retained earnings (3350) and reverse the parked current-period NI.',
       },
     ],
     troubleshooting: [
@@ -937,7 +942,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'Why is the Balance Sheet missing net income in equity?',
         answer:
-          'Current-year net income is shown as a plug under Equity until Year-End Close is approved and the closing journal posts to retained earnings.',
+          'Current-year net income is shown as a plug under Equity (3353) after month-end park journals post. Year-End Close then zeros P&L into retained earnings (3350) and reverses 3353 / 3354.',
       },
       {
         question: 'Can the AI Assistant open these reports?',

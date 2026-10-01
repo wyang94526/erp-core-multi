@@ -2,27 +2,27 @@
  * @author: Wendy Yang
  * @date: 2026-09-24
  *
- * Month-End Close — post period adjustments; P&L stays open until year-end.
+ * Month-End Close — park current-period NI (3354/3353).
  */
 
 import { useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, CalendarRange, FilePlus } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, CalendarRange, FilePlus, Loader2 } from 'lucide-react'
 import { journalEntryService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import type { JournalEntry } from '../types'
 import {
-  JOURNAL_CREATE_PATH,
+  MONTH_END_CLOSE_PATH,
   journalEditPath,
   isJournalDraft,
   journalDisplayId,
   YEAR_END_CLOSE_PATH,
 } from '../utils/journalEntries'
-import { JournalEntryViewModal } from './JournalEntryViewModal'
 import {
   HoverTip,
   actionRowStyle,
+  disabledActionStyle,
   documentPageHeaderStyle,
   documentPageSubStyle,
   documentPageTitleBlockStyle,
@@ -52,20 +52,36 @@ function currentPeriod() {
 
 export function MonthEndClosePage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { hasPermission } = useAuth()
   const canCreate = hasPermission('journal:create')
   const [period, setPeriod] = useState(currentPeriod)
-  const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
+  const [resultMessage, setResultMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const previewQuery = useQuery({
     queryKey: ['monthEndClosePreview', period],
     queryFn: () => journalEntryService.previewMonthEndClose(period),
   })
 
+  const closeMutation = useMutation({
+    mutationFn: () => journalEntryService.runMonthEndClose(period),
+    onSuccess: (data) => {
+      setError(null)
+      setResultMessage(data.message)
+      void queryClient.invalidateQueries({ queryKey: ['monthEndClosePreview'] })
+      void queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
+    },
+    onError: (err) => {
+      setResultMessage(null)
+      setError(err instanceof Error ? err.message : 'Month-end close failed')
+    },
+  })
+
   const preview = previewQuery.data
   const ready = preview?.ready || []
   const held = preview?.held || []
-  const adjustmentRules = preview?.adjustment_rules || []
+  const lines = preview?.lines || []
   const existing = preview?.existing_journal
 
   return (
@@ -74,16 +90,19 @@ export function MonthEndClosePage() {
         <div style={documentPageTitleBlockStyle}>
           <h1 style={documentPageTitleStyle}>Month-End Close</h1>
           <p style={documentPageSubStyle}>
-            Post {period} adjustments — GRNI cutoff, prepayments, accruals, depreciation, or
-            currency revaluation. Revenue and expense stay open and keep accumulating until
-            Year-End Close.
+            Park {period} net income to 3354 / 3353. Revenue and expense stay open until Year-End
+            Close.
           </p>
           <label style={periodControlStyle}>
             <span style={periodLabelTextStyle}>Period</span>
             <input
               type="month"
               value={period}
-              onChange={(event) => setPeriod(event.target.value)}
+              onChange={(event) => {
+                setResultMessage(null)
+                setError(null)
+                setPeriod(event.target.value)
+              }}
               style={selectStyle}
             />
           </label>
@@ -91,10 +110,28 @@ export function MonthEndClosePage() {
         <div style={headerActionsStyle}>
           {canCreate ? (
             <div style={actionRowStyle}>
-              <HoverTip label="Create a Draft month-end adjustment journal">
-                <button type="button" style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
-                  <FilePlus size={15} />
-                  New adjustment
+              <HoverTip
+                label={
+                  preview?.can_run
+                    ? 'Generate a Draft journal that parks current-period NI to 3354 / 3353'
+                    : preview?.blockers?.[0] || 'Park journal cannot be generated yet'
+                }
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+                    ...disabledActionStyle(Boolean(preview?.can_run) && !closeMutation.isPending),
+                  }}
+                  disabled={closeMutation.isPending || !preview?.can_run}
+                  onClick={() => closeMutation.mutate()}
+                >
+                  {closeMutation.isPending ? (
+                    <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                  ) : (
+                    <FilePlus size={15} />
+                  )}
+                  {closeMutation.isPending ? 'Generating…' : 'Generate park journal'}
                 </button>
               </HoverTip>
             </div>
@@ -116,11 +153,25 @@ export function MonthEndClosePage() {
         </div>
       </header>
 
+      {error && <div style={errorBox}>{error}</div>}
+      {resultMessage && (
+        <div style={successBox}>
+          {resultMessage}
+          {closeMutation.data?.journal ? (
+            <>
+              {' '}
+              <Link to={journalEditPath(closeMutation.data.journal.id, { from: MONTH_END_CLOSE_PATH })} style={inlineLink}>
+                Open {journalDisplayId(closeMutation.data.journal)}
+              </Link>
+            </>
+          ) : null}
+        </div>
+      )}
+
       {preview?.period_still_open ? (
         <div style={infoBox}>
-          {period} is still open. Post adjustment journals now; they stay Draft until approved.
-          Operational journals still post through their own approval workflow. P&amp;L is not closed
-          this month.
+          {period} is still open. You can generate the park journal now; it stays Draft until
+          approved. Revenue and expense stay open until Year-End Close.
         </div>
       ) : null}
 
@@ -142,66 +193,73 @@ export function MonthEndClosePage() {
           <Summary label="Expense" value={formatMoney(preview?.expense_total)} />
           <Summary label="Net income" value={formatMoney(preview?.net_income)} />
           <Summary
-            label="Current-period NI plug"
+            label="Park to BS (3353)"
             value={
               preview?.current_period_ni
                 ? `${preview.current_period_ni.account_code} · ${preview.current_period_ni.account_name}`
                 : '—'
             }
           />
+          <Summary
+            label="Park from IS (3354)"
+            value={
+              preview?.current_period_ni_is
+                ? `${preview.current_period_ni_is.account_code} · ${preview.current_period_ni_is.account_name}`
+                : '—'
+            }
+          />
           <Summary label="Period end" value={preview?.close_date || '—'} />
-          <Summary label="Period" value={preview?.period || '—'} />
         </div>
         <p style={hintStyle}>
-          These totals are informational. Revenue and expense are not zeroed at month-end.{' '}
+          Net income for this month is parked Debit 3354 / Credit 3353 (reversed on a net loss).
+          Revenue and expense stay open.{' '}
           <Link to={YEAR_END_CLOSE_PATH} style={inlineLink}>
             Year-End Close
           </Link>{' '}
-          closes full-year P&amp;L into retained earnings (3350).
+          later closes full-year P&amp;L to 3350 and reverses this park.
         </p>
         {existing ? (
           <p style={hintStyle}>
-            A legacy monthly close journal{' '}
-            <Link to={journalEditPath(existing.id)} style={inlineLink}>
+            Existing park journal{' '}
+            <Link to={journalEditPath(existing.id, { from: MONTH_END_CLOSE_PATH })} style={inlineLink}>
               {journalDisplayId(existing)}
             </Link>{' '}
             is {existing.approval_status || 'DRAFT'} / {existing.posting_status || 'Draft'}. Review
-            it if it still needs approval or deletion.
+            and submit it for approval.
           </p>
         ) : null}
       </section>
 
       <section style={cardStyle}>
-        <h2 style={sectionTitle}>Adjustment posting rules ({adjustmentRules.length})</h2>
-        <p style={hintStyle}>
-          Use these catalog pairs when you post a month-end adjustment journal. Edit the accounts on
-          Posting Rules if the default codes do not match your chart.
-        </p>
+        <h2 style={sectionTitle}>Proposed park journal ({lines.length})</h2>
+        <p style={hintStyle}>Created as Draft / DRAFT. Submit from the journal page after review.</p>
         {previewQuery.isLoading ? (
           <p style={hintStyle}>Loading…</p>
-        ) : adjustmentRules.length === 0 ? (
-          <p style={emptyStyle}>No month-end adjustment rules are configured.</p>
+        ) : lines.length === 0 ? (
+          <p style={emptyStyle}>No net income or loss to park for this period.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={tableStyle}>
               <thead>
                 <tr style={theadRow}>
-                  <th style={thStyle}>When</th>
-                  <th style={thStyle}>Debit</th>
-                  <th style={thStyle}>Credit</th>
+                  <th style={thStyle}>Account</th>
+                  <th style={thStyle}>Name</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Debit</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
                 </tr>
               </thead>
               <tbody>
-                {adjustmentRules.map((rule) => (
-                  <tr key={rule.id} style={tbodyRow}>
-                    <td style={tdStyle}>{rule.variant_label || rule.name}</td>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
-                      {rule.debit_account_code}
-                      {rule.debit_account_name ? ` — ${rule.debit_account_name}` : ''}
+                {lines.map((line) => (
+                  <tr key={`${line.account_id}-${line.description}`} style={tbodyRow}>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{line.account_code}</td>
+                    <td style={tdStyle}>{line.account_name}</td>
+                    <td style={tdStyle}>{line.account_type}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {Number(line.debit) ? formatMoney(line.debit) : ''}
                     </td>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
-                      {rule.credit_account_code}
-                      {rule.credit_account_name ? ` — ${rule.credit_account_name}` : ''}
+                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {Number(line.credit) ? formatMoney(line.credit) : ''}
                     </td>
                   </tr>
                 ))}
@@ -217,7 +275,7 @@ export function MonthEndClosePage() {
         {ready.length === 0 ? (
           <p style={emptyStyle}>No approved draft journals in {period}.</p>
         ) : (
-          <EntryTable rows={ready} onView={setViewingEntry} />
+          <EntryTable rows={ready} from={MONTH_END_CLOSE_PATH} />
         )}
       </section>
 
@@ -227,11 +285,10 @@ export function MonthEndClosePage() {
         {held.length === 0 ? (
           <p style={emptyStyle}>No unapproved draft journals in {period}.</p>
         ) : (
-          <EntryTable rows={held} allowEdit onView={setViewingEntry} />
+          <EntryTable rows={held} allowEdit from={MONTH_END_CLOSE_PATH} />
         )}
       </section>
-
-      <JournalEntryViewModal entry={viewingEntry} onClose={() => setViewingEntry(null)} />
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
@@ -248,11 +305,11 @@ function Summary({ label, value }: { label: string; value: string }) {
 function EntryTable({
   rows,
   allowEdit = false,
-  onView,
+  from,
 }: {
   rows: JournalEntry[]
   allowEdit?: boolean
-  onView: (entry: JournalEntry) => void
+  from: string
 }) {
   const navigate = useNavigate()
   const { hasPermission } = useAuth()
@@ -289,12 +346,12 @@ function EntryTable({
                       <button
                         type="button"
                         style={editBtn}
-                        onClick={() => navigate(journalEditPath(entry.id))}
+                        onClick={() => navigate(journalEditPath(entry.id, { from }))}
                       >
                         Edit
                       </button>
                     ) : (
-                      <button type="button" style={viewBtn} onClick={() => onView(entry)}>
+                      <button type="button" style={viewBtn} onClick={() => navigate(journalEditPath(entry.id, { from }))}>
                         View
                       </button>
                     )}
@@ -350,6 +407,20 @@ const cardStyle: CSSProperties = {
 const sectionTitle: CSSProperties = { margin: '0 0 4px', fontSize: '16px', fontWeight: 700 }
 const hintStyle: CSSProperties = { margin: '0 0 12px', fontSize: '13px', color: '#616161' }
 const emptyStyle: CSSProperties = { padding: '20px', textAlign: 'center', color: '#666', fontStyle: 'italic' }
+const errorBox: CSSProperties = {
+  marginBottom: '12px',
+  padding: '10px 12px',
+  background: '#ffebee',
+  color: '#c62828',
+  borderRadius: '6px',
+}
+const successBox: CSSProperties = {
+  marginBottom: '12px',
+  padding: '10px 12px',
+  background: '#e8f5e9',
+  color: '#2e7d32',
+  borderRadius: '6px',
+}
 const infoBox: CSSProperties = {
   marginBottom: '12px',
   padding: '10px 12px',

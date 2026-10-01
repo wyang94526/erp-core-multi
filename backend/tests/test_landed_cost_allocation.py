@@ -66,3 +66,24 @@ class LandedCostAllocationTests(TestCase):
         self.assertEqual(po_line.allocated_landed_expense, Decimal("30.00"))
         self.assertEqual(po_line.actual_unit_cost, Decimal("7.0000"))
         self.assertEqual(po_line.estimated_landed_unit_cost, Decimal("1.0000"))
+
+    def test_po_actual_matches_partial_receipt_landed_cost(self):
+        po_line = SimpleNamespace(
+            quantity=Decimal("100"),
+            quantity_received=Decimal("40"),
+            unit_price=Decimal("44.7200"),
+            allocated_landed_expense=Decimal("0.00"),
+        )
+        annotate_po_line(po_line, Decimal("80.00"))
+        self.assertEqual(po_line.actual_allocated_landed_expense, Decimal("80.00"))
+        self.assertEqual(po_line.actual_unit_cost, Decimal("46.7200"))
+
+    def test_po_actual_uses_explicit_received_qty(self):
+        po_line = SimpleNamespace(
+            quantity=Decimal("100"),
+            quantity_received=Decimal("0"),
+            unit_price=Decimal("44.7200"),
+            allocated_landed_expense=Decimal("0.00"),
+        )
+        annotate_po_line(po_line, Decimal("80.00"), received_qty=Decimal("40"))
+        self.assertEqual(po_line.actual_unit_cost, Decimal("46.7200"))

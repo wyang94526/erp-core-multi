@@ -5,11 +5,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Ban, FileDown, Loader2, Mail, PackageCheck, Receipt, RotateCcw } from 'lucide-react';
 import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
-import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService } from '../api/services';
-import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt } from '../types';
+import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService, vendorInvoiceService } from '../api/services';
+import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt, SupplierInvoice } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
 import { requiresCarrierAccount } from '../data/orderOptions';
 import { isNonStockItem } from '../utils/itemTypes'
@@ -32,6 +32,7 @@ import { ApprovalPanel } from './ApprovalPanel';
 import { DocumentRevisionPanel } from './DocumentRevisionPanel';
 import { GoodsReceiptHistoryTable } from './GoodsReceiptHistoryTable';
 import { ReceivePurchaseOrderDialog } from './ReceivePurchaseOrderDialog';
+import { billDetailHref } from '../utils/cashReference';
 import {
   HoverTip,
   actionRowStyle,
@@ -144,6 +145,7 @@ export function PurchaseOrderForm() {
   const [p2pError, setP2pError] = useState<string | null>(null);
   const [recalling, setRecalling] = useState(false);
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
+  const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([]);
   const { hasAnyPermission } = useAuth();
   const queryClient = useQueryClient();
 
@@ -299,6 +301,25 @@ export function PurchaseOrderForm() {
       cancelled = true;
     };
   }, [isExisting, state.po_number, state.has_posted_receipts, successMessage]);
+
+  useEffect(() => {
+    if (!isExisting || !state.po_number) {
+      setSupplierInvoices([]);
+      return;
+    }
+    let cancelled = false;
+    void vendorInvoiceService
+      .list({ source_type: 'PURCHASE_ORDER', source_order_id: state.po_number, limit: 100 })
+      .then((rows) => {
+        if (!cancelled) setSupplierInvoices(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSupplierInvoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isExisting, state.po_number, state.has_supplier_invoices, state.billing_status, successMessage]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -978,6 +999,60 @@ export function PurchaseOrderForm() {
               </div>
             )}
 
+            {isExisting &&
+            (supplierInvoices.length > 0 ||
+              ['FULLY_BILLED', 'PARTIALLY_BILLED'].includes((state.billing_status || '').toUpperCase())) ? (
+              <div style={notesCardStyle}>
+                <h3 style={receiptsHeadingStyle}>Related supplier invoices</h3>
+                <p style={receiptsHintStyle}>
+                  Bills created against this purchase order. Click an invoice number to open the bill.
+                </p>
+                {supplierInvoices.length === 0 ? (
+                  <p style={{ color: 'var(--text)', fontStyle: 'italic', margin: 0 }}>
+                    No supplier invoices are linked to this purchase order yet.
+                  </p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={relatedDocsTableStyle}>
+                      <thead>
+                        <tr style={relatedDocsTheadRowStyle}>
+                          <th style={relatedDocsThStyle}>Invoice</th>
+                          <th style={relatedDocsThStyle}>Vendor invoice #</th>
+                          <th style={relatedDocsThStyle}>Date</th>
+                          <th style={relatedDocsThStyle}>Status</th>
+                          <th style={{ ...relatedDocsThStyle, textAlign: 'right' }}>Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {supplierInvoices.map((invoice) => {
+                          const href = billDetailHref(invoice.ap_bill_id || invoice.invoice_number)
+                          return (
+                            <tr key={invoice.id} style={relatedDocsTbodyRowStyle}>
+                              <td style={relatedDocsTdStyle}>
+                                <Link to={href} style={relatedDocsLinkStyle} title={`Open invoice ${invoice.invoice_number}`}>
+                                  {invoice.invoice_number}
+                                </Link>
+                              </td>
+                              <td style={relatedDocsTdStyle}>{invoice.vendor_invoice_number || '—'}</td>
+                              <td style={relatedDocsTdStyle}>
+                                {invoice.invoice_date
+                                  ? new Date(invoice.invoice_date).toLocaleDateString()
+                                  : '—'}
+                              </td>
+                              <td style={relatedDocsTdStyle}>{(invoice.status || '').replace(/_/g, ' ')}</td>
+                              <td style={{ ...relatedDocsTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                                {money(invoice.total_amount, invoice.currency || state.currency || 'USD')}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             <div style={notesCardStyle}>
               <label style={notesLabelStyle} htmlFor="po_notes">
                 Order Notes & Internal Comments
@@ -1091,6 +1166,40 @@ const receiptsHintStyle: React.CSSProperties = {
   margin: '0 0 12px',
   fontSize: 13,
   color: 'var(--text)',
+};
+
+const relatedDocsTableStyle: React.CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  fontSize: 13,
+};
+
+const relatedDocsTheadRowStyle: React.CSSProperties = {
+  borderBottom: '2px solid var(--border)',
+  backgroundColor: 'var(--social-bg)',
+};
+
+const relatedDocsTbodyRowStyle: React.CSSProperties = {
+  borderBottom: '1px solid var(--border)',
+};
+
+const relatedDocsThStyle: React.CSSProperties = {
+  padding: '12px 10px',
+  textAlign: 'left',
+  fontWeight: 'bold',
+  color: 'var(--text-h)',
+};
+
+const relatedDocsTdStyle: React.CSSProperties = {
+  padding: '12px 10px',
+  color: 'var(--text)',
+  verticalAlign: 'middle',
+};
+
+const relatedDocsLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  textDecoration: 'none',
+  fontWeight: 600,
 };
 
 const notesLabelStyle: React.CSSProperties = {

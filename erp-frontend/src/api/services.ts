@@ -667,6 +667,7 @@ export const vendorInvoiceService = {
     invoice_type?: 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | null;
     source_type?: 'PURCHASE_ORDER' | 'SUBCONTRACT_ORDER' | 'NON_PO' | null;
     source_order_id?: string | null;
+    receipt_ids?: Array<number | string> | null;
     reference_po_number?: string | null;
     vendor_id?: string | null;
     vendor_invoice_number?: string | null;
@@ -684,6 +685,7 @@ export const vendorInvoiceService = {
       description?: string | null;
       quantity_billed: number;
       unit_price: number;
+      goods_receipt_line_id?: number | null;
     }> | null;
     distributions?: Array<{
       gl_account_id: string;
@@ -738,6 +740,10 @@ export const vendorInvoiceService = {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/approve`);
   },
 
+  rescind(id: number): Promise<SupplierInvoice> {
+    return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/rescind`);
+  },
+
   pay(
     id: number,
     data: CashPaymentPayload = {},
@@ -745,12 +751,23 @@ export const vendorInvoiceService = {
     return apiClient.patch<SupplierInvoice>(`/api/v1/vendor-invoices/${id}/pay`, data);
   },
 
-  listGoodsReceipts(params: { vendor_id?: string; q?: string; skip?: number; limit?: number } = {}) {
-    const query: Record<string, string | number> = {
+  listGoodsReceipts(params: {
+    vendor_id?: string;
+    source_type?: string;
+    source_order_id?: string;
+    unbilled_only?: boolean;
+    q?: string;
+    skip?: number;
+    limit?: number;
+  } = {}) {
+    const query: Record<string, string | number | boolean> = {
       skip: params.skip ?? 0,
       limit: params.limit ?? 100,
     };
     if (params.vendor_id) query.vendor_id = params.vendor_id;
+    if (params.source_type) query.source_type = params.source_type;
+    if (params.source_order_id) query.source_order_id = params.source_order_id;
+    if (params.unbilled_only) query.unbilled_only = true;
     if (params.q) query.q = params.q;
     return apiClient.get<GoodsReceipt[]>('/api/v1/vendor-invoices/goods-receipts', { params: query });
   },
@@ -1062,6 +1079,7 @@ export const goodsReceiptService = {
     source_order_id?: string;
     status?: string;
     q?: string;
+    unbilled_only?: boolean;
     skip?: number;
     limit?: number;
   } = {}) {
@@ -1074,6 +1092,7 @@ export const goodsReceiptService = {
     if (params.source_order_id) query.source_order_id = params.source_order_id;
     if (params.status) query.status = params.status;
     if (params.q) query.q = params.q;
+    if (params.unbilled_only) query.unbilled_only = 'true';
     return apiClient.get<GoodsReceipt[]>('/api/v1/goods-receipts', { params: query });
   },
 

@@ -10,6 +10,7 @@ const round4 = (num: number) => Math.round((Number(num) + Number.EPSILON) * 1000
 
 type LandedLine = {
   quantity?: number | null
+  quantity_received?: number | null
   unit_price?: number | null
   line_subtotal?: number | null
   line_tax?: number | null
@@ -19,6 +20,32 @@ type LandedLine = {
   allocated_landed_expense?: number
   actual_allocated_landed_expense?: number
   actual_unit_cost?: number
+}
+
+/** Landed add-on that explains Unit Cost = vendor price + this amount. */
+export function displayedLandedUnitCost(item: LandedLine): {
+  amount: number
+  source: 'actual' | 'estimate'
+} {
+  const price = Math.max(0, Number(item.unit_price) || 0)
+  const actualExtra = Math.max(0, Number(item.actual_allocated_landed_expense) || 0)
+  const actualUnit = Number(item.actual_unit_cost)
+  if (actualExtra > 0 && Number.isFinite(actualUnit)) {
+    return { amount: round4(Math.max(0, actualUnit - price)), source: 'actual' }
+  }
+  const receivedQty = Math.max(0, Number(item.quantity_received) || 0)
+  const orderedQty = Math.max(0, Number(item.quantity) || 0)
+  if (actualExtra > 0) {
+    const qty = receivedQty > 0 ? receivedQty : orderedQty
+    return {
+      amount: qty > 0 ? round4(actualExtra / qty) : round4(actualExtra),
+      source: 'actual',
+    }
+  }
+  return {
+    amount: round4(Number(item.estimated_landed_unit_cost) || 0),
+    source: 'estimate',
+  }
 }
 
 export function isAllocatedExpenseLine(item: LandedLine): boolean {
@@ -51,6 +78,7 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
     const qty = Math.max(0, Number(item.quantity) || 0)
     const price = Math.max(0, Number(item.unit_price) || 0)
     const actualExtra = Math.max(0, Number(item.actual_allocated_landed_expense) || 0)
+    const receivedQty = Math.max(0, Number(item.quantity_received) || 0)
     if (isAllocatedExpenseLine(item) || qty <= 0) {
       return {
         ...item,
@@ -70,12 +98,13 @@ export function applyEstimatedLandedUnitCosts<T extends LandedLine>(
       }
     }
     const estimatedPerUnit = allocated / qty
+    const actualQty = actualExtra > 0 && receivedQty > 0 ? receivedQty : qty
     return {
       ...item,
       allocated_landed_expense: round2(allocated + actualExtra),
       estimated_landed_unit_cost: round4(estimatedPerUnit),
       actual_unit_cost:
-        actualExtra > 0 ? round4(price + actualExtra / qty) : round4(price + estimatedPerUnit),
+        actualExtra > 0 ? round4(price + actualExtra / actualQty) : round4(price + estimatedPerUnit),
     }
   })
 }

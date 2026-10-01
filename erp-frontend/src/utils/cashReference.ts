@@ -14,6 +14,10 @@ export function billDetailHref(billId: string): string {
   return `/supplier-invoices/${encodeURIComponent((billId || '').trim())}`
 }
 
+export function billEditHref(billId: string): string {
+  return `/supplier-invoices/${encodeURIComponent((billId || '').trim())}/edit`
+}
+
 export function sourceOrderHref(
   sourceType: string | null | undefined,
   sourceOrderId: string | null | undefined,
@@ -29,6 +33,12 @@ export function sourceOrderHref(
     return `/subcontract-orders/${encodeURIComponent(id)}`
   }
   return `/purchase-orders/${encodeURIComponent(id)}`
+}
+
+export function goodsReceiptHref(receiptKey: string | number | null | undefined): string | null {
+  const id = String(receiptKey ?? '').trim()
+  if (!id) return null
+  return `/goods-receipts/${encodeURIComponent(id)}`
 }
 
 export function purchaseOrderHref(poNumber: string | null | undefined): string | null {

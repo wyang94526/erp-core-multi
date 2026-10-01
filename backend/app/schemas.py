@@ -244,6 +244,7 @@ class PostingRuleRead(ORMModel):
     debit_account_code: str | None = None
     debit_account_name: str | None = None
     debit_account_type: str | None = None
+    debit_display_label: str | None = None
     credit_account_id: UUID
     credit_account_code: str | None = None
     credit_account_name: str | None = None
@@ -398,6 +399,7 @@ class MonthEndClosePreview(ORMModel):
     close_date: date
     period_still_open: bool
     current_period_ni: YearEndCloseAccount | None = None
+    current_period_ni_is: YearEndCloseAccount | None = None
     revenue_total: Decimal
     expense_total: Decimal
     net_income: Decimal
@@ -2161,6 +2163,7 @@ class APBillRead(ORMModel):
     source_order_id: str | None = None
     reference_po_number: str | None = None
     amount: Decimal
+    outstanding_balance: Decimal | None = None
     status: str
     approval_status: str = 'DRAFT'
     current_approval_step: int | None = None
@@ -2182,6 +2185,13 @@ class APBillLineDetailRead(BaseModel):
     quantity: Decimal
     unit_price: Decimal
     line_subtotal: Decimal
+    goods_receipt_id: int | None = None
+    goods_receipt_number: str | None = None
+
+
+class APBillReceiptRefRead(BaseModel):
+    id: int | None = None
+    receipt_number: str
 
 
 class APBillDetailRead(APBillRead):
@@ -2202,6 +2212,7 @@ class APBillDetailRead(APBillRead):
     supplier_invoice_status: str | None = None
     invoice_type: str | None = None
     match_warnings: list[str] = Field(default_factory=list)
+    goods_receipts: list[APBillReceiptRefRead] = Field(default_factory=list)
     lines: list[APBillLineDetailRead] = Field(default_factory=list)
     payments: list[APBillPaymentRead] = Field(default_factory=list)
 
@@ -2897,10 +2908,15 @@ class GoodsReceiptLineRead(BaseModel):
     quantity_ordered: Decimal | None = None
     quantity_received: Decimal
     unit_cost: Decimal
+    receipt_unit_cost: Decimal | None = None
     line_amount: Decimal
     allocated_landed_amount: Decimal = Decimal("0.00")
+    allocated_landed_cost: Decimal = Decimal("0.00")
     landed_unit_cost: Decimal | None = None
     actual_unit_cost: Decimal | None = None
+    quantity_invoiced: Decimal = Decimal("0")
+    quantity_unbilled: Decimal = Decimal("0")
+    billing_status: str = "UNBILLED"
     uom: str | None = None
     lot_number: str | None = None
     serial_number: str | None = None
@@ -2967,6 +2983,11 @@ class GoodsReceiptRead(BaseModel):
     received_by: str | None = None
     operational_receipt_id: str | None = None
     total_amount: Decimal | None = None
+    quantity_received: Decimal | None = None
+    quantity_invoiced: Decimal | None = None
+    quantity_unbilled: Decimal | None = None
+    receipt_unit_cost: Decimal | None = None
+    billing_status: str | None = None
     can_adjust_quantities: bool = False
     lines: list[GoodsReceiptLineRead] = Field(default_factory=list)
     journals: list[GoodsReceiptJournalRead] = Field(default_factory=list)
@@ -2985,6 +3006,7 @@ class SupplierInvoiceLineCreate(BaseModel):
     quantity_billed: Decimal = Field(ge=0)
     line_subtotal: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     unit_price: Decimal = Field(ge=0, decimal_places=4)
+    goods_receipt_line_id: int | None = None
 
 
 class SupplierInvoiceDistributionCreate(BaseModel):
@@ -3020,6 +3042,10 @@ class SupplierInvoiceCreate(BaseModel):
     )
     source_type: Literal["PURCHASE_ORDER", "SUBCONTRACT_ORDER", "NON_PO"] | None = None
     source_order_id: str | None = Field(default=None, max_length=50)
+    receipt_ids: list[int | str] | None = Field(
+        default=None,
+        description="Goods receipt ids or receipt numbers to bill. Preferred over source_order_id.",
+    )
     reference_po_number: str | None = Field(
         default=None,
         max_length=50,
@@ -3061,6 +3087,8 @@ class SupplierInvoiceDistributionRead(BaseModel):
     amount: Decimal
     description: str | None = None
     goods_receipt_id: int | None = None
+    goods_receipt_number: str | None = None
+    source_order_id: str | None = None
     goods_receipt_line_id: int | None = None
 
 

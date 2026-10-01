@@ -11,7 +11,6 @@ import type { JournalEntry, PostingRule } from '../types'
 import { parseJournalBulkCsvFile } from '../utils/journalCsvImport'
 import { downloadTextFile } from '../utils/financialReports'
 import { ApprovalPanel } from './ApprovalPanel'
-import { JournalEntryViewModal } from './JournalEntryViewModal'
 import { JournalLedgerFiltersBar, useJournalLedgerFilters } from './JournalLedgerFilters'
 import { useAuth } from '../context/AuthContext'
 import { useSortableData } from '../hooks/useSortableData'
@@ -24,7 +23,6 @@ import {
   postingRuleDisplay,
   isJournalDeletable,
   isJournalEditable,
-  isSystemJournal,
   JOURNAL_CREATE_PATH,
   journalEditPath,
   journalEntriesToCsv,
@@ -59,7 +57,6 @@ function GeneralLedger() {
   const [importing, setImporting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null)
   const csvInputRef = useRef<HTMLInputElement | null>(null)
   const approvalPanelRef = useRef<HTMLDivElement | null>(null)
   const canCreate = hasPermission('journal:create')
@@ -143,7 +140,6 @@ function GeneralLedger() {
     try {
       await journalEntryService.deleteJournalEntry(entry.id)
       if (selectedId === entry.id) setSelectedId(null)
-      if (viewingEntry?.id === entry.id) setViewingEntry(null)
       setImportMessage('Draft journal entry deleted.')
       await loadEntries()
     } catch (err) {
@@ -444,7 +440,7 @@ function GeneralLedger() {
                         {canCreate && isJournalEditable(entry) ? (
                           <button
                             style={editButtonStyle}
-                            onClick={() => navigate(journalEditPath(entry.id))}
+                            onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
                           >
                             Edit
                           </button>
@@ -452,11 +448,7 @@ function GeneralLedger() {
                           <button
                             type="button"
                             style={viewButtonStyle}
-                            onClick={() =>
-                              isSystemJournal(entry)
-                                ? navigate(journalEditPath(entry.id))
-                                : setViewingEntry(entry)
-                            }
+                            onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
                           >
                             View
                           </button>
@@ -496,8 +488,6 @@ function GeneralLedger() {
             </table>
           </div>
         )}
-
-        <JournalEntryViewModal entry={viewingEntry} rules={rules} onClose={() => setViewingEntry(null)} />
 
         <h3 style={sectionTitleStyle}>Posting Detail</h3>
         {loading ? null : sortedRows.length === 0 ? (

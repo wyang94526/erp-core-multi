@@ -6,7 +6,7 @@
  * Routes: /sales-orders/:id/invoice , /orders/:id/invoice
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { fulfillmentService, salesInvoiceService, salesOrderService } from '../api/services'
@@ -40,6 +40,11 @@ export function SalesInvoiceForm() {
       ),
     [fulfillments, id],
   )
+
+  useEffect(() => {
+    if (fulfillmentParam || fulfillmentId || shippedForOrder.length !== 1) return
+    setFulfillmentId(String(shippedForOrder[0].id))
+  }, [fulfillmentId, fulfillmentParam, shippedForOrder])
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -132,7 +137,7 @@ export function SalesInvoiceForm() {
           ) : null}
           <h3 style={sectionHeadingStyle}>Invoice source</h3>
           <label style={labelStyle}>
-            Fulfillment (optional — defaults to full order lines if blank)
+            Fulfillment (optional — defaults to shipped quantity, not cancelled leftover)
             <select
               value={fulfillmentId}
               onChange={(e) => setFulfillmentId(e.target.value)}

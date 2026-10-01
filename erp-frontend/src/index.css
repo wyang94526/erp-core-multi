@@ -7,6 +7,7 @@
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
+  --link: #1565c0;
   --social-bg: rgba(244, 243, 236, 0.5);
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
@@ -488,9 +489,13 @@ body {
 }
 
 .app-breadcrumbs-link {
-  color: #2196f3;
+  color: var(--link, #1565c0);
   text-decoration: none;
   font-weight: 500;
+}
+
+.app-breadcrumbs-link:visited {
+  color: var(--link, #1565c0);
 }
 
 .app-breadcrumbs-link:hover {
@@ -566,6 +571,16 @@ body {
   flex: 1;
   min-width: 0;
   padding: 0;
+}
+
+.app-main a:link,
+.app-main a:visited {
+  color: var(--link, #1565c0);
+}
+
+.app-main a.erp-button-link:link,
+.app-main a.erp-button-link:visited {
+  color: #fff;
 }
 
 .app-sidebar-backdrop {
@@ -759,8 +774,9 @@ code {
   text-align: right;
 }
 
-.auth-forgot a {
-  color: var(--accent);
+.auth-forgot a,
+.auth-forgot a:visited {
+  color: var(--link, #1565c0);
   text-decoration: none;
 }
 
@@ -813,8 +829,9 @@ code {
   text-align: center;
 }
 
-.auth-footer a {
-  color: var(--accent);
+.auth-footer a,
+.auth-footer a:visited {
+  color: var(--link, #1565c0);
 }
 
 .auth-hint {
@@ -1276,8 +1293,10 @@ code {
 }
 
 .help-drawer-footer a,
-.help-open-full a {
-  color: var(--accent);
+.help-drawer-footer a:visited,
+.help-open-full a,
+.help-open-full a:visited {
+  color: var(--link, #1565c0);
   font-weight: 600;
 }
 

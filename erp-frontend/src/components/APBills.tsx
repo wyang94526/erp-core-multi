@@ -299,8 +299,8 @@ function APBills() {
       <RecordCashPaymentDialog
         open={Boolean(pendingPay)}
         title={`Pay ${pendingPay?.bill_id || ''}`}
-        subtitle="Choose the bank account and payment instrument for this disbursement."
-        amount={pendingPay?.amount}
+        subtitle="Enter the amount and date for this disbursement. You can record additional payments later until the balance is zero."
+        amount={pendingPay?.outstanding_balance ?? pendingPay?.amount}
         confirmLabel="Make Payment"
         submitting={Boolean(pendingPay && payingId === pendingPay.bill_id)}
         onCancel={() => setPendingPay(null)}

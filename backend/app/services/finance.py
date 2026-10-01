@@ -40,6 +40,7 @@ from app.models import (
     CashTransaction,
     ChartOfAccount,
     Customer,
+    GoodsReceiptLine,
     Item,
     JournalEntry,
     LedgerPosting,
@@ -49,6 +50,7 @@ from app.models import (
     Supplier,
     SupplierInvoice,
     SupplierInvoiceDistribution,
+    SupplierInvoiceLine,
 )
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.financial_reports import signed_balance
@@ -1259,16 +1261,19 @@ def receive_payment(
       Debit: Cash
       Credit: Accounts Receivable
     """
-    if invoice.status == "Paid":
-        raise HTTPException(status_code=400, detail="Invoice is already fully paid")
-
     if getattr(invoice, "approval_status", None) not in (None, "APPROVED"):
         raise HTTPException(
             status_code=400,
             detail=f"AR invoice must be APPROVED before payment (current: {invoice.approval_status})",
         )
 
-    pay_amount = amount if amount is not None else invoice.amount
+    already_paid = _cash_applied_total(db, {invoice.invoice_id}, "Check Deposit")
+    pay_amount, remaining_after = settlement_apply_amount(
+        invoice_total=_money(invoice.amount),
+        already_paid=already_paid,
+        requested=amount,
+        already_paid_message="Invoice is already fully paid",
+    )
 
     ledger_fields = _cash_ledger_fields(
         db,
@@ -1306,7 +1311,7 @@ def receive_payment(
         posting_rule_id=rule_id(settle_rule),
     )
 
-    invoice.status = "Paid" if pay_amount >= invoice.amount else "Partial"
+    invoice.status = "Paid" if remaining_after <= 0 else "Partial"
 
     db.flush()
     return transaction
@@ -1328,16 +1333,23 @@ def make_payment(
       Debit: Accounts Payable
       Credit: Cash
     """
-    if bill.status == "Paid":
-        raise HTTPException(status_code=400, detail="Bill is already fully paid")
-
     if getattr(bill, "approval_status", None) not in (None, "APPROVED"):
         raise HTTPException(
             status_code=400,
             detail=f"AP bill must be APPROVED before payment (current: {bill.approval_status})",
         )
 
-    pay_amount = amount if amount is not None else bill.amount
+    supplier_invoice = _supplier_invoice_for_ap(db, bill)
+    invoice_total = _money(
+        supplier_invoice.total_amount if supplier_invoice and supplier_invoice.total_amount is not None else bill.amount
+    )
+    already_paid = _cash_applied_total(db, _ap_reference_ids(bill, supplier_invoice), "Check Issue")
+    pay_amount, remaining_after = settlement_apply_amount(
+        invoice_total=invoice_total,
+        already_paid=already_paid,
+        requested=amount,
+        already_paid_message="Bill is already fully paid",
+    )
 
     ledger_fields = _cash_ledger_fields(
         db,
@@ -1381,7 +1393,7 @@ def make_payment(
         posting_rule_id=rule_id(settle_rule),
     )
 
-    bill.status = "Paid" if pay_amount >= bill.amount else "Partial"
+    _sync_ap_settlement(bill, supplier_invoice, remaining_after)
 
     db.flush()
     return transaction
@@ -1389,6 +1401,69 @@ def make_payment(
 
 def _money(value: Decimal | int | float | str | None) -> Decimal:
     return Decimal(str(value or 0)).quantize(_MONEY)
+
+
+def settlement_apply_amount(
+    *,
+    invoice_total: Decimal,
+    already_paid: Decimal,
+    requested: Decimal | None,
+    already_paid_message: str = "Document is already fully paid",
+) -> tuple[Decimal, Decimal]:
+    """Return (pay_amount, remaining_after) for a partial or final payment."""
+    remaining = _money(_money(invoice_total) - _money(already_paid))
+    if remaining <= 0:
+        raise HTTPException(status_code=400, detail=already_paid_message)
+    pay_amount = remaining if requested is None else _money(requested)
+    if pay_amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+    if pay_amount > remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment amount {pay_amount} exceeds remaining outstanding {remaining}",
+        )
+    return pay_amount, _money(remaining - pay_amount)
+
+
+def _cash_applied_total(db: Session, reference_ids: set[str] | list[str], txn_type: str) -> Decimal:
+    ids = [rid for rid in reference_ids if rid]
+    if not ids:
+        return Decimal("0.00")
+    total = (
+        db.query(func.coalesce(func.sum(CashTransaction.amount), 0))
+        .filter(
+            CashTransaction.reference_id.in_(ids),
+            CashTransaction.type == txn_type,
+        )
+        .scalar()
+    )
+    return _money(total)
+
+
+def _ap_reference_ids(bill: APBill, supplier_invoice: SupplierInvoice | None) -> set[str]:
+    ids = {bill.bill_id}
+    if supplier_invoice:
+        if supplier_invoice.invoice_number:
+            ids.add(supplier_invoice.invoice_number)
+        if supplier_invoice.ap_bill_id:
+            ids.add(supplier_invoice.ap_bill_id)
+    return {rid for rid in ids if rid}
+
+
+def _sync_ap_settlement(
+    bill: APBill,
+    supplier_invoice: SupplierInvoice | None,
+    remaining_after: Decimal,
+) -> None:
+    bill.status = "Paid" if remaining_after <= 0 else "Partial"
+    if supplier_invoice is None:
+        return
+    supplier_invoice.outstanding_balance = remaining_after
+    if remaining_after <= 0:
+        supplier_invoice.status = "PAID"
+    elif supplier_invoice.status == "PAID":
+        supplier_invoice.status = "APPROVED"
+    supplier_invoice.updated_at = datetime.utcnow()
 
 
 def ar_display_status(*, status: str, due_date: date | None, today: date | None = None) -> str:
@@ -1759,6 +1834,12 @@ def resolve_ap_bill_po_number(db: Session, bill: APBill) -> str | None:
 
 def serialize_ap_bill_row(db: Session, bill: APBill) -> dict:
     po_number = resolve_ap_bill_po_number(db, bill)
+    supplier_invoice = _supplier_invoice_for_ap(db, bill)
+    invoice_total = _money(
+        supplier_invoice.total_amount if supplier_invoice and supplier_invoice.total_amount is not None else bill.amount
+    )
+    already_paid = _cash_applied_total(db, _ap_reference_ids(bill, supplier_invoice), "Check Issue")
+    remaining = _money(max(Decimal("0.00"), invoice_total - already_paid))
     return {
         "bill_id": bill.bill_id,
         "purchase_order_id": po_number,
@@ -1769,6 +1850,7 @@ def serialize_ap_bill_row(db: Session, bill: APBill) -> dict:
         "source_order_id": bill.source_order_id or po_number,
         "reference_po_number": getattr(bill, "reference_po_number", None) or po_number,
         "amount": bill.amount,
+        "outstanding_balance": remaining,
         "status": bill.status,
         "approval_status": bill.approval_status or "DRAFT",
         "current_approval_step": bill.current_approval_step,
@@ -1804,23 +1886,63 @@ def get_bill_detail(db: Session, bill_id: str) -> dict:
 
 def _supplier_invoice_detail_options():
     return (
-        selectinload(SupplierInvoice.lines),
+        selectinload(SupplierInvoice.lines)
+        .joinedload(SupplierInvoiceLine.goods_receipt_line)
+        .joinedload(GoodsReceiptLine.receipt),
         selectinload(SupplierInvoice.distributions).joinedload(
             SupplierInvoiceDistribution.gl_account
         ),
         selectinload(SupplierInvoice.distributions).joinedload(
             SupplierInvoiceDistribution.department
         ),
+        selectinload(SupplierInvoice.distributions).joinedload(
+            SupplierInvoiceDistribution.goods_receipt
+        ),
     )
 
 
+def _receipt_ref(receipt) -> dict | None:
+    if receipt is None:
+        return None
+    number = getattr(receipt, "receipt_number", None)
+    receipt_id = getattr(receipt, "id", None)
+    if receipt_id is None and not number:
+        return None
+    return {
+        "id": int(receipt_id) if receipt_id is not None else None,
+        "receipt_number": number or str(receipt_id),
+    }
+
+
+def _receipt_refs_for_invoice(invoice: SupplierInvoice | None) -> list[dict]:
+    if invoice is None:
+        return []
+    seen: dict[str, dict] = {}
+    for dist in getattr(invoice, "distributions", None) or []:
+        ref = _receipt_ref(getattr(dist, "goods_receipt", None))
+        if ref is None and dist.goods_receipt_id is not None:
+            ref = {"id": int(dist.goods_receipt_id), "receipt_number": str(dist.goods_receipt_id)}
+        if ref is not None:
+            seen[str(ref["receipt_number"])] = ref
+    for line in getattr(invoice, "lines", None) or []:
+        receipt = getattr(getattr(line, "goods_receipt_line", None), "receipt", None)
+        ref = _receipt_ref(receipt)
+        if ref is not None:
+            seen[str(ref["receipt_number"])] = ref
+    return list(seen.values())
+
+
 def _ap_line_from_supplier(line) -> dict:
+    receipt = getattr(getattr(line, "goods_receipt_line", None), "receipt", None)
+    ref = _receipt_ref(receipt)
     return {
         "item_id": line.item_id,
         "description": line.description or line.item_id,
         "quantity": _qty(line.quantity_billed),
         "unit_price": _money(line.unit_price),
         "line_subtotal": _money(line.line_subtotal),
+        "goods_receipt_id": ref["id"] if ref else None,
+        "goods_receipt_number": ref["receipt_number"] if ref else None,
     }
 
 
@@ -1835,6 +1957,10 @@ def _ap_lines_for_invoice(supplier_invoice: SupplierInvoice) -> list[dict]:
                 "quantity": Decimal("1"),
                 "unit_price": _money(dist.amount),
                 "line_subtotal": _money(dist.amount),
+                "goods_receipt_id": dist.goods_receipt_id,
+                "goods_receipt_number": getattr(
+                    getattr(dist, "goods_receipt", None), "receipt_number", None
+                ),
             }
             for dist in dists
         ]
@@ -1894,6 +2020,7 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
         "supplier_invoice_status": supplier_invoice.status,
         "invoice_type": getattr(supplier_invoice, "invoice_type", None) or "PO_MATCHED",
         "match_warnings": _match_warnings(supplier_invoice.match_warnings),
+        "goods_receipts": _receipt_refs_for_invoice(supplier_invoice),
         "lines": lines,
         "payments": [],
     }
@@ -2051,6 +2178,7 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
         "match_warnings": _match_warnings(
             supplier_invoice.match_warnings if supplier_invoice else None
         ),
+        "goods_receipts": _receipt_refs_for_invoice(supplier_invoice),
         "lines": lines,
         "payments": payments,
     }

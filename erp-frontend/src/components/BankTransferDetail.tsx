@@ -198,7 +198,7 @@ export function BankTransferDetail() {
             {transfer.journal_entry_id ? (
               <p style={{ ...valueStyle, margin: '4px 0 0 0' }}>
                 <Link
-                  to={journalEditPath(transfer.journal_entry_id)}
+                  to={journalEditPath(transfer.journal_entry_id, { from: `/bank-transfers/${transfer.id}` })}
                   title={transfer.journal_entry_id}
                   style={journalLinkStyle}
                 >

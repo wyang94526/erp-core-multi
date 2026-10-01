@@ -277,7 +277,7 @@ export function POHeader({
                 )}
                 <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 6 }}>
                   Vendor on this PO is the material supplier, not the subcontractor.{' '}
-                  <Link to="/subcontract-orders/new" style={{ color: 'var(--accent)' }}>
+                  <Link to="/subcontract-orders/new" style={{ color: 'var(--link, #1565c0)' }}>
                     Create 外發加工單
                   </Link>
                 </span>
@@ -312,7 +312,7 @@ export function POHeader({
             )}
             <span style={{ fontSize: 12, color: 'var(--text)', marginTop: 6 }}>
               Material issue and FG receipt stay on the subcontract order.{' '}
-              <Link to="/subcontract-orders/new" style={{ color: 'var(--accent)' }}>
+              <Link to="/subcontract-orders/new" style={{ color: 'var(--link, #1565c0)' }}>
                 Create 外發加工單
               </Link>
             </span>
@@ -645,7 +645,7 @@ const readOnlyValueStyle: React.CSSProperties = {
 };
 
 const scoLinkStyle: React.CSSProperties = {
-  color: 'var(--accent)',
+  color: 'var(--link, #1565c0)',
   fontWeight: 600,
   textDecoration: 'underline',
 };

@@ -46,7 +46,7 @@ from app.services.landed_cost import (
     annotate_po_line,
     annotate_receipt_line,
 )
-from app.services.po_totals import invoice_freight_default
+from app.services.po_totals import apply_estimated_landed_unit_costs, invoice_freight_default
 from app.services.finance import (
     resolve_ap_account,
 )
@@ -87,7 +87,7 @@ from app.services.remaining_close import (
 PO_MATCHED_SOURCES = {"PURCHASE_ORDER", "SUBCONTRACT_ORDER"}
 INVOICE_TYPES = {"PO_MATCHED", "LANDED_COST", "EXPENSE"}
 NON_PO_TYPES = {"LANDED_COST", "EXPENSE"}
-EDITABLE_INVOICE_STATUSES = frozenset({"DRAFT", "REJECTED"})
+EDITABLE_INVOICE_STATUSES = frozenset({"DRAFT", "REJECTED", "PENDING_APPROVAL"})
 RECALLABLE_APPROVAL_STATUSES = frozenset({"APPROVED", "PENDING_APPROVAL", "SUBMITTED"})
 RECALLABLE_PO_STATUSES = frozenset({"Submitted", "Approved"})
 PURCHASE_ORDER_LOCKED_EDIT_DETAIL = (
@@ -509,6 +509,17 @@ def resolve_invoice_type(
     return "PO_MATCHED"
 
 
+def _normalize_receipt_ids(receipt_ids: list | None) -> list[str]:
+    keys: list[str] = []
+    for raw in receipt_ids or []:
+        if raw is None:
+            continue
+        key = str(raw).strip()
+        if key:
+            keys.append(key)
+    return keys
+
+
 def validate_supplier_invoice_payload(
     *,
     invoice_type: str | None,
@@ -517,6 +528,7 @@ def validate_supplier_invoice_payload(
     vendor_id: str | None,
     distributions: list[dict] | None,
     lines: list[dict] | None,
+    receipt_ids: list | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Return (invoice_type, source_type, source_order_id). Raises HTTPException on bad input."""
     resolved_type = resolve_invoice_type(invoice_type, source_type)
@@ -526,16 +538,25 @@ def validate_supplier_invoice_payload(
     source = (source_type or "").strip().upper() or None
     order_id = (source_order_id or "").strip() or None
     vendor = (vendor_id or "").strip() or None
+    receipt_keys = _normalize_receipt_ids(receipt_ids)
 
     if resolved_type == "PO_MATCHED":
-        if source not in PO_MATCHED_SOURCES:
+        if source and source not in PO_MATCHED_SOURCES:
             raise HTTPException(
                 status_code=400,
                 detail="PO-matched invoices require source_type PURCHASE_ORDER or SUBCONTRACT_ORDER",
             )
-        if not order_id:
-            raise HTTPException(status_code=400, detail="PO-matched invoices require a source_order_id")
-        return resolved_type, source, order_id
+        if not order_id and not receipt_keys:
+            raise HTTPException(
+                status_code=400,
+                detail="PO-matched invoices require receipt_ids or a source_order_id",
+            )
+        if source not in PO_MATCHED_SOURCES and not receipt_keys:
+            raise HTTPException(
+                status_code=400,
+                detail="PO-matched invoices require source_type PURCHASE_ORDER or SUBCONTRACT_ORDER",
+            )
+        return resolved_type, source if source in PO_MATCHED_SOURCES else None, order_id
 
     if not vendor:
         raise HTTPException(status_code=400, detail="Non-PO invoices require vendor_id")
@@ -643,10 +664,19 @@ def landed_allocations_for_receipt(db: Session, receipt: GoodsReceipt) -> dict[i
     return totals
 
 
-def apply_receipt_landed_costs(db: Session, receipt: GoodsReceipt) -> dict[int, Decimal]:
+def apply_receipt_landed_costs(
+    db: Session,
+    receipt: GoodsReceipt,
+    *,
+    persist: bool = False,
+) -> dict[int, Decimal]:
     allocations = landed_allocations_for_receipt(db, receipt)
     for line in receipt.lines or []:
-        annotate_receipt_line(line, allocations.get(line.id) or Decimal("0.00"))
+        extra = allocations.get(line.id) or Decimal("0.00")
+        annotate_receipt_line(line, extra)
+        if persist:
+            line.allocated_landed_cost = extra
+            line.actual_unit_cost = getattr(line, "landed_unit_cost", None) or line.unit_cost
     return allocations
 
 
@@ -662,17 +692,28 @@ def apply_po_actual_landed_costs(db: Session, po: PurchaseOrder) -> None:
         .all()
     )
     extra_by_po_line: dict[int, Decimal] = {}
+    received_by_po_line: dict[int, Decimal] = {}
     for receipt in receipts:
         allocations = apply_receipt_landed_costs(db, receipt)
         for line in receipt.lines or []:
             if line.source_line_id is None:
                 continue
-            extra_by_po_line[int(line.source_line_id)] = (
-                extra_by_po_line.get(int(line.source_line_id), Decimal("0.00"))
-                + (allocations.get(line.id) or Decimal("0.00"))
+            key = int(line.source_line_id)
+            extra_by_po_line[key] = extra_by_po_line.get(key, Decimal("0.00")) + (
+                allocations.get(line.id) or Decimal("0.00")
             )
+            received_by_po_line[key] = received_by_po_line.get(key, Decimal("0.00")) + _d(
+                line.quantity_received
+            )
+    # Reset estimated extras first so a second apply does not stack actual freight.
+    apply_estimated_landed_unit_costs(po)
     for item in po.items or []:
-        annotate_po_line(item, extra_by_po_line.get(int(item.item_id), Decimal("0.00")))
+        key = int(item.item_id)
+        annotate_po_line(
+            item,
+            extra_by_po_line.get(key, Decimal("0.00")),
+            received_qty=received_by_po_line.get(key),
+        )
 
 
 def _apply_landed_cost_to_linked_receipts(db: Session, invoice: SupplierInvoice) -> None:
@@ -690,7 +731,7 @@ def _apply_landed_cost_to_linked_receipts(db: Session, invoice: SupplierInvoice)
         )
         if receipt is None:
             continue
-        apply_receipt_landed_costs(db, receipt)
+        apply_receipt_landed_costs(db, receipt, persist=True)
         if (receipt.source_type or "").upper() == "PURCHASE_ORDER" and receipt.source_order_id:
             po = (
                 db.query(PurchaseOrder)
@@ -699,10 +740,62 @@ def _apply_landed_cost_to_linked_receipts(db: Session, invoice: SupplierInvoice)
                 .first()
             )
             if po is not None:
-                from app.services.po_totals import apply_estimated_landed_unit_costs
-
-                apply_estimated_landed_unit_costs(po)
                 apply_po_actual_landed_costs(db, po)
+
+
+def _receipt_billing_status(received: Decimal, invoiced: Decimal) -> str:
+    if invoiced <= 0:
+        return "UNBILLED"
+    if invoiced >= received:
+        return "FULLY_BILLED"
+    return "PARTIALLY_BILLED"
+
+
+def _serialize_receipt_line(
+    line: GoodsReceiptLine,
+    allocations: dict[int, Decimal] | None = None,
+    db: Session | None = None,
+    *,
+    detail: bool = False,
+) -> dict:
+    allocations = allocations or {}
+    qty_received = _d(line.quantity_received)
+    if detail and db is not None and line.id:
+        invoiced = _billed_qty_for_receipt_line(db, line.id)
+    else:
+        invoiced = _d(getattr(line, "quantity_invoiced", 0))
+    unbilled = qty_received - invoiced if qty_received > invoiced else Decimal("0")
+    allocated = getattr(line, "allocated_landed_amount", None)
+    if allocated is None:
+        allocated = getattr(line, "allocated_landed_cost", None)
+    if allocated is None:
+        allocated = allocations.get(line.id) or Decimal("0.00")
+    unit_cost = line.unit_cost
+    return {
+        "id": line.id,
+        "receipt_id": line.receipt_id,
+        "source_line_id": line.source_line_id,
+        "item_id": line.item_id,
+        "description": line.description,
+        "item_description": None,
+        "quantity_ordered": None,
+        "quantity_received": line.quantity_received,
+        "unit_cost": unit_cost,
+        "receipt_unit_cost": unit_cost,
+        "line_amount": line.line_amount,
+        "allocated_landed_amount": allocated,
+        "allocated_landed_cost": getattr(line, "allocated_landed_cost", None) or allocated,
+        "landed_unit_cost": getattr(line, "landed_unit_cost", unit_cost),
+        "actual_unit_cost": getattr(line, "actual_unit_cost", None)
+        or getattr(line, "landed_unit_cost", None)
+        or unit_cost,
+        "quantity_invoiced": invoiced,
+        "quantity_unbilled": unbilled,
+        "billing_status": _receipt_billing_status(qty_received, invoiced),
+        "uom": None,
+        "lot_number": None,
+        "serial_number": None,
+    }
 
 
 def serialize_goods_receipt(
@@ -715,29 +808,20 @@ def serialize_goods_receipt(
     vendor_name = getattr(vendor, "company_name", None) if vendor is not None else None
     allocations = apply_receipt_landed_costs(db, row) if db is not None else {}
     lines_payload = [
-        {
-            "id": line.id,
-            "receipt_id": line.receipt_id,
-            "source_line_id": line.source_line_id,
-            "item_id": line.item_id,
-            "description": line.description,
-            "item_description": None,
-            "quantity_ordered": None,
-            "quantity_received": line.quantity_received,
-            "unit_cost": line.unit_cost,
-            "line_amount": line.line_amount,
-            "allocated_landed_amount": getattr(line, "allocated_landed_amount", allocations.get(line.id) or Decimal("0.00")),
-            "landed_unit_cost": getattr(line, "landed_unit_cost", line.unit_cost),
-            "actual_unit_cost": getattr(line, "actual_unit_cost", line.unit_cost),
-            "uom": None,
-            "lot_number": None,
-            "serial_number": None,
-        }
+        _serialize_receipt_line(line, allocations, db, detail=detail)
         for line in (row.lines or [])
     ]
     if db is not None:
         _apply_ordered_qty(db, row, lines_payload)
     total_amount = sum((_d(line.line_amount) for line in (row.lines or [])), Decimal("0"))
+    qty_received = sum((_d(line.quantity_received) for line in (row.lines or [])), Decimal("0"))
+    qty_invoiced = sum((_d(line.get("quantity_invoiced")) for line in lines_payload), Decimal("0"))
+    qty_unbilled = sum((_d(line.get("quantity_unbilled")) for line in lines_payload), Decimal("0"))
+    weighted_cost = (
+        (sum((_d(line.unit_cost) * _d(line.quantity_received) for line in (row.lines or [])), Decimal("0")) / qty_received)
+        if qty_received > 0
+        else Decimal("0")
+    )
     payload = {
         "id": row.id,
         "receipt_number": row.receipt_number,
@@ -758,6 +842,11 @@ def serialize_goods_receipt(
         "received_by": None,
         "operational_receipt_id": None,
         "total_amount": total_amount,
+        "quantity_received": qty_received,
+        "quantity_invoiced": qty_invoiced,
+        "quantity_unbilled": qty_unbilled,
+        "receipt_unit_cost": weighted_cost.quantize(Decimal("0.0001")) if qty_received > 0 else None,
+        "billing_status": _receipt_billing_status(qty_received, qty_invoiced),
         "can_adjust_quantities": _can_adjust_receipt_quantities(row),
         "lines": lines_payload,
         "journals": [],
@@ -1139,6 +1228,7 @@ def list_goods_receipts(
     source_order_id: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    unbilled_only: bool = False,
     skip: int = 0,
     limit: int = 100,
 ) -> list[dict]:
@@ -1161,7 +1251,10 @@ def list_goods_receipts(
             | GoodsReceipt.vendor_id.ilike(like)
             | GoodsReceipt.vendor_id.in_(vendor_ids)
         )
-    return [serialize_goods_receipt(r, db) for r in query.offset(skip).limit(limit).all()]
+    rows = [serialize_goods_receipt(r, db) for r in query.offset(skip).limit(limit).all()]
+    if unbilled_only:
+        rows = [row for row in rows if _d(row.get("quantity_unbilled")) > 0]
+    return rows
 
 
 def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
@@ -1222,6 +1315,12 @@ def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
                 "amount": dist.amount,
                 "description": dist.description,
                 "goods_receipt_id": dist.goods_receipt_id,
+                "goods_receipt_number": getattr(
+                    getattr(dist, "goods_receipt", None), "receipt_number", None
+                ),
+                "source_order_id": getattr(
+                    getattr(dist, "goods_receipt", None), "source_order_id", None
+                ),
                 "goods_receipt_line_id": dist.goods_receipt_line_id,
             }
             for dist in (row.distributions or [])
@@ -1233,13 +1332,18 @@ def _load_invoice(db: Session, invoice_id: int) -> SupplierInvoice:
     row = (
         db.query(SupplierInvoice)
         .options(
-            joinedload(SupplierInvoice.lines),
+            selectinload(SupplierInvoice.lines)
+            .joinedload(SupplierInvoiceLine.goods_receipt_line)
+            .joinedload(GoodsReceiptLine.receipt),
             joinedload(SupplierInvoice.vendor),
             selectinload(SupplierInvoice.distributions).joinedload(
                 SupplierInvoiceDistribution.gl_account
             ),
             selectinload(SupplierInvoice.distributions).joinedload(
                 SupplierInvoiceDistribution.department
+            ),
+            selectinload(SupplierInvoice.distributions).joinedload(
+                SupplierInvoiceDistribution.goods_receipt
             ),
         )
         .filter(SupplierInvoice.id == invoice_id)
@@ -1512,6 +1616,10 @@ def receive_purchase_order(
                 quantity_received=qty,
                 unit_cost=unit_cost,
                 line_amount=line_amount,
+                allocated_landed_cost=Decimal("0"),
+                actual_unit_cost=unit_cost,
+                quantity_invoiced=Decimal("0"),
+                billing_status="UNBILLED",
             )
         )
         if expense_line:
@@ -1567,6 +1675,132 @@ def _billed_qty_for_receipt_line(db: Session, line_id: int) -> Decimal:
         .scalar()
     )
     return _d(total)
+
+
+def _receipt_unit_cost(line: GoodsReceiptLine) -> Decimal:
+    return _d(line.unit_cost)
+
+
+def _receipt_billable_unit_cost(line: GoodsReceiptLine) -> Decimal:
+    """AP goods price is the receipt unit cost; landed cost is billed separately."""
+    landed = _d(
+        getattr(line, "allocated_landed_cost", 0) or getattr(line, "allocated_landed_amount", 0)
+    )
+    if landed > 0:
+        return _receipt_unit_cost(line)
+    actual = getattr(line, "actual_unit_cost", None)
+    if actual is not None and _d(actual) > 0:
+        return _d(actual)
+    return _receipt_unit_cost(line)
+
+
+def _invoiced_qty_for_receipt_line(db: Session, line: GoodsReceiptLine) -> Decimal:
+    live = (
+        _billed_qty_for_receipt_line(db, line.id)
+        if getattr(line, "id", None)
+        else Decimal("0")
+    )
+    stored = _d(getattr(line, "quantity_invoiced", 0))
+    return live if live > stored else stored
+
+
+def _unbilled_qty_for_receipt_line(db: Session, line: GoodsReceiptLine) -> Decimal:
+    leftover = _d(line.quantity_received) - _invoiced_qty_for_receipt_line(db, line)
+    return leftover if leftover > 0 else Decimal("0")
+
+
+def _sync_receipt_line_billing(db: Session, line: GoodsReceiptLine) -> None:
+    billed = _invoiced_qty_for_receipt_line(db, line)
+    line.quantity_invoiced = billed
+    line.billing_status = _receipt_billing_status(_d(line.quantity_received), billed)
+
+
+def _add_invoiced_qty(line: GoodsReceiptLine, qty: Decimal) -> None:
+    invoiced = _d(getattr(line, "quantity_invoiced", 0)) + _d(qty)
+    if invoiced < 0:
+        invoiced = Decimal("0")
+    line.quantity_invoiced = invoiced
+    line.billing_status = _receipt_billing_status(_d(line.quantity_received), invoiced)
+
+
+def _load_receipts_by_keys(db: Session, keys: list[str]) -> list[GoodsReceipt]:
+    seen: set[int] = set()
+    receipts: list[GoodsReceipt] = []
+    for key in keys:
+        row = resolve_goods_receipt(db, key)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Goods receipt {key} not found")
+        if row.id in seen:
+            continue
+        seen.add(row.id)
+        if (row.status or "").upper() != "POSTED":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Goods receipt {row.receipt_number} must be posted before billing",
+            )
+        receipts.append(row)
+    if not receipts:
+        raise HTTPException(status_code=400, detail="No goods receipts selected")
+    return receipts
+
+
+def _posted_receipts_for_order(
+    db: Session, source_type: str, source_order_id: str
+) -> list[GoodsReceipt]:
+    return (
+        _receipt_query(db)
+        .filter(
+            GoodsReceipt.source_type == source_type,
+            GoodsReceipt.source_order_id == source_order_id,
+            GoodsReceipt.status == "POSTED",
+        )
+        .order_by(GoodsReceipt.receipt_date.asc(), GoodsReceipt.id.asc())
+        .all()
+    )
+
+
+def _assert_source_orders_approved(db: Session, receipts: list[GoodsReceipt]) -> None:
+    seen: set[tuple[str, str]] = set()
+    for receipt in receipts:
+        source = (receipt.source_type or "").upper()
+        order_id = receipt.source_order_id
+        key = (source, order_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if source == "PURCHASE_ORDER":
+            po = db.get(PurchaseOrder, order_id)
+            if not po:
+                raise HTTPException(status_code=404, detail="Purchase order not found")
+            assert_po_approved_for_p2p(po, action="create a supplier invoice")
+        elif source == "SUBCONTRACT_ORDER":
+            sco = db.get(SubcontractOrder, order_id)
+            if not sco:
+                raise HTTPException(status_code=404, detail="Subcontract order not found")
+            if (sco.approval_status or "").upper() != "APPROVED":
+                raise HTTPException(status_code=400, detail="Subcontract order must be APPROVED")
+
+
+def _order_defaults_for_receipts(
+    db: Session, receipts: list[GoodsReceipt]
+) -> tuple[object | None, Decimal, Decimal]:
+    first = receipts[0]
+    source = (first.source_type or "").upper()
+    if source == "PURCHASE_ORDER":
+        po = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(PurchaseOrder.po_number == first.source_order_id)
+            .first()
+        )
+        if po is None:
+            return db.get(Supplier, first.vendor_id), Decimal("0"), Decimal("0")
+        return (
+            po,
+            _d(po.total_tax),
+            invoice_freight_default(po.shipping_fee, getattr(po, "freight_terms", None)),
+        )
+    return db.get(Supplier, first.vendor_id), Decimal("0"), Decimal("0")
 
 
 def _receipt_stock_home(db: Session, receipt: GoodsReceipt, item_id: str) -> tuple[str | None, str | None]:
@@ -1898,6 +2132,10 @@ def accrue_subcontract_receipt(
             quantity_received=Decimal(quantity_received),
             unit_cost=cost,
             line_amount=line_amount,
+            allocated_landed_cost=Decimal("0"),
+            actual_unit_cost=cost,
+            quantity_invoiced=Decimal("0"),
+            billing_status="UNBILLED",
         )
     )
     db.flush()
@@ -1980,6 +2218,9 @@ def list_posted_goods_receipts(
     db: Session,
     *,
     vendor_id: str | None = None,
+    source_type: str | None = None,
+    source_order_id: str | None = None,
+    unbilled_only: bool = False,
     q: str | None = None,
     skip: int = 0,
     limit: int = 100,
@@ -1987,6 +2228,9 @@ def list_posted_goods_receipts(
     return list_goods_receipts(
         db,
         vendor_id=vendor_id,
+        source_type=source_type,
+        source_order_id=source_order_id,
+        unbilled_only=unbilled_only,
         q=q,
         status="POSTED",
         skip=skip,
@@ -2004,6 +2248,7 @@ def create_supplier_invoice(
     *,
     source_type: str | None = None,
     source_order_id: str | None = None,
+    receipt_ids: list | None = None,
     reference_po_number: str | None = None,
     vendor_id: str | None = None,
     invoice_type: str | None = None,
@@ -2026,6 +2271,7 @@ def create_supplier_invoice(
         vendor_id=vendor_id,
         distributions=distributions,
         lines=lines,
+        receipt_ids=receipt_ids,
     )
     if resolved_type in NON_PO_TYPES:
         return _create_non_po_invoice(
@@ -2047,180 +2293,114 @@ def create_supplier_invoice(
             allocate_to_goods_receipt_id=allocate_to_goods_receipt_id,
         )
 
+    receipt_keys = _normalize_receipt_ids(receipt_ids)
+    if receipt_keys:
+        receipts = _load_receipts_by_keys(db, receipt_keys)
+    elif source_order_id and source_type in PO_MATCHED_SOURCES:
+        receipts = _posted_receipts_for_order(db, source_type, source_order_id)
+        if not receipts:
+            raise HTTPException(
+                status_code=400,
+                detail="Receive goods against the source document before creating a supplier invoice",
+            )
+    else:
+        raise HTTPException(status_code=400, detail="PO-matched invoices require receipt_ids")
+
+    vendors = {receipt.vendor_id for receipt in receipts}
+    if len(vendors) != 1:
+        raise HTTPException(status_code=400, detail="Selected goods receipts must share the same vendor")
+    source_types = {(receipt.source_type or "").upper() for receipt in receipts}
+    if len(source_types) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected goods receipts must be the same source type",
+        )
+    source_type = source_types.pop()
     if source_type not in PO_MATCHED_SOURCES:
         raise HTTPException(status_code=400, detail="Invalid source_type")
+    _assert_source_orders_approved(db, receipts)
+    order_ids = {receipt.source_order_id for receipt in receipts if receipt.source_order_id}
+    source_order_id = next(iter(order_ids)) if len(order_ids) == 1 else receipts[0].source_order_id
+    vendor_id = receipts[0].vendor_id
+    fallback, default_tax, default_freight = _order_defaults_for_receipts(db, receipts)
 
     issue = invoice_date or date.today()
     warnings: list[str] = []
     built: list[SupplierInvoiceLine] = []
-    fallback = None
+    receipt_line_by_id: dict[int, tuple[GoodsReceipt, GoodsReceiptLine]] = {}
+    for receipt in receipts:
+        apply_receipt_landed_costs(db, receipt)
+        for gr_line in receipt.lines or []:
+            receipt_line_by_id[int(gr_line.id)] = (receipt, gr_line)
 
-    if source_type == "PURCHASE_ORDER":
-        po = (
-            db.query(PurchaseOrder)
-            .options(joinedload(PurchaseOrder.items))
-            .filter(PurchaseOrder.po_number == source_order_id)
-            .first()
-        )
-        if not po:
-            raise HTTPException(status_code=404, detail="Purchase order not found")
-        assert_po_approved_for_p2p(po, action="create a supplier invoice")
-        vendor_id = po.supplier_id
-        fallback = po
-        received = _received_qty_by_item(db, source_type, source_order_id)
-        billed = _billed_qty_by_item(db, source_type, source_order_id)
-        billed_amt = _billed_amount_by_item(db, source_type, source_order_id)
-        stock_skus = {
-            po_line.sku
-            for po_line in (po.items or [])
-            if is_stock_tracked(catalog_item(db, po_line.sku))
-        }
-        stock_received = sum((received.get(sku, Decimal("0")) for sku in stock_skus), Decimal("0"))
-        if stock_skus and stock_received <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Receive goods against the purchase order before creating a supplier invoice",
-            )
-
-        po_by_id = {int(li.item_id): li for li in (po.items or [])}
-        if lines:
-            for raw in lines:
-                line_id = int(raw["source_line_id"]) if raw.get("source_line_id") is not None else None
-                po_line = po_by_id.get(line_id) if line_id is not None else None
-                item_id = str(raw.get("item_id") or (po_line.sku if po_line else ""))
-                qty = _d(raw["quantity_billed"])
-                price = _d(raw.get("unit_price", po_line.unit_price if po_line else 0))
-                catalog = catalog_item(db, item_id)
-                if po_line and is_stock_tracked(catalog) and price > _d(po_line.unit_price):
-                    warnings.append(
-                        f"Price {price} exceeds PO unit price {_d(po_line.unit_price)} for {item_id}"
-                    )
-                recv = received.get(item_id, Decimal("0"))
-                already = billed.get(item_id, Decimal("0"))
-                if is_stock_tracked(catalog) and qty + already > recv:
-                    warnings.append(
-                        f"Invoiced qty {qty + already} exceeds received {recv} for {item_id}"
-                    )
-                provided = raw.get("line_subtotal")
-                built.append(
-                    SupplierInvoiceLine(
-                        source_line_id=line_id,
-                        item_id=item_id,
-                        description=raw.get("description") or item_id,
-                        quantity_billed=qty,
-                        unit_price=price,
-                        line_subtotal=_line_bill_amount(
-                            qty, price, _d(provided) if provided is not None else None
-                        ),
-                    )
-                )
-        else:
-            for po_line in po.items or []:
-                catalog = catalog_item(db, po_line.sku)
-                price = _d(po_line.unit_price)
-                if skip_inventory_movement(catalog):
-                    remaining_amt = _d(po_line.line_subtotal) - billed_amt.get(po_line.sku, Decimal("0"))
-                    if remaining_amt <= 0:
-                        continue
-                    qty = _d(po_line.quantity)
-                    built.append(
-                        SupplierInvoiceLine(
-                            source_line_id=int(po_line.item_id),
-                            item_id=po_line.sku,
-                            description=po_line.sku,
-                            quantity_billed=qty,
-                            unit_price=price if qty > 0 else remaining_amt,
-                            line_subtotal=remaining_amt.quantize(Decimal("0.01")),
-                        )
-                    )
-                    continue
-                recv = received.get(po_line.sku, Decimal("0"))
-                already = billed.get(po_line.sku, Decimal("0"))
-                remaining = recv - already
-                if remaining <= 0:
-                    continue
-                built.append(
-                    SupplierInvoiceLine(
-                        source_line_id=int(po_line.item_id),
-                        item_id=po_line.sku,
-                        description=po_line.sku,
-                        quantity_billed=remaining,
-                        unit_price=price,
-                        line_subtotal=(price * remaining).quantize(Decimal("0.01")),
-                    )
-                )
-        tax = tax_amount if tax_amount is not None else _d(po.total_tax)
-        freight = (
-            freight_amount
-            if freight_amount is not None
-            else invoice_freight_default(po.shipping_fee, getattr(po, "freight_terms", None))
-        )
-    else:
-        sco = db.get(SubcontractOrder, source_order_id)
-        if not sco:
-            raise HTTPException(status_code=404, detail="Subcontract order not found")
-        if (sco.approval_status or "").upper() != "APPROVED":
-            raise HTTPException(status_code=400, detail="Subcontract order must be APPROVED")
-        vendor_id = sco.supplier_id
-        fallback = db.get(Supplier, vendor_id)
-        received = _received_qty_by_item(db, source_type, source_order_id)
-        billed = _billed_qty_by_item(db, source_type, source_order_id)
-        if sum(received.values()) <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Receive finished goods before creating a supplier invoice",
-            )
-        if lines:
-            for raw in lines:
-                item_id = str(raw.get("item_id") or sco.item_id)
-                qty = _d(raw["quantity_billed"])
-                price = _d(raw.get("unit_price", sco.unit_price))
-                recv = received.get(item_id, Decimal("0"))
-                already = billed.get(item_id, Decimal("0"))
-                if qty + already > recv:
-                    warnings.append(
-                        f"Invoiced qty {qty + already} exceeds received {recv} for {item_id}"
-                    )
-                if price > _d(sco.unit_price) > 0:
-                    warnings.append(
-                        f"Price {price} exceeds subcontract unit price {_d(sco.unit_price)}"
-                    )
-                built.append(
-                    SupplierInvoiceLine(
-                        source_line_id=None,
-                        item_id=item_id,
-                        description=raw.get("description") or item_id,
-                        quantity_billed=qty,
-                        unit_price=price,
-                        line_subtotal=(price * qty).quantize(Decimal("0.01")),
-                    )
-                )
-        else:
-            recv = received.get(sco.item_id, Decimal("0"))
-            already = billed.get(sco.item_id, Decimal("0"))
-            remaining = recv - already
-            if remaining <= 0:
-                raise HTTPException(status_code=400, detail="No unbilled received quantity remaining")
-            price = _d(sco.unit_price)
-            if price <= 0:
+    if lines:
+        for raw in lines:
+            gr_line_id = raw.get("goods_receipt_line_id")
+            if gr_line_id is None:
                 raise HTTPException(
                     status_code=400,
-                    detail="Set subcontract unit_price or provide invoice line unit_price",
+                    detail="Invoice lines must include goods_receipt_line_id",
                 )
+            pair = receipt_line_by_id.get(int(gr_line_id))
+            if pair is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Receipt line {gr_line_id} is not in the selected goods receipts",
+                )
+            _receipt, gr_line = pair
+            unbilled = _unbilled_qty_for_receipt_line(db, gr_line)
+            qty = _d(raw.get("quantity_billed", unbilled))
+            if qty <= 0:
+                continue
+            if qty > unbilled:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Quantity {qty} exceeds unbilled received quantity {unbilled} "
+                        f"on receipt line {gr_line.id}"
+                    ),
+                )
+            default_price = _receipt_billable_unit_cost(gr_line)
+            price = _d(raw["unit_price"]) if raw.get("unit_price") is not None else default_price
+            provided = raw.get("line_subtotal")
             built.append(
                 SupplierInvoiceLine(
-                    item_id=sco.item_id,
-                    description=sco.item_id,
+                    source_line_id=gr_line.source_line_id,
+                    item_id=gr_line.item_id,
+                    description=raw.get("description") or gr_line.description or gr_line.item_id,
+                    quantity_billed=qty,
+                    unit_price=price,
+                    line_subtotal=_line_bill_amount(
+                        qty, price, _d(provided) if provided is not None else None
+                    ),
+                    goods_receipt_line_id=gr_line.id,
+                )
+            )
+    else:
+        for _receipt, gr_line in receipt_line_by_id.values():
+            remaining = _unbilled_qty_for_receipt_line(db, gr_line)
+            if remaining <= 0:
+                continue
+            price = _receipt_billable_unit_cost(gr_line)
+            if price <= 0:
+                warnings.append(f"Receipt line {gr_line.id} has a zero unit cost")
+            built.append(
+                SupplierInvoiceLine(
+                    source_line_id=gr_line.source_line_id,
+                    item_id=gr_line.item_id,
+                    description=gr_line.description or gr_line.item_id,
                     quantity_billed=remaining,
                     unit_price=price,
                     line_subtotal=(price * remaining).quantize(Decimal("0.01")),
+                    goods_receipt_line_id=gr_line.id,
                 )
             )
-        tax = tax_amount or Decimal("0")
-        freight = freight_amount or Decimal("0")
 
     if not built:
-        raise HTTPException(status_code=400, detail="Invoice requires at least one line")
+        raise HTTPException(status_code=400, detail="No unbilled received quantity remaining")
+
+    tax = tax_amount if tax_amount is not None else default_tax
+    freight = freight_amount if freight_amount is not None else default_freight
 
     due, term = apply_due_date(
         db,
@@ -2257,6 +2437,14 @@ def create_supplier_invoice(
     for line in built:
         line.invoice_id = invoice.id
         db.add(line)
+    db.flush()
+    for line in built:
+        if not line.goods_receipt_line_id:
+            continue
+        pair = receipt_line_by_id.get(int(line.goods_receipt_line_id))
+        if pair is None:
+            continue
+        _add_invoiced_qty(pair[1], _d(line.quantity_billed))
 
     subtotal = sum((_d(line.line_subtotal) for line in built), Decimal("0"))
     invoice.subtotal = subtotal
@@ -2436,7 +2624,8 @@ def _assert_invoice_editable(invoice: SupplierInvoice) -> None:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Only draft or rejected supplier invoices can be edited (current: {status or 'DRAFT'})."
+                "Only draft, rejected, or pending Non-PO supplier invoices can be edited "
+                f"(current: {status or 'DRAFT'})."
             ),
         )
     kind = getattr(invoice, "invoice_type", None) or "PO_MATCHED"
@@ -2606,6 +2795,131 @@ def reject_supplier_invoice(db: Session, invoice_id: int) -> dict:
     return serialize_supplier_invoice(_load_invoice(db, invoice_id))
 
 
+def _journal_is_mutable_draft(entry: JournalEntry) -> bool:
+    posting = (entry.posting_status or "").strip().lower()
+    approval = (entry.approval_status or "").strip().upper()
+    return posting == "draft" and approval in {"", "DRAFT"}
+
+
+def _delete_journal_entry(db: Session, entry: JournalEntry) -> None:
+    for row in list(entry.postings or []):
+        db.delete(row)
+    db.delete(entry)
+
+
+def _reverse_posted_invoice_journal(
+    db: Session, entry: JournalEntry, invoice: SupplierInvoice
+) -> None:
+    debit_row = next((row for row in (entry.postings or []) if _d(row.debit) > 0), None)
+    credit_row = next((row for row in (entry.postings or []) if _d(row.credit) > 0), None)
+    if debit_row is None or credit_row is None:
+        return
+    amount = _d(debit_row.debit) or _d(credit_row.credit)
+    if amount <= 0:
+        return
+    debit_account = db.get(ChartOfAccount, credit_row.account_id)
+    credit_account = db.get(ChartOfAccount, debit_row.account_id)
+    if debit_account is None or credit_account is None:
+        raise HTTPException(status_code=400, detail="Cannot reverse AP posting: GL account missing")
+    finance._post_balanced_journal_entry(
+        db,
+        description=f"Rescind {entry.description}",
+        debit_account=debit_account,
+        credit_account=credit_account,
+        amount=amount,
+        reference=invoice.invoice_number,
+        source_document_type=SOURCE_SUPPLIER_INVOICE,
+        source_record_id=f"{invoice.invoice_number}#RESCIND",
+        posting_rule_id=getattr(entry, "posting_rule_id", None),
+    )
+    entry.source_record_id = f"{invoice.invoice_number}#RESCINDED"
+
+
+def _unwind_supplier_invoice_journals(db: Session, invoice: SupplierInvoice) -> None:
+    entries = (
+        db.query(JournalEntry)
+        .options(selectinload(JournalEntry.postings))
+        .filter(
+            JournalEntry.source_document_type == SOURCE_SUPPLIER_INVOICE,
+            JournalEntry.source_record_id == invoice.invoice_number,
+        )
+        .all()
+    )
+    for entry in entries:
+        if _journal_is_mutable_draft(entry):
+            _delete_journal_entry(db, entry)
+        else:
+            _reverse_posted_invoice_journal(db, entry, invoice)
+
+
+def rescind_supplier_invoice(db: Session, invoice_id: int) -> dict:
+    invoice = _load_invoice(db, invoice_id)
+    kind = getattr(invoice, "invoice_type", None) or "PO_MATCHED"
+    status = (invoice.status or "").upper()
+    if kind not in NON_PO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Only Non-PO supplier invoices can be rescinded after approval.",
+        )
+    if status == "PAID":
+        raise HTTPException(
+            status_code=400,
+            detail="Paid invoices cannot be rescinded. Reverse the payment first.",
+        )
+    if status != "APPROVED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only approved invoices can be rescinded (current: {status or 'DRAFT'}).",
+        )
+
+    bill = db.get(APBill, invoice.ap_bill_id) if invoice.ap_bill_id else None
+    if bill is not None:
+        if (bill.status or "") in {"Partial", "Paid"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot rescind a bill that already has payments.",
+            )
+        already_paid = finance._cash_applied_total(
+            db, finance._ap_reference_ids(bill, invoice), "Check Issue"
+        )
+        if already_paid > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot rescind a bill that already has payments.",
+            )
+
+    previous_receipt_ids = {
+        dist.goods_receipt_id
+        for dist in (invoice.distributions or [])
+        if dist.goods_receipt_id
+    }
+    _unwind_supplier_invoice_journals(db, invoice)
+
+    bill_id = invoice.ap_bill_id
+    invoice.ap_bill_id = None
+    db.flush()
+    if bill_id:
+        linked_bill = db.get(APBill, bill_id)
+        if linked_bill is not None:
+            db.delete(linked_bill)
+
+    invoice.status = "DRAFT"
+    invoice.updated_at = datetime.utcnow()
+    db.flush()
+    if kind == "LANDED_COST" or previous_receipt_ids:
+        _apply_landed_cost_to_linked_receipts(db, invoice)
+        for receipt_id in previous_receipt_ids:
+            receipt = (
+                db.query(GoodsReceipt)
+                .options(selectinload(GoodsReceipt.lines))
+                .filter(GoodsReceipt.id == receipt_id)
+                .first()
+            )
+            if receipt is not None:
+                apply_receipt_landed_costs(db, receipt)
+    return serialize_supplier_invoice(_load_invoice(db, invoice.id))
+
+
 def submit_supplier_invoice(db: Session, invoice_id: int) -> dict:
     invoice = _load_invoice(db, invoice_id)
     if invoice.status == "CANCELLED":
@@ -2673,7 +2987,15 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
     invoice.status = "APPROVED"
     invoice.outstanding_balance = total
     invoice.updated_at = datetime.utcnow()
-    _update_billing_status(db, invoice.source_type, invoice.source_order_id)
+    order_keys = {(invoice.source_type, invoice.source_order_id)}
+    for line in invoice.lines or []:
+        receipt = getattr(getattr(line, "goods_receipt_line", None), "receipt", None)
+        if receipt is not None:
+            order_keys.add((receipt.source_type, receipt.source_order_id))
+        if line.goods_receipt_line is not None:
+            _sync_receipt_line_billing(db, line.goods_receipt_line)
+    for source, order_id in order_keys:
+        _update_billing_status(db, source, order_id)
     db.flush()
     return serialize_supplier_invoice(_load_invoice(db, invoice_id))
 
@@ -2731,6 +3053,78 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
         )
 
 
+def _grni_clear_groups(db: Session, invoice: SupplierInvoice) -> list[dict]:
+    """Group GRNI-clear amounts by goods receipt so each posts on the receipt date."""
+    groups: dict[int | None, dict] = {}
+    linked = False
+    for line in invoice.lines or []:
+        gr_line = getattr(line, "goods_receipt_line", None)
+        if gr_line is None and line.goods_receipt_line_id:
+            gr_line = db.get(GoodsReceiptLine, line.goods_receipt_line_id)
+        receipt = getattr(gr_line, "receipt", None) if gr_line is not None else None
+        if receipt is None and gr_line is not None:
+            receipt = db.get(GoodsReceipt, gr_line.receipt_id)
+        if receipt is not None:
+            linked = True
+        key = receipt.id if receipt is not None else None
+        bucket = groups.setdefault(
+            key,
+            {
+                "receipt": receipt,
+                "stock_billed": Decimal("0"),
+                "stock_clear": Decimal("0"),
+                "non_stock": Decimal("0"),
+            },
+        )
+        billed = _d(line.line_subtotal)
+        if skip_inventory_movement(catalog_item(db, line.item_id)):
+            bucket["non_stock"] += billed
+            continue
+        bucket["stock_billed"] += billed
+        if gr_line is not None:
+            bucket["stock_clear"] += (_d(gr_line.unit_cost) * _d(line.quantity_billed)).quantize(
+                Decimal("0.01")
+            )
+        else:
+            bucket["stock_clear"] += billed
+
+    if not linked:
+        accrued = (
+            _accrued_amount_for_order(db, invoice.source_type, invoice.source_order_id)
+            if invoice.source_order_id
+            else Decimal("0")
+        )
+        invoice_goods = _d(invoice.subtotal)
+        non_stock = sum((bucket["non_stock"] for bucket in groups.values()), Decimal("0"))
+        stock_goods = max(invoice_goods - non_stock, Decimal("0"))
+        stock_clear = min(accrued, stock_goods)
+        return [
+            {
+                "receipt": None,
+                "posting_date": invoice.invoice_date,
+                "clear_amount": min(accrued, invoice_goods),
+                "variance": stock_goods - stock_clear,
+                "non_stock": max(non_stock - max(accrued - stock_clear, Decimal("0")), Decimal("0")),
+                "receipt_number": None,
+            }
+        ]
+
+    result: list[dict] = []
+    for bucket in groups.values():
+        receipt = bucket["receipt"]
+        result.append(
+            {
+                "receipt": receipt,
+                "posting_date": receipt.receipt_date if receipt is not None else invoice.invoice_date,
+                "clear_amount": bucket["stock_clear"],
+                "variance": bucket["stock_billed"] - bucket["stock_clear"],
+                "non_stock": bucket["non_stock"],
+                "receipt_number": getattr(receipt, "receipt_number", None),
+            }
+        )
+    return result
+
+
 def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
     vendor = invoice.vendor
     grni_account, _clear_ap, grni_rule = resolve_posting_rule(
@@ -2753,66 +3147,64 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
         "source_document_type": SOURCE_SUPPLIER_INVOICE,
         "source_record_id": invoice.invoice_number,
     }
-    accrued = (
-        _accrued_amount_for_order(db, invoice.source_type, invoice.source_order_id)
-        if invoice.source_order_id
-        else Decimal("0")
-    )
-    invoice_goods = _d(invoice.subtotal)
     tax = _d(invoice.tax_amount)
     freight = _d(invoice.freight_amount)
-    non_stock = Decimal("0")
-    for line in invoice.lines or []:
-        if skip_inventory_movement(catalog_item(db, line.item_id)):
-            non_stock += _d(line.line_subtotal)
-    stock_goods = max(invoice_goods - non_stock, Decimal("0"))
-
-    clear_amount = min(accrued, invoice_goods)
-    stock_clear = min(accrued, stock_goods)
-    variance = stock_goods - stock_clear
-    accrued_expense = max(accrued - stock_clear, Decimal("0"))
-    non_stock_unaccrued = max(non_stock - accrued_expense, Decimal("0"))
-
-    if clear_amount > 0:
-        finance._post_balanced_journal_entry(
-            db,
-            description=f"Supplier invoice {invoice.invoice_number} GRNI clear",
-            debit_account=grni_account,
-            credit_account=ap_account,
-            amount=clear_amount,
-            posting_rule_id=rule_id(grni_rule),
-            **invoice_source,
-        )
-    if variance > 0:
-        finance._post_balanced_journal_entry(
-            db,
-            description=f"Supplier invoice {invoice.invoice_number} PPV",
-            debit_account=ppv_account,
-            credit_account=ap_account,
-            amount=variance,
-            posting_rule_id=rule_id(ppv_rule),
-            **invoice_source,
-        )
-    elif variance < 0:
-        finance._post_balanced_journal_entry(
-            db,
-            description=f"Supplier invoice {invoice.invoice_number} PPV favor",
-            debit_account=fav_grni,
-            credit_account=fav_ppv,
-            amount=abs(variance),
-            posting_rule_id=rule_id(fav_rule),
-            **invoice_source,
-        )
-    if non_stock_unaccrued > 0:
-        finance._post_balanced_journal_entry(
-            db,
-            description=f"Supplier invoice {invoice.invoice_number} non-inventory expense",
-            debit_account=expense_account,
-            credit_account=ap_account,
-            amount=non_stock_unaccrued.quantize(Decimal("0.01")),
-            posting_rule_id=rule_id(expense_rule),
-            **invoice_source,
-        )
+    posted_any = False
+    for group in _grni_clear_groups(db, invoice):
+        posting_date = group["posting_date"]
+        clear_amount = _d(group["clear_amount"])
+        variance = _d(group["variance"])
+        non_stock = _d(group["non_stock"])
+        receipt_number = group.get("receipt_number")
+        suffix = f" for {receipt_number}" if receipt_number else ""
+        if clear_amount > 0:
+            finance._post_balanced_journal_entry(
+                db,
+                description=f"Supplier invoice {invoice.invoice_number} GRNI clear{suffix}",
+                debit_account=grni_account,
+                credit_account=ap_account,
+                amount=clear_amount,
+                posting_date=posting_date,
+                posting_rule_id=rule_id(grni_rule),
+                **invoice_source,
+            )
+            posted_any = True
+        if variance > 0:
+            finance._post_balanced_journal_entry(
+                db,
+                description=f"Supplier invoice {invoice.invoice_number} PPV{suffix}",
+                debit_account=ppv_account,
+                credit_account=ap_account,
+                amount=variance,
+                posting_date=posting_date,
+                posting_rule_id=rule_id(ppv_rule),
+                **invoice_source,
+            )
+            posted_any = True
+        elif variance < 0:
+            finance._post_balanced_journal_entry(
+                db,
+                description=f"Supplier invoice {invoice.invoice_number} PPV favor{suffix}",
+                debit_account=fav_grni,
+                credit_account=fav_ppv,
+                amount=abs(variance),
+                posting_date=posting_date,
+                posting_rule_id=rule_id(fav_rule),
+                **invoice_source,
+            )
+            posted_any = True
+        if non_stock > 0:
+            finance._post_balanced_journal_entry(
+                db,
+                description=f"Supplier invoice {invoice.invoice_number} non-inventory expense{suffix}",
+                debit_account=expense_account,
+                credit_account=ap_account,
+                amount=non_stock.quantize(Decimal("0.01")),
+                posting_date=posting_date,
+                posting_rule_id=rule_id(expense_rule),
+                **invoice_source,
+            )
+            posted_any = True
     if tax + freight > 0:
         finance._post_balanced_journal_entry(
             db,
@@ -2820,16 +3212,19 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             debit_account=tax_exp,
             credit_account=ap_account,
             amount=(tax + freight).quantize(Decimal("0.01")),
+            posting_date=invoice.invoice_date,
             posting_rule_id=rule_id(tax_rule),
             **invoice_source,
         )
-    if clear_amount <= 0 and variance == 0 and non_stock <= 0 and (tax + freight) <= 0:
+        posted_any = True
+    if not posted_any:
         finance._post_balanced_journal_entry(
             db,
             description=f"Supplier invoice {invoice.invoice_number}",
             debit_account=ppv_account,
             credit_account=ap_account,
             amount=total,
+            posting_date=invoice.invoice_date,
             posting_rule_id=rule_id(ppv_rule),
             **invoice_source,
         )
@@ -2869,27 +3264,6 @@ def pay_supplier_invoice(
         instrument_ref_no=instrument_ref_no,
         payment_date=payment_date,
     )
-    bill = db.get(APBill, invoice.ap_bill_id)
-    if bill and bill.status == "Paid":
-        invoice.status = "PAID"
-        invoice.outstanding_balance = Decimal("0")
-    elif bill:
-        paid = _d(bill.amount) - (
-            _d(invoice.outstanding_balance) if invoice.outstanding_balance else _d(bill.amount)
-        )
-        # Recompute outstanding from bill status
-        if bill.status == "Partial":
-            invoice.status = "APPROVED"
-            # Approximate remaining as prior outstanding minus this payment
-            pay_amt = _d(txn.amount)
-            invoice.outstanding_balance = max(
-                Decimal("0"), _d(invoice.outstanding_balance) - pay_amt
-            )
-        else:
-            invoice.outstanding_balance = Decimal("0")
-            invoice.status = "PAID"
-    invoice.updated_at = datetime.utcnow()
-    db.flush()
     result = serialize_supplier_invoice(_load_invoice(db, invoice_id))
     result["payment_transaction_id"] = txn.transaction_id
     return result

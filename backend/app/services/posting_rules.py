@@ -33,7 +33,6 @@ VARIANT_MATERIALS = "MATERIALS"
 VARIANT_SUBCONTRACT = "SUBCONTRACT"
 VARIANT_EXPENSE = "EXPENSE"
 VARIANT_GRNI_CLEAR = "GRNI_CLEAR"
-VARIANT_GRNI_ACCRUAL = "GRNI_ACCRUAL"
 VARIANT_PPV_UNFAVORABLE = "PPV_UNFAVORABLE"
 VARIANT_PPV_FAVORABLE = "PPV_FAVORABLE"
 VARIANT_TAX = "TAX"
@@ -43,11 +42,8 @@ VARIANT_SETTLE = "SETTLE"
 VARIANT_CREDIT_MEMO = "CREDIT_MEMO"
 VARIANT_TRANSFER = "TRANSFER"
 VARIANT_CLOSE = "CLOSE"
-VARIANT_PREPAY = "PREPAY"
-VARIANT_ACCRUAL = "ACCRUAL"
-VARIANT_DEPRECIATION = "DEPRECIATION"
-VARIANT_FX_REVAL = "FX_REVAL"
 VARIANT_NI_CLEAR = "NI_CLEAR"
+VARIANT_PARK_NI = "PARK_NI"
 
 PARTY_TRADE = "TRADE"
 PARTY_RELATED = "RELATED"
@@ -70,7 +66,6 @@ VARIANT_LABELS = {
     VARIANT_SUBCONTRACT: "Subcontract processing",
     VARIANT_EXPENSE: "Non-stock / service",
     VARIANT_GRNI_CLEAR: "Clear GR/IR to AP",
-    VARIANT_GRNI_ACCRUAL: "GRNI accrual (cutoff)",
     VARIANT_PPV_UNFAVORABLE: "Price variance (invoice higher)",
     VARIANT_PPV_FAVORABLE: "Price variance (invoice lower)",
     VARIANT_TAX: "Tax / freight",
@@ -79,12 +74,9 @@ VARIANT_LABELS = {
     VARIANT_SETTLE: "Settle open item",
     VARIANT_CREDIT_MEMO: "Reverse revenue",
     VARIANT_TRANSFER: "Move cash between banks",
-    VARIANT_CLOSE: "P&L to retained earnings",
-    VARIANT_PREPAY: "Amortize prepayments",
-    VARIANT_ACCRUAL: "Accrue expenses",
-    VARIANT_DEPRECIATION: "Depreciation",
-    VARIANT_FX_REVAL: "Currency revaluation",
-    VARIANT_NI_CLEAR: "Clear current-period NI",
+    VARIANT_CLOSE: "Close all P&L accounts",
+    VARIANT_NI_CLEAR: "Reverse monthly current-period NI",
+    VARIANT_PARK_NI: "Park current period net income",
 }
 
 PARTY_LABELS = {
@@ -434,95 +426,25 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "sort_order": 150,
     },
     {
-        "rule_code": "MEC_GRNI_ACCRUAL_TRADE",
+        "rule_code": "MEC_PARK_NI",
         "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_GRNI_ACCRUAL,
-        "party_scope": PARTY_TRADE,
-        "name": "Month-end — GRNI accrual (trade)",
-        "debit_code": "1313",
-        "debit_name": "Half-finished Goods",
-        "debit_type": "Asset",
-        "credit_code": "2172",
-        "credit_name": "Accounts Payable - General provisional",
-        "credit_type": "Liability",
+        "variant": VARIANT_PARK_NI,
+        "party_scope": PARTY_ANY,
+        "name": "Park Current Period Net Income",
+        "debit_code": "3354",
+        "debit_name": "Net income or loss for current period-IS",
+        "debit_type": "Equity",
+        "credit_code": "3353",
+        "credit_name": "Net income or loss for current period-BS",
+        "credit_type": "Equity",
         "sort_order": 200,
-    },
-    {
-        "rule_code": "MEC_GRNI_ACCRUAL_RELATED",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_GRNI_ACCRUAL,
-        "party_scope": PARTY_RELATED,
-        "name": "Month-end — GRNI accrual (related party)",
-        "debit_code": "1313",
-        "debit_name": "Half-finished Goods",
-        "debit_type": "Asset",
-        "credit_code": "2182",
-        "credit_name": "Accounts Payable - GR/IR - related parties",
-        "credit_type": "Liability",
-        "sort_order": 201,
-    },
-    {
-        "rule_code": "MEC_PREPAY",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_PREPAY,
-        "party_scope": PARTY_ANY,
-        "name": "Month-end — amortize prepayments",
-        "debit_code": "5190",
-        "debit_name": "Purchase Expenses",
-        "debit_type": "Expense",
-        "credit_code": "1251",
-        "credit_name": "Prepaid expenses",
-        "credit_type": "Asset",
-        "sort_order": 202,
-    },
-    {
-        "rule_code": "MEC_ACCRUAL",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_ACCRUAL,
-        "party_scope": PARTY_ANY,
-        "name": "Month-end — accrue expenses",
-        "debit_code": "5190",
-        "debit_name": "Purchase Expenses",
-        "debit_type": "Expense",
-        "credit_code": "2179",
-        "credit_name": "Accrued expenses",
-        "credit_type": "Liability",
-        "sort_order": 203,
-    },
-    {
-        "rule_code": "MEC_DEPRECIATION",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_DEPRECIATION,
-        "party_scope": PARTY_ANY,
-        "name": "Month-end — depreciation",
-        "debit_code": "5601",
-        "debit_name": "Depreciation expense",
-        "debit_type": "Expense",
-        "credit_code": "1569",
-        "credit_name": "Accumulated depreciation",
-        "credit_type": "Asset",
-        "sort_order": 204,
-    },
-    {
-        "rule_code": "MEC_FX_REVAL",
-        "event_code": EVENT_MONTH_END_CLOSE,
-        "variant": VARIANT_FX_REVAL,
-        "party_scope": PARTY_ANY,
-        "name": "Month-end — currency revaluation (reverse for a gain)",
-        "debit_code": "7181",
-        "debit_name": "Foreign exchange loss",
-        "debit_type": "Expense",
-        "credit_code": "1103",
-        "credit_name": "Cash in Banks",
-        "credit_type": "Asset",
-        "sort_order": 205,
     },
     {
         "rule_code": "YEC_CLOSE",
         "event_code": EVENT_YEAR_END_CLOSE,
         "variant": VARIANT_CLOSE,
         "party_scope": PARTY_ANY,
-        "name": "Year-end close — P&L to retained earnings",
+        "name": "Year-end close — close all P&L to retained earnings",
         "debit_code": "4110001",
         "debit_name": "Sales Revenue",
         "debit_type": "Revenue",
@@ -536,12 +458,12 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "event_code": EVENT_YEAR_END_CLOSE,
         "variant": VARIANT_NI_CLEAR,
         "party_scope": PARTY_ANY,
-        "name": "Year-end close — clear current-period NI into retained earnings",
+        "name": "Year-end close — reverse monthly current-period NI",
         "debit_code": "3353",
         "debit_name": "Net income or loss for current period-BS",
         "debit_type": "Equity",
-        "credit_code": "3350",
-        "credit_name": "Retained earnings-unappropriated (or accumulated deficit)",
+        "credit_code": "3354",
+        "credit_name": "Net income or loss for current period-IS",
         "credit_type": "Equity",
         "sort_order": 211,
     },
@@ -707,26 +629,39 @@ def resolve_close_pair(db: Session, event_code: str) -> tuple[ChartOfAccount, Ch
     return debit, credit
 
 
+def _event_group_label(rule: PostingRule) -> str:
+    return EVENT_LABELS.get(rule.event_code, rule.event_code)
+
+
+def _closes_all_pnl(rule: PostingRule) -> bool:
+    return rule.event_code == EVENT_YEAR_END_CLOSE and rule.variant == VARIANT_CLOSE
+
+
 def serialize_posting_rule(rule: PostingRule) -> dict[str, Any]:
     spec = _DEFAULT_BY_CODE.get(rule.rule_code) or find_default_rule(
         rule.event_code, rule.variant, rule.party_scope
     )
     debit = rule.debit_account
     credit = rule.credit_account
+    closes_all_pnl = _closes_all_pnl(rule)
+    display_name = rule.name
+    if spec and (closes_all_pnl or rule.rule_code == "MEC_PARK_NI"):
+        display_name = spec["name"]
     return {
         "id": rule.id,
         "rule_code": rule.rule_code,
         "event_code": rule.event_code,
-        "event_label": EVENT_LABELS.get(rule.event_code, rule.event_code),
+        "event_label": _event_group_label(rule),
         "variant": rule.variant,
         "variant_label": VARIANT_LABELS.get(rule.variant, rule.variant),
         "party_scope": rule.party_scope,
         "party_label": PARTY_LABELS.get(rule.party_scope, rule.party_scope),
-        "name": rule.name,
+        "name": display_name,
         "debit_account_id": rule.debit_account_id,
         "debit_account_code": debit.account_code if debit else None,
         "debit_account_name": debit.account_name if debit else None,
         "debit_account_type": debit.account_type if debit else None,
+        "debit_display_label": "All P&L (Income / Expense)" if closes_all_pnl else None,
         "credit_account_id": rule.credit_account_id,
         "credit_account_code": credit.account_code if credit else None,
         "credit_account_name": credit.account_name if credit else None,

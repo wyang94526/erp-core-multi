@@ -53,6 +53,10 @@ export function generateSupplierBillPdf(detail: APBillDetail): void {
   const marginX = 48
   let y = 48
   const sourceOrder = detail.source_order_id || detail.purchase_order_id || '—'
+  const receiptIds = (detail.goods_receipts || [])
+    .map((row) => row.receipt_number)
+    .filter(Boolean)
+    .join(', ')
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
@@ -84,6 +88,10 @@ export function generateSupplierBillPdf(detail: APBillDetail): void {
   doc.text(`Source Order: ${sourceOrder}`, marginX, y)
   doc.text(`Issue: ${formatDate(detail.issue_date)}`, pageWidth / 2, y)
   y += 14
+  if (receiptIds) {
+    doc.text(`Goods Receipt: ${receiptIds}`, marginX, y)
+    y += 14
+  }
   doc.text(`Due: ${formatDate(detail.due_date)}`, marginX, y)
   if (detail.payment_date) {
     doc.text(`Paid: ${formatDate(detail.payment_date)}`, pageWidth / 2, y)

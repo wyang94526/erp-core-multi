@@ -759,10 +759,15 @@ export interface GoodsReceiptLine {
   quantity_ordered?: number | string | null;
   quantity_received: number | string;
   unit_cost: number | string;
+  receipt_unit_cost?: number | string | null;
   line_amount: number | string;
   allocated_landed_amount?: number | string;
+  allocated_landed_cost?: number | string;
   landed_unit_cost?: number | string | null;
   actual_unit_cost?: number | string | null;
+  quantity_invoiced?: number | string;
+  quantity_unbilled?: number | string;
+  billing_status?: string | null;
   uom?: string | null;
   lot_number?: string | null;
   serial_number?: string | null;
@@ -840,6 +845,11 @@ export interface GoodsReceipt {
   received_by?: string | null;
   operational_receipt_id?: string | null;
   total_amount?: number | string | null;
+  quantity_received?: number | string | null;
+  quantity_invoiced?: number | string | null;
+  quantity_unbilled?: number | string | null;
+  receipt_unit_cost?: number | string | null;
+  billing_status?: string | null;
   can_adjust_quantities?: boolean;
   lines: GoodsReceiptLine[];
   journals?: GoodsReceiptJournal[];
@@ -922,6 +932,7 @@ export interface PostingRule {
   debit_account_code?: string | null;
   debit_account_name?: string | null;
   debit_account_type?: string | null;
+  debit_display_label?: string | null;
   credit_account_id: string;
   credit_account_code?: string | null;
   credit_account_name?: string | null;
@@ -1054,6 +1065,7 @@ export interface APBill {
   source_order_id?: string | null;
   reference_po_number?: string | null;
   amount: number;
+  outstanding_balance?: number;
   status: 'Unpaid' | 'Partial' | 'Paid' | string;
   approval_status?: ApprovalStatus;
   current_approval_step?: number | null;
@@ -1075,6 +1087,13 @@ export interface APBillLineDetail {
   quantity: number;
   unit_price: number;
   line_subtotal: number;
+  goods_receipt_id?: number | null;
+  goods_receipt_number?: string | null;
+}
+
+export interface APBillReceiptRef {
+  id?: number | null;
+  receipt_number: string;
 }
 
 export interface APBillDetail extends APBill {
@@ -1096,6 +1115,7 @@ export interface APBillDetail extends APBill {
   supplier_invoice_status?: string | null;
   invoice_type?: 'PO_MATCHED' | 'LANDED_COST' | 'EXPENSE' | string | null;
   match_warnings?: string[];
+  goods_receipts?: APBillReceiptRef[];
   lines: APBillLineDetail[];
   payments: APBillPayment[];
 }
@@ -1134,6 +1154,8 @@ export interface SupplierInvoiceDistribution {
   amount: number;
   description?: string | null;
   goods_receipt_id?: number | null;
+  goods_receipt_number?: string | null;
+  source_order_id?: string | null;
   goods_receipt_line_id?: number | null;
 }
 
@@ -1355,6 +1377,7 @@ export interface MonthEndClosePreview {
   close_date: string
   period_still_open: boolean
   current_period_ni: YearEndCloseAccount | null
+  current_period_ni_is?: YearEndCloseAccount | null
   revenue_total: number | string
   expense_total: number | string
   net_income: number | string

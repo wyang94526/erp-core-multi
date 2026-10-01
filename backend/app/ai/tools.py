@@ -608,8 +608,22 @@ def search_erp_knowledge(query: str) -> str:
 
     hits = search_knowledge(query, k=4)
     if not hits:
-        return _json({"results": [], "note": "Knowledge base empty — run ingest script or restart API."})
-    return _json({"results": hits})
+        return (
+            "I don't have ERP process notes that match that. "
+            "Ask about customers, orders, inventory, journals, or financial reports."
+        )
+    parts = ["Here is what the ERP process docs say:", ""]
+    for hit in hits:
+        source = str(hit.get("source") or "docs")
+        content = str(hit.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 700:
+            content = content[:700].rstrip() + "…"
+        parts.append(f"**{source}**")
+        parts.append(content)
+        parts.append("")
+    return "\n".join(parts).strip()
 
 
 @tool

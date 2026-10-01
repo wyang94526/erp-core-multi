@@ -1653,13 +1653,22 @@ class GoodsReceiptLine(Base):
     quantity_received = Column(Numeric(12, 4), nullable=False)
     unit_cost = Column(Numeric(12, 4), nullable=False)
     line_amount = Column(Numeric(12, 2), nullable=False)
+    allocated_landed_cost = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    actual_unit_cost = Column(Numeric(12, 4), nullable=True)
+    quantity_invoiced = Column(Numeric(12, 4), nullable=False, server_default=text("0"))
+    billing_status = Column(String(20), nullable=False, server_default=text("'UNBILLED'"))
 
     __table_args__ = (
         CheckConstraint("quantity_received > 0", name="chk_gr_line_qty_pos"),
+        CheckConstraint(
+            "billing_status IN ('UNBILLED', 'PARTIALLY_BILLED', 'FULLY_BILLED')",
+            name="chk_gr_line_billing_status",
+        ),
     )
 
     receipt = relationship("GoodsReceipt", back_populates="lines")
     item = relationship("Item")
+    invoice_lines = relationship("SupplierInvoiceLine", back_populates="goods_receipt_line")
 
 
 class SupplierInvoice(Base):
@@ -1746,7 +1755,7 @@ class SupplierInvoiceLine(Base):
 
     invoice = relationship("SupplierInvoice", back_populates="lines")
     item = relationship("Item")
-    goods_receipt_line = relationship("GoodsReceiptLine")
+    goods_receipt_line = relationship("GoodsReceiptLine", back_populates="invoice_lines")
 
 
 class SupplierInvoiceDistribution(Base):

@@ -15,6 +15,7 @@ import {
   fulfillmentService,
   itemService,
   locationService,
+  salesInvoiceService,
   salesOrderService,
   subcontractOrderService,
 } from '../api/services'
@@ -34,6 +35,7 @@ import {
 } from '../utils/salesOrders'
 import { isSalesOrderFullyFulfilled, salesOrderQtyProgress } from '../utils/fulfillmentQty'
 import { scoReceivedQty } from '../utils/scoReceive'
+import { invoiceDetailHref } from '../utils/cashReference'
 import {
   HoverTip,
   actionRowStyle,
@@ -97,6 +99,11 @@ export function SalesOrderDetail() {
     queryKey: ['subcontractOrders', 'bySalesOrder', id],
     queryFn: () => subcontractOrderService.listSubcontractOrders(0, 200, id),
     enabled: Boolean(id),
+  })
+
+  const { data: salesInvoices = [] } = useQuery({
+    queryKey: ['salesInvoices'],
+    queryFn: () => salesInvoiceService.list(0, 200),
   })
 
   const { data: scoAvailability } = useQuery({
@@ -186,6 +193,13 @@ export function SalesOrderDetail() {
   const billingStatus = salesOrderInvoiceStatus(order)
   const billingColors = invoiceStatusColors(billingStatus)
   const qtyProgress = salesOrderQtyProgress(order, fulfillments)
+  const billedInvoice = salesInvoices.find(
+    (inv) =>
+      inv.sales_order_id === order.sales_order_id &&
+      (inv.status || '').toUpperCase() !== 'VOID',
+  )
+  const billedAmount = Number(order.billed_amount || 0)
+  const billedLabel = `Billed ${order.currency} ${billedAmount.toFixed(2)}`
   const canCreateInvoice = isApproved && hasShippedFulfillment && !fullyInvoiced
   const canEditOrder = isSalesOrderEditable(order)
 
@@ -586,7 +600,17 @@ export function SalesOrderDetail() {
                 {invoiceStatusLabel(billingStatus)}
               </span>
               <span style={{ marginLeft: 8, fontSize: 13, color: 'var(--text)' }}>
-                Billed {order.currency} {Number(order.billed_amount || 0).toFixed(2)}
+                {billedInvoice && billedAmount > 0 ? (
+                  <Link
+                    to={invoiceDetailHref(billedInvoice.invoice_number)}
+                    style={documentLinkStyle}
+                    title={`Open invoice ${billedInvoice.invoice_number}`}
+                  >
+                    {billedLabel}
+                  </Link>
+                ) : (
+                  billedLabel
+                )}
                 {' · remaining '}
                 {Number(order.remaining_billable_amount ?? order.total_amount ?? 0).toFixed(2)}
               </span>

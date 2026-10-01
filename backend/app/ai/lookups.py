@@ -1274,6 +1274,56 @@ _GROUPED_TOTALS_PHRASES = (
     "by supplier",
 )
 
+_DOCUMENT_LIST_HINTS = (
+    "purchase order",
+    "sales order",
+    "subcontract",
+    "invoice",
+    "customer",
+    "vendor",
+    "supplier",
+    "item",
+    "sku",
+    "bom",
+    "warehouse",
+    "journal",
+)
+
+
+def _levenshtein(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    prev = list(range(len(right) + 1))
+    for i, left_ch in enumerate(left, 1):
+        curr = [i]
+        for j, right_ch in enumerate(right, 1):
+            curr.append(
+                min(
+                    prev[j] + 1,
+                    curr[j - 1] + 1,
+                    prev[j - 1] + (left_ch != right_ch),
+                )
+            )
+        prev = curr
+    return prev[-1]
+
+
+def _has_near_word(text: str, *targets: str, max_dist: int = 2) -> bool:
+    """True when a token matches a target exactly or within a small edit distance."""
+    for token in re.findall(r"[a-z]+", text):
+        for target in targets:
+            if token == target:
+                return True
+            if len(token) < 5 or abs(len(token) - len(target)) > max_dist:
+                continue
+            if _levenshtein(token, target) <= max_dist:
+                return True
+    return False
+
 
 def infer_financial_report_type(question: str) -> str:
     """Map wording onto a financial-report catalog id, or empty if not a report."""
@@ -1288,8 +1338,16 @@ def infer_financial_report_type(question: str) -> str:
     # Leave "revenue by month" / "revenue by vendor" to get_orders_by_month.
     if any(phrase in text for phrase in _GROUPED_TOTALS_PHRASES):
         return ""
-    if re.search(r"\b(revenue|net income|gross profit)\b", text):
+    if re.search(r"\b(net income|gross profit)\b", text) or _has_near_word(
+        text, "revenue", "revenues", "expense", "expenses", "opex", max_dist=1
+    ):
         return "income-statement"
+    # "show me expense for September 2026" / "show me September 2026"
+    if parse_financial_report_period(question) and re.search(
+        r"\b(show|give|tell|display|pull)\b", text
+    ):
+        if not any(hint in text for hint in _DOCUMENT_LIST_HINTS):
+            return "income-statement"
     return ""
 
 

@@ -105,6 +105,39 @@ def _is_preformatted_lookup(text: str) -> bool:
     return False
 
 
+ERP_SCOPE_REPLY = (
+    "I can only look up **GTT-USA ERP** data — customers, vendors, items, orders, "
+    "inventory, journals, and financial reports. I don't have weather, news, or other "
+    "outside information.\n\n"
+    "Try “P&L for September 2026”, “how many open purchase orders?”, or “how do I create a PO?”."
+)
+
+_OUT_OF_SCOPE_RE = re.compile(
+    r"\b("
+    r"weather|temperature|humidity|rainfall|precipitation|typhoon|"
+    r"horoscope|lottery|recipe|sports score"
+    r")\b",
+    re.I,
+)
+
+
+def _format_knowledge_hits(hits: list[Any]) -> str:
+    parts = ["Here is what the ERP process docs say:", ""]
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        source = str(hit.get("source") or "docs")
+        content = str(hit.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 700:
+            content = content[:700].rstrip() + "…"
+        parts.append(f"**{source}**")
+        parts.append(content)
+        parts.append("")
+    return "\n".join(parts).strip() or ERP_SCOPE_REPLY
+
+
 def _format_tool_reply(tool_outputs: list[str], pending: dict[str, Any] | None) -> str:
     from app.ai.lookups import format_count_answer, format_period_answer
 
@@ -119,6 +152,9 @@ def _format_tool_reply(tool_outputs: list[str], pending: dict[str, Any] | None) 
             reply_parts.append(format_period_answer(out))
         elif isinstance(data, dict) and "entity" in data and "orders" not in data:
             reply_parts.append(format_count_answer(out))
+        elif isinstance(data, dict) and "results" in data and "orders" not in data:
+            hits = data.get("results") or []
+            reply_parts.append(_format_knowledge_hits(hits) if hits else ERP_SCOPE_REPLY)
         else:
             reply_parts.append("```json")
             reply_parts.append(json.dumps(data, indent=2, default=str))
@@ -226,6 +262,29 @@ def _answer_period_question(message: str) -> str:
     return format_period_answer(raw)
 
 
+def _is_howto_question(message: str) -> bool:
+    """Process/docs questions. 'what is the expense for September 2026' is a live P&L lookup."""
+    text = (message or "").lower()
+    if any(phrase in text for phrase in ("explain", "workflow", "approval", "permission")):
+        return True
+    if re.search(r"\bhow\s+(do|to|can|does|should|is|are|would)\b", text):
+        return True
+    if re.search(r"\bwhat(?:'s| is)\b", text):
+        from app.ai.lookups import parse_financial_report_period
+
+        if parse_financial_report_period(text) or _is_financial_report_question(message):
+            return False
+        return True
+    return False
+
+
+def _is_out_of_scope_question(message: str) -> bool:
+    """True for weather/news-style asks that are not ERP lookups or statements."""
+    if _is_financial_report_question(message) or _is_period_question(message):
+        return False
+    return bool(_OUT_OF_SCOPE_RE.search(message or ""))
+
+
 def _is_financial_report_question(message: str) -> bool:
     from app.ai.lookups import infer_financial_report_type
 
@@ -253,9 +312,11 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
         return _answer_financial_report_question(message), None
     if _is_period_question(message):
         return _answer_period_question(message), None
+    if _is_out_of_scope_question(message):
+        return ERP_SCOPE_REPLY, None
 
-    # Knowledge / how-to
-    if any(w in text for w in ("how", "what is", "explain", "workflow", "approval", "permission")):
+    # Knowledge / how-to. Do not treat the "how" inside "show me …" as a how-to ask.
+    if _is_howto_question(message):
         from app.ai.tools import search_erp_knowledge
 
         tool_outputs.append(search_erp_knowledge.invoke({"query": message}))
@@ -683,9 +744,7 @@ def _run_heuristic(message: str, page_context: dict[str, Any] | None) -> tuple[s
         )
 
     if not tool_outputs:
-        from app.ai.tools import search_erp_knowledge
-
-        tool_outputs.append(search_erp_knowledge.invoke({"query": message}))
+        return ERP_SCOPE_REPLY, None
 
     pending = _extract_pending(tool_outputs)
     return _format_tool_reply(tool_outputs, pending), pending
@@ -757,6 +816,8 @@ def run_chat(
             reply, pending = _answer_financial_report_question(message), None
         elif _is_period_question(message):
             reply, pending = _answer_period_question(message), None
+        elif _is_out_of_scope_question(message):
+            reply, pending = ERP_SCOPE_REPLY, None
         elif settings.openai_api_key:
             reply, pending = _run_llm_agent(message, cid, page_context)
         else:

@@ -15,6 +15,7 @@ from app.services.year_end_close import (
     GENERATED_APPROVAL_STATUS,
     GENERATED_POSTING_STATUS,
     build_closing_lines,
+    build_reverse_monthly_ni_lines,
     resolve_current_period_ni_ids,
     resolve_fiscal_year,
     resolve_retained_earnings,
@@ -110,6 +111,34 @@ class YearEndCloseLogicTests(unittest.TestCase):
         re_line = next(line for line in lines if line.account_code == "3350")
         self.assertEqual(re_line.debit, Decimal("350.00"))
         self.assertEqual(sum((line.debit for line in lines), ZERO), sum((line.credit for line in lines), ZERO))
+
+    def test_reverse_monthly_ni_does_not_hit_retained_earnings(self):
+        ni_bs = SimpleNamespace(
+            id=uuid4(),
+            account_code="3353",
+            account_name="Net income or loss for current period-BS",
+            account_type="Equity",
+        )
+        ni_is = SimpleNamespace(
+            id=uuid4(),
+            account_code="3354",
+            account_name="Net income or loss for current period-IS",
+            account_type="Equity",
+        )
+        parked = AccountBalance(
+            account_id=ni_bs.id,
+            account_code="3353",
+            account_name=ni_bs.account_name,
+            account_type="Equity",
+            debit=Decimal("0"),
+            credit=Decimal("600.00"),
+        )
+        lines = build_reverse_monthly_ni_lines([parked], "FY 2026", ni_bs, ni_is)
+        by_code = {line.account_code: line for line in lines}
+        self.assertEqual(set(by_code), {"3353", "3354"})
+        self.assertEqual(by_code["3353"].debit, Decimal("600.00"))
+        self.assertEqual(by_code["3354"].credit, Decimal("600.00"))
+        self.assertNotIn("3350", by_code)
 
     def test_generated_journal_stays_draft_for_approval(self):
         self.assertEqual(GENERATED_POSTING_STATUS, "Draft")

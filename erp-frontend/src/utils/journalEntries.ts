@@ -9,8 +9,35 @@ export const JOURNAL_CREATE_PATH = '/general-ledger/journals/new'
 export const MONTH_END_CLOSE_PATH = '/general-ledger/month-end-close'
 export const YEAR_END_CLOSE_PATH = '/general-ledger/year-end-close'
 
-export function journalEditPath(id: string) {
-  return `/general-ledger/journals/${id}/edit`
+export function journalEditPath(id: string, options?: { from?: string | null }) {
+  const path = `/general-ledger/journals/${encodeURIComponent(id)}/edit`
+  const from = (options?.from || '').trim()
+  if (!from) return path
+  return `${path}?from=${encodeURIComponent(from)}`
+}
+
+export function journalReturnPath(
+  from?: string | null,
+  sourceType?: string | null,
+  sourceRecordId?: string | null,
+) {
+  const explicit = (from || '').trim()
+  if (explicit) return explicit
+  return sourceDocumentPath(sourceType, sourceRecordId) || '/general-ledger'
+}
+
+export function journalReturnLabel(path?: string | null) {
+  const route = (path || '').split('?')[0]
+  if (route.startsWith('/goods-receipts')) return 'Back to Goods Receipt'
+  if (route.startsWith('/supplier-invoices')) return 'Back to Supplier Invoice'
+  if (route.startsWith('/sales-invoices')) return 'Back to Sales Invoice'
+  if (route.startsWith('/bank-transfers')) return 'Back to Bank Transfer'
+  if (route.startsWith('/purchase-orders')) return 'Back to Purchase Order'
+  if (route.startsWith('/subcontract-orders')) return 'Back to Subcontract Order'
+  if (route.includes('month-end-close')) return 'Back to Month-End Close'
+  if (route.includes('year-end-close')) return 'Back to Year-End Close'
+  if (route.startsWith('/general-ledger')) return 'Back to General Ledger'
+  return 'Back'
 }
 
 export function shortJournalId(id: string) {

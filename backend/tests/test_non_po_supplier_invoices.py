@@ -16,6 +16,7 @@ from app.schemas import SupplierInvoiceCreate
 from app.services.p2p import (
     _assert_invoice_editable,
     reject_supplier_invoice,
+    rescind_supplier_invoice,
     submit_supplier_invoice,
     validate_supplier_invoice_payload,
 )
@@ -32,7 +33,20 @@ def test_po_matched_requires_source_order_id():
             lines=[{"quantity_billed": 1, "unit_price": 10}],
         )
     assert exc.value.status_code == 400
-    assert "source_order_id" in str(exc.value.detail)
+    assert "receipt_ids" in str(exc.value.detail)
+
+
+def test_po_matched_accepts_receipt_ids_without_order():
+    resolved = validate_supplier_invoice_payload(
+        invoice_type="PO_MATCHED",
+        source_type=None,
+        source_order_id=None,
+        vendor_id=None,
+        distributions=None,
+        lines=None,
+        receipt_ids=["UP72-26090002", 41],
+    )
+    assert resolved[0] == "PO_MATCHED"
 
 
 def test_po_matched_payload_is_accepted():
@@ -139,16 +153,18 @@ def test_schema_allows_non_po_without_po_id():
     assert payload.distributions and len(payload.distributions) == 1
 
 
-def test_draft_and_rejected_non_po_are_editable():
+def test_draft_rejected_and_pending_non_po_are_editable():
     draft = SimpleNamespace(status="DRAFT", invoice_type="EXPENSE")
     rejected = SimpleNamespace(status="REJECTED", invoice_type="LANDED_COST")
+    pending = SimpleNamespace(status="PENDING_APPROVAL", invoice_type="EXPENSE")
     _assert_invoice_editable(draft)
     _assert_invoice_editable(rejected)
+    _assert_invoice_editable(pending)
 
 
-def test_pending_or_po_matched_cannot_be_edited():
+def test_approved_or_po_matched_cannot_be_edited():
     with pytest.raises(HTTPException) as exc:
-        _assert_invoice_editable(SimpleNamespace(status="PENDING_APPROVAL", invoice_type="EXPENSE"))
+        _assert_invoice_editable(SimpleNamespace(status="APPROVED", invoice_type="EXPENSE"))
     assert exc.value.status_code == 400
     with pytest.raises(HTTPException) as exc:
         _assert_invoice_editable(SimpleNamespace(status="DRAFT", invoice_type="PO_MATCHED"))
@@ -179,6 +195,48 @@ def test_reject_moves_pending_invoice_to_rejected():
             result = reject_supplier_invoice(db, 9)
     assert invoice.status == "REJECTED"
     assert result["status"] == "REJECTED"
+
+
+def test_rescind_returns_approved_non_po_to_draft():
+    invoice = SimpleNamespace(
+        status="APPROVED",
+        invoice_type="LANDED_COST",
+        invoice_number="UX13-26100003",
+        ap_bill_id="UX13-26100003",
+        distributions=[],
+        id=13,
+    )
+    bill = SimpleNamespace(status="Unpaid", bill_id="UX13-26100003")
+    db = MagicMock()
+    db.get.return_value = bill
+    db.query.return_value.options.return_value.filter.return_value.all.return_value = []
+    with patch("app.services.p2p._load_invoice", return_value=invoice):
+        with patch("app.services.p2p.finance._cash_applied_total", return_value=0):
+            with patch("app.services.p2p.finance._ap_reference_ids", return_value={"UX13-26100003"}):
+                with patch(
+                    "app.services.p2p.serialize_supplier_invoice",
+                    return_value={"status": "DRAFT", "ap_bill_id": None},
+                ):
+                    result = rescind_supplier_invoice(db, 13)
+    assert invoice.status == "DRAFT"
+    assert invoice.ap_bill_id is None
+    assert result["status"] == "DRAFT"
+    db.delete.assert_called_once_with(bill)
+
+
+def test_rescind_blocks_paid_or_po_matched():
+    db = MagicMock()
+    with patch("app.services.p2p._load_invoice", return_value=SimpleNamespace(status="PAID", invoice_type="EXPENSE")):
+        with pytest.raises(HTTPException) as exc:
+            rescind_supplier_invoice(db, 1)
+    assert exc.value.status_code == 400
+    with patch(
+        "app.services.p2p._load_invoice",
+        return_value=SimpleNamespace(status="APPROVED", invoice_type="PO_MATCHED"),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            rescind_supplier_invoice(db, 2)
+    assert "Non-PO" in str(exc.value.detail)
 
 
 def test_submit_allows_rejected_invoice():

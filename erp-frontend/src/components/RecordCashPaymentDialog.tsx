@@ -8,6 +8,7 @@ import { bankAccountService, cashTransactionService } from '../api/services'
 import type { BankAccount, CashPaymentMethod } from '../types'
 
 export type CashPaymentChoice = {
+  amount?: number
   bank_account_id: string
   payment_method: CashPaymentMethod
   instrument_ref_no: string
@@ -42,6 +43,11 @@ function todayISO() {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+function formatAmountInput(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return ''
+  return (Math.round(Number(value) * 100) / 100).toFixed(2)
+}
+
 function stripInstrumentPrefix(value: string) {
   return value.replace(/^(CHK|WIRE|ACH|CC)-/i, '').trim()
 }
@@ -67,6 +73,7 @@ export function RecordCashPaymentDialog({
   const [paymentMethod, setPaymentMethod] = useState<CashPaymentMethod>('CHECK')
   const [instrumentRef, setInstrumentRef] = useState('')
   const [paymentDate, setPaymentDate] = useState(todayISO)
+  const [paymentAmount, setPaymentAmount] = useState(formatAmountInput(amount))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -78,6 +85,7 @@ export function RecordCashPaymentDialog({
     setPaymentMethod('CHECK')
     setPaymentDate(todayISO())
     setInstrumentRef('')
+    setPaymentAmount(formatAmountInput(amount))
     void bankAccountService
       .getBankAccounts(true)
       .then((rows) => {
@@ -95,7 +103,7 @@ export function RecordCashPaymentDialog({
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, amount])
 
   useEffect(() => {
     if (!open) return
@@ -138,7 +146,18 @@ export function RecordCashPaymentDialog({
       setError('Select a payment date')
       return
     }
+    const parsedAmount = Number(paymentAmount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError('Enter a payment amount greater than zero')
+      return
+    }
+    const remaining = amount == null ? null : Number(amount)
+    if (remaining != null && Number.isFinite(remaining) && parsedAmount > remaining + 0.0001) {
+      setError(`Payment amount cannot exceed the remaining balance of ${money(remaining)}`)
+      return
+    }
     await onConfirm({
+      amount: Math.round(parsedAmount * 100) / 100,
       bank_account_id: bankAccountId,
       payment_method: paymentMethod,
       instrument_ref_no: reference,
@@ -153,9 +172,23 @@ export function RecordCashPaymentDialog({
         {subtitle ? <p style={subStyle}>{subtitle}</p> : null}
         {amount != null ? (
           <p style={amountStyle}>
-            Amount <strong>{money(amount)}</strong>
+            Remaining balance <strong>{money(amount)}</strong>
           </p>
         ) : null}
+
+        <label style={labelStyle}>
+          Payment amount
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            style={selectStyle}
+            value={paymentAmount}
+            onChange={(event) => setPaymentAmount(event.target.value)}
+            disabled={loading || submitting}
+            required
+          />
+        </label>
 
         <label style={labelStyle}>
           Bank account

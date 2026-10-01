@@ -142,7 +142,7 @@ def run_month_end_close(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("journal:create")),
 ) -> dict:
-    """Rejected: month-end no longer generates a P&L closing journal."""
+    """Create a Draft park-NI journal (3354 / 3353). It does not post until approved."""
     body = payload or MonthEndCloseRequest()
     entry = month_end_close.run_month_end_close(
         db,
@@ -156,8 +156,8 @@ def run_month_end_close(
     )
     return {
         "message": (
-            "Month-end close journal created as Draft. Submit it for approval; "
-            "P&L does not move until the journal is approved and posted."
+            "Month-end park journal created as Draft. Submit it for approval; "
+            "current-period NI is parked to 3353 / 3354 when the journal is posted."
         ),
         "journal": loaded or entry,
     }
@@ -191,7 +191,7 @@ def run_year_end_close(
     return {
         "message": (
             "Year-end close journal created as Draft. Submit it for approval; "
-            "P&L does not move until the journal is approved and posted."
+            "P&L closes to 3350 and monthly NI parking is reversed when posted."
         ),
         "journal": loaded or entry,
     }

@@ -155,7 +155,7 @@ export function toJournalEntry(row: GoodsReceiptJournal): JournalEntry {
 }
 
 export const receiptLinkStyle: CSSProperties = {
-  color: 'var(--accent, #1565c0)',
+  color: 'var(--link, #1565c0)',
   fontWeight: 700,
   textDecoration: 'underline',
 }

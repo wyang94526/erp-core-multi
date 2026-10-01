@@ -434,6 +434,25 @@ def _shipped_billable_total(db: Session, order: SalesOrder) -> Decimal:
     return _money(total)
 
 
+def invoice_quantity_for_so_line(
+    *,
+    quantity_ordered: int,
+    shipped_qty: int,
+    remaining_closed: bool,
+    amount_only: bool,
+) -> int:
+    """Invoice shipped qty after a partial ship; leftover cancelled qty stays off the bill."""
+    ordered = int(quantity_ordered or 0)
+    shipped = max(0, int(shipped_qty or 0))
+    if remaining_closed or shipped > 0:
+        if ordered > 0:
+            return min(shipped, ordered)
+        return shipped
+    if amount_only:
+        return ordered
+    return 0
+
+
 def sales_order_can_close_remaining(db: Session, order: SalesOrder) -> bool:
     status = _normalize_so_flag(getattr(order, "status", None))
     if is_remaining_closed(order) or status in {"CANCELLED", "INVOICED", "FULFILLED"}:
@@ -971,11 +990,21 @@ def create_sales_invoice(
                 )
             )
     else:
+        shipped_by_line = _fulfilled_qty_by_line(db, sales_order_id, statuses={"SHIPPED"})
+        remaining_closed = is_remaining_closed(order)
         for so_line in order.items or []:
+            amount_only = skip_inventory_movement(catalog_item(db, so_line.item_id))
+            qty = invoice_quantity_for_so_line(
+                quantity_ordered=int(so_line.quantity_ordered or 0),
+                shipped_qty=shipped_by_line.get(int(so_line.so_item_id), 0),
+                remaining_closed=remaining_closed,
+                amount_only=amount_only,
+            )
             unit_price = Decimal(str(so_line.unit_price))
-            qty = int(so_line.quantity_ordered)
             item = so_line.item
             if qty == 0:
+                if not amount_only:
+                    continue
                 line_subtotal = _money(so_line.total_amount) - _money(so_line.tax_amount)
             else:
                 line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))

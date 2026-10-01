@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { approvalService, chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,8 @@ import {
   inferredPostingRule,
   isJournalEditable,
   isSystemJournal,
+  journalReturnLabel,
+  journalReturnPath,
   postingRuleDisplay,
   postingRulePath,
   sourceDocumentLabel,
@@ -66,6 +68,7 @@ const money = (n: number) =>
 
 export function ManualJournalEntryPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { hasPermission } = useAuth()
@@ -192,7 +195,13 @@ export function ManualJournalEntryPage() {
     return null
   }
 
-  const goBack = () => navigate('/general-ledger')
+  const returnTo = journalReturnPath(
+    searchParams.get('from'),
+    entryQuery.data?.source_document_type,
+    entryQuery.data?.source_record_id,
+  )
+  const backLabel = journalReturnLabel(returnTo)
+  const goBack = () => navigate(returnTo)
 
   const handleSave = async (submitAfter: boolean) => {
     const message = validate()
@@ -256,7 +265,7 @@ export function ManualJournalEntryPage() {
           {error || (entryQuery.error instanceof Error ? entryQuery.error.message : 'This journal cannot be edited.')}
         </p>
         <button type="button" style={cancelBtn} onClick={goBack}>
-          Back to General Ledger
+          {backLabel}
         </button>
       </div>
     )
@@ -463,7 +472,7 @@ export function ManualJournalEntryPage() {
 
         <div style={actionsStyle}>
           <button type="button" style={cancelBtn} onClick={goBack} disabled={busy}>
-            {readOnly ? 'Back to General Ledger' : 'Cancel'}
+            {readOnly ? backLabel : 'Cancel'}
           </button>
           {!readOnly && (
             <button type="button" style={secondaryBtn} disabled={busy} onClick={() => void handleSave(false)}>

@@ -50,12 +50,24 @@ def list_vendor_invoices(
 @router.get("/goods-receipts", response_model=list[GoodsReceiptRead])
 def list_posted_goods_receipts(
     vendor_id: str | None = Query(default=None),
+    source_type: str | None = Query(default=None),
+    source_order_id: str | None = Query(default=None),
+    unbilled_only: bool = Query(default=False),
     q: str | None = Query(default=None),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    return p2p.list_posted_goods_receipts(db, vendor_id=vendor_id, q=q, skip=skip, limit=limit)
+    return p2p.list_posted_goods_receipts(
+        db,
+        vendor_id=vendor_id,
+        source_type=source_type,
+        source_order_id=source_order_id,
+        unbilled_only=unbilled_only,
+        q=q,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/departments", response_model=list[DepartmentRead])
@@ -83,6 +95,7 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         invoice_type=payload.invoice_type,
         source_type=payload.source_type,
         source_order_id=payload.source_order_id,
+        receipt_ids=payload.receipt_ids,
         reference_po_number=payload.reference_po_number,
         vendor_id=payload.vendor_id,
         vendor_invoice_number=payload.vendor_invoice_number,
@@ -154,6 +167,13 @@ def submit_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
 @router.patch("/{invoice_id}/approve", response_model=SupplierInvoiceRead)
 def approve_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
     result = p2p.approve_supplier_invoice(db, invoice_id)
+    db.commit()
+    return result
+
+
+@router.patch("/{invoice_id}/rescind", response_model=SupplierInvoiceRead)
+def rescind_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    result = p2p.rescind_supplier_invoice(db, invoice_id)
     db.commit()
     return result
 

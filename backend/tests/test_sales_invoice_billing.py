@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.services.o2c import (
     assert_new_invoice_within_order_balance,
+    invoice_quantity_for_so_line,
     invoice_status_label,
 )
 
@@ -50,6 +51,33 @@ def test_allows_partial_invoice_up_to_remaining_balance():
         billed_amount=Decimal("60.00"),
         new_invoice_amount=Decimal("40.00"),
     )
+
+
+def test_invoice_qty_uses_shipped_after_remaining_cancelled():
+    assert invoice_quantity_for_so_line(
+        quantity_ordered=1000,
+        shipped_qty=800,
+        remaining_closed=True,
+        amount_only=False,
+    ) == 800
+
+
+def test_invoice_qty_uses_shipped_when_partially_fulfilled():
+    assert invoice_quantity_for_so_line(
+        quantity_ordered=1000,
+        shipped_qty=800,
+        remaining_closed=False,
+        amount_only=False,
+    ) == 800
+
+
+def test_invoice_qty_skips_unshipped_stock_line():
+    assert invoice_quantity_for_so_line(
+        quantity_ordered=1000,
+        shipped_qty=0,
+        remaining_closed=False,
+        amount_only=False,
+    ) == 0
 
 
 def test_voided_amount_is_treated_as_unbilled():

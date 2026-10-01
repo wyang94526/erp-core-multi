@@ -1732,7 +1732,7 @@ const valueStyle: React.CSSProperties = {
 }
 
 const documentLinkStyle: React.CSSProperties = {
-  color: 'var(--accent)',
+  color: 'var(--link, #1565c0)',
   fontWeight: 600,
   textDecoration: 'underline',
 }

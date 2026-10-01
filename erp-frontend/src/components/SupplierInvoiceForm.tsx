@@ -2,8 +2,8 @@
  * @author: Wendy Yang
  * @date: 2026-09-19
  *
- * Create or edit a supplier invoice (vendor bill) from a PO/SCO or as a Non-PO voucher.
- * Routes: /supplier-invoices/new?source_type=&source_order_id=&category=non-po
+ * Create or edit a supplier invoice (vendor bill) from goods receipts or as a Non-PO voucher.
+ * Routes: /supplier-invoices/new?source_type=&source_order_id=&receipt_id=&category=non-po
  *         /supplier-invoices/:invoiceId/edit
  */
 
@@ -13,13 +13,17 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   apBillService,
   chartOfAccountsService,
+  goodsReceiptService,
   paymentTermsService,
   purchaseOrderService,
   subcontractOrderService,
   vendorInvoiceService,
   vendorService,
 } from '../api/services'
+import type { GoodsReceipt, GoodsReceiptLine } from '../types'
 import { addDaysIso, findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
+import { formatReceiptMoney, formatReceiptQty } from '../utils/goodsReceipts'
+import AccountLookup from './AccountLookup'
 import GoodsReceiptLookup from './GoodsReceiptLookup'
 
 type InvoiceCategory = 'PO' | 'NON_PO'
@@ -45,7 +49,9 @@ type DistRow = {
   department_id: string
   amount: string
   description: string
+  source_order_id: string
   goods_receipt_id: string
+  goods_receipt_number: string
 }
 
 function SupplierInvoiceNumberField({
@@ -79,8 +85,37 @@ function newDistRow(): DistRow {
     department_id: '',
     amount: '',
     description: '',
+    source_order_id: '',
     goods_receipt_id: '',
+    goods_receipt_number: '',
   }
+}
+
+function receiptLineUnbilled(line: GoodsReceiptLine): number {
+  const explicit = Number(line.quantity_unbilled)
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit
+  const received = Number(line.quantity_received || 0)
+  const invoiced = Number(line.quantity_invoiced || 0)
+  return Math.max(0, received - invoiced)
+}
+
+function receiptUnitCost(receipt: GoodsReceipt, line?: GoodsReceiptLine): number {
+  if (line) {
+    return Number(line.receipt_unit_cost ?? line.unit_cost ?? 0)
+  }
+  return Number(receipt.receipt_unit_cost ?? 0)
+}
+
+function receiptReceivedQty(receipt: GoodsReceipt): number {
+  const header = Number(receipt.quantity_received)
+  if (Number.isFinite(header) && header > 0) return header
+  return (receipt.lines || []).reduce((sum, line) => sum + Number(line.quantity_received || 0), 0)
+}
+
+function formatReceiptDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
 }
 
 export function SupplierInvoiceForm() {
@@ -92,6 +127,14 @@ export function SupplierInvoiceForm() {
     | 'PURCHASE_ORDER'
     | 'SUBCONTRACT_ORDER'
   const initialSourceOrderId = searchParams.get('source_order_id') || ''
+  const initialReceiptKeys = useMemo(() => {
+    const fromList = (searchParams.get('receipt_ids') || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    const single = (searchParams.get('receipt_id') || '').trim()
+    return [...new Set(single ? [single, ...fromList] : fromList)]
+  }, [searchParams])
   const categoryParam = searchParams.get('category')
   const lockedNonPo = isLockedNonPoCategory(categoryParam) || isEdit
   const navigate = useNavigate()
@@ -105,6 +148,10 @@ export function SupplierInvoiceForm() {
     initialSourceType === 'SUBCONTRACT_ORDER' ? 'SUBCONTRACT_ORDER' : 'PURCHASE_ORDER',
   )
   const [sourceOrderId, setSourceOrderId] = useState(initialSourceOrderId)
+  const [selectedReceipts, setSelectedReceipts] = useState<GoodsReceipt[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [receiptSearch, setReceiptSearch] = useState('')
+  const [qtyByLineId, setQtyByLineId] = useState<Record<number, string>>({})
   const [referencePoNumber, setReferencePoNumber] = useState('')
   const [nonPoType, setNonPoType] = useState<NonPoType>('EXPENSE')
   const [vendorId, setVendorId] = useState('')
@@ -131,6 +178,10 @@ export function SupplierInvoiceForm() {
         throw new Error('This bill has no supplier invoice to edit.')
       }
       const invoice = await vendorInvoiceService.get(bill.supplier_invoice_id)
+      const status = (invoice.status || '').toUpperCase()
+      if (status === 'APPROVED' || status === 'PAID' || status === 'CANCELLED') {
+        throw new Error('Approved, paid, or cancelled invoices cannot be edited.')
+      }
       return { bill, invoice }
     },
     enabled: isEdit,
@@ -159,13 +210,16 @@ export function SupplierInvoiceForm() {
     setFreightAmount(invoice.freight_amount != null ? String(invoice.freight_amount) : '')
     setReferencePoNumber(invoice.reference_po_number || '')
     setSubmitMode('draft')
+    const fallbackPo = invoice.reference_po_number || invoice.source_order_id || ''
     const rows = (invoice.distributions || []).map((row) => ({
       key: `dist-${row.id}`,
       gl_account_id: row.gl_account_id,
       department_id: row.department_id || '',
       amount: String(row.amount ?? ''),
       description: row.description || '',
+      source_order_id: row.source_order_id || (row.goods_receipt_id ? fallbackPo : ''),
       goods_receipt_id: row.goods_receipt_id != null ? String(row.goods_receipt_id) : '',
+      goods_receipt_number: row.goods_receipt_number || '',
     }))
     setDistributions(rows.length ? rows : [newDistRow()])
     skipVendorTermSync.current = false
@@ -182,6 +236,85 @@ export function SupplierInvoiceForm() {
     queryFn: () => subcontractOrderService.getSubcontractOrder(sourceOrderId),
     enabled: !isNonPo && sourceType === 'SUBCONTRACT_ORDER' && Boolean(sourceOrderId),
   })
+
+  const receiptsQuery = useQuery({
+    queryKey: [
+      'postedGoodsReceipts',
+      'invoice-form',
+      sourceType,
+      initialSourceOrderId,
+      receiptSearch,
+    ],
+    queryFn: () =>
+      goodsReceiptService.list({
+        status: 'POSTED',
+        source_type: sourceType,
+        source_order_id: initialSourceOrderId || undefined,
+        q: receiptSearch || undefined,
+        unbilled_only: true,
+        limit: 200,
+      }),
+    enabled: !isNonPo,
+  })
+
+  useEffect(() => {
+    if (isNonPo || selectedReceipts.length) return
+    const rows = receiptsQuery.data || []
+    if (initialReceiptKeys.length) {
+      const matches = rows.filter(
+        (row) =>
+          initialReceiptKeys.includes(String(row.id)) ||
+          initialReceiptKeys.includes(row.receipt_number),
+      )
+      if (matches.length) {
+        setSelectedReceipts(matches)
+        return
+      }
+      void Promise.all(
+        initialReceiptKeys.map((key) => goodsReceiptService.get(key).catch(() => null)),
+      ).then((loaded) => {
+        const found = loaded.filter((row): row is GoodsReceipt => Boolean(row))
+        if (found.length) setSelectedReceipts(found)
+      })
+      return
+    }
+    if (initialSourceOrderId && rows.length) {
+      setSelectedReceipts(rows.filter((row) => receiptReceivedQty(row) > 0))
+    }
+  }, [
+    initialReceiptKeys,
+    initialSourceOrderId,
+    isNonPo,
+    receiptsQuery.data,
+    selectedReceipts.length,
+  ])
+
+  useEffect(() => {
+    setQtyByLineId((current) => {
+      const next = { ...current }
+      for (const receipt of selectedReceipts) {
+        for (const line of receipt.lines || []) {
+          if (next[line.id] == null) {
+            next[line.id] = String(receiptLineUnbilled(line))
+          }
+        }
+      }
+      return next
+    })
+    if (selectedReceipts.length === 1) {
+      setSourceType(
+        selectedReceipts[0].source_type === 'SUBCONTRACT_ORDER'
+          ? 'SUBCONTRACT_ORDER'
+          : 'PURCHASE_ORDER',
+      )
+      setSourceOrderId(selectedReceipts[0].source_order_id || '')
+    } else if (selectedReceipts.length > 1) {
+      const orders = new Set(selectedReceipts.map((row) => row.source_order_id).filter(Boolean))
+      if (orders.size === 1) {
+        setSourceOrderId(selectedReceipts[0].source_order_id || '')
+      }
+    }
+  }, [selectedReceipts])
 
   const vendorsQuery = useQuery({
     queryKey: ['vendors', 'invoice-form'],
@@ -209,7 +342,7 @@ export function SupplierInvoiceForm() {
 
   const accountsQuery = useQuery({
     queryKey: ['chartOfAccounts', 'invoice-form'],
-    queryFn: () => chartOfAccountsService.listAccounts(0, 500),
+    queryFn: () => chartOfAccountsService.listAccounts(0, 2000),
     enabled: isNonPo,
   })
 
@@ -295,26 +428,49 @@ export function SupplierInvoiceForm() {
 
   const poMutation = useMutation({
     mutationFn: async () => {
-      const lines =
-        sourceType === 'SUBCONTRACT_ORDER' && unitPriceOverride
-          ? [
-              {
-                item_id: scoQuery.data?.item_id,
-                quantity_billed: Number(
-                  (scoQuery.data?.finished_goods_receipts || []).reduce(
-                    (s, r) => s + r.quantity_received,
-                    0,
-                  ),
-                ),
-                unit_price: Number(unitPriceOverride),
-              },
-            ]
-          : null
+      if (!selectedReceipts.length) {
+        throw new Error('Select at least one goods receipt')
+      }
+      const vendors = new Set(selectedReceipts.map((row) => row.vendor_id))
+      if (vendors.size > 1) {
+        throw new Error('Selected goods receipts must share the same vendor')
+      }
+      const types = new Set(selectedReceipts.map((row) => (row.source_type || '').toUpperCase()))
+      if (types.size > 1) {
+        throw new Error('Selected goods receipts must be the same source type')
+      }
+      const resolvedType =
+        selectedReceipts[0].source_type === 'SUBCONTRACT_ORDER'
+          ? 'SUBCONTRACT_ORDER'
+          : 'PURCHASE_ORDER'
+      const lines = selectedReceipts.flatMap((receipt) =>
+        (receipt.lines || [])
+          .map((line) => {
+            const qty = Number(qtyByLineId[line.id] ?? receiptLineUnbilled(line))
+            if (!(qty > 0)) return null
+            const unit = receiptUnitCost(receipt, line)
+            return {
+              goods_receipt_line_id: line.id,
+              item_id: line.item_id,
+              description: line.description || line.item_id,
+              quantity_billed: qty,
+              unit_price:
+                resolvedType === 'SUBCONTRACT_ORDER' && unitPriceOverride
+                  ? Number(unitPriceOverride)
+                  : unit,
+            }
+          })
+          .filter((line): line is NonNullable<typeof line> => Boolean(line)),
+      )
+      if (!lines.length) {
+        throw new Error('Enter a billed quantity on at least one receipt line')
+      }
 
       const created = await vendorInvoiceService.create({
         invoice_type: 'PO_MATCHED',
-        source_type: sourceType,
-        source_order_id: sourceOrderId,
+        source_type: resolvedType,
+        source_order_id: sourceOrderId || selectedReceipts[0].source_order_id,
+        receipt_ids: selectedReceipts.map((row) => row.id),
         vendor_invoice_number: null,
         invoice_date: invoiceDate || null,
         due_date: dueDate || null,
@@ -393,7 +549,11 @@ export function SupplierInvoiceForm() {
         queryClient.invalidateQueries({ queryKey: ['goodsReceipts'] }),
         queryClient.invalidateQueries({ queryKey: ['postedGoodsReceipts'] }),
       ])
-      navigate(`/supplier-invoices/${encodeURIComponent(created.invoice_number)}`)
+      const nextPath =
+        submitMode === 'draft'
+          ? `/supplier-invoices/${encodeURIComponent(created.invoice_number)}/edit`
+          : `/supplier-invoices/${encodeURIComponent(created.invoice_number)}`
+      navigate(nextPath, { replace: isEdit })
     },
   })
 
@@ -420,12 +580,14 @@ export function SupplierInvoiceForm() {
           </h2>
           <p style={pageSubStyle}>
             {isEdit
-              ? 'Draft and rejected Non-PO invoices can be corrected, then saved or submitted again.'
+              ? 'Draft, returned, and pending Non-PO invoices can be corrected, then saved or submitted again.'
               : isNonPo
                 ? 'Freight, duty, rent, utilities, and other vouchers that are not 3-way matched to a PO'
-                : sourceOrderId
-                  ? `${orderLabel} ${sourceOrderId} · ${vendorFromOrder || '…'}`
-                  : 'Match a vendor invoice to a purchase or subcontract order'}
+                : selectedReceipts.length
+                  ? `${selectedReceipts.length} goods receipt${selectedReceipts.length === 1 ? '' : 's'} selected${
+                      sourceOrderId ? ` · ${orderLabel} ${sourceOrderId}` : ''
+                    }${vendorFromOrder ? ` · ${vendorFromOrder}` : ''}`
+                  : 'Match a vendor invoice to posted goods receipts'}
           </p>
         </div>
         <button type="button" style={secondaryButtonStyle} onClick={() => navigate(backPath)}>
@@ -486,15 +648,98 @@ export function SupplierInvoiceForm() {
                 <option value="SUBCONTRACT_ORDER">Subcontract Order</option>
               </select>
             </label>
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              {orderLabel} number
-              <input
-                value={sourceOrderId}
-                onChange={(e) => setSourceOrderId(e.target.value.trim())}
-                style={inputStyle}
-                placeholder={sourceType === 'SUBCONTRACT_ORDER' ? 'SCO-…' : 'PU62-…'}
-              />
-            </label>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                <span style={labelStyle}>Goods receipts</span>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setPickerOpen(true)}>
+                  Select Goods Receipt
+                </button>
+              </div>
+              {selectedReceipts.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 10 }}>
+                  Select posted purchase or subcontract receipts. The bill uses received quantity and
+                  receipt unit cost, not the original ordered quantity.
+                </p>
+              ) : (
+                <div style={{ overflowX: 'auto', marginTop: 12 }}>
+                  <table style={receiptTableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>Receipt ID</th>
+                        <th style={thStyle}>Posting Date</th>
+                        <th style={thStyle}>Source Document</th>
+                        <th style={thStyle}>Received Qty</th>
+                        <th style={thStyle}>Receipt Unit Cost</th>
+                        <th style={thStyle} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedReceipts.map((receipt) => (
+                        <tr key={receipt.id}>
+                          <td style={tdStyle}>{receipt.receipt_number}</td>
+                          <td style={tdStyle}>{formatReceiptDate(receipt.receipt_date)}</td>
+                          <td style={tdStyle}>{receipt.source_order_id}</td>
+                          <td style={tdStyle}>{formatReceiptQty(receiptReceivedQty(receipt))}</td>
+                          <td style={tdStyle}>{formatReceiptMoney(receiptUnitCost(receipt))}</td>
+                          <td style={tdStyle}>
+                            <button
+                              type="button"
+                              style={linkButtonStyle}
+                              onClick={() =>
+                                setSelectedReceipts((rows) => rows.filter((row) => row.id !== receipt.id))
+                              }
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {selectedReceipts.flatMap((receipt) => receipt.lines || []).length ? (
+                    <table style={{ ...receiptTableStyle, marginTop: 12 }}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Receipt</th>
+                          <th style={thStyle}>Item</th>
+                          <th style={thStyle}>Unbilled Qty</th>
+                          <th style={thStyle}>Qty to bill</th>
+                          <th style={thStyle}>Unit cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedReceipts.flatMap((receipt) =>
+                          (receipt.lines || []).map((line) => (
+                            <tr key={line.id}>
+                              <td style={tdStyle}>{receipt.receipt_number}</td>
+                              <td style={tdStyle}>{line.description || line.item_id}</td>
+                              <td style={tdStyle}>{formatReceiptQty(receiptLineUnbilled(line))}</td>
+                              <td style={tdStyle}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={receiptLineUnbilled(line)}
+                                  step="0.0001"
+                                  value={qtyByLineId[line.id] ?? String(receiptLineUnbilled(line))}
+                                  onChange={(e) =>
+                                    setQtyByLineId((current) => ({
+                                      ...current,
+                                      [line.id]: e.target.value,
+                                    }))
+                                  }
+                                  style={{ ...inputStyle, marginTop: 0 }}
+                                />
+                              </td>
+                              <td style={tdStyle}>{formatReceiptMoney(receiptUnitCost(receipt, line))}</td>
+                            </tr>
+                          )),
+                        )}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </>
         ) : null}
 
@@ -643,7 +888,7 @@ export function SupplierInvoiceForm() {
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 0 }}>
               {nonPoType === 'LANDED_COST'
-                ? 'Map each charge to a GL account. Search by PO or receipt number to allocate freight/duty onto inventory. The freight vendor can be different from the goods PO vendor.'
+                ? 'Map each charge to a GL account. Search the purchase order first, then pick the goods receipt to allocate freight/duty onto inventory. The freight vendor can be different from the goods PO vendor.'
                 : 'Distribute the expense across GL accounts and optional departments / cost centers.'}
             </p>
 
@@ -665,18 +910,15 @@ export function SupplierInvoiceForm() {
                 </div>
                 <label style={labelStyle}>
                   GL account
-                  <select
+                  <AccountLookup
+                    accounts={accountsQuery.data || []}
                     value={row.gl_account_id}
-                    onChange={(e) => updateDist(row.key, { gl_account_id: e.target.value })}
-                    style={inputStyle}
-                  >
-                    <option value="">Select account…</option>
-                    {(accountsQuery.data || []).map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.account_code} · {account.account_name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Search code or description, e.g. Freight"
+                    ariaLabel={`GL account for line ${index + 1}`}
+                    onSelect={(account) =>
+                      updateDist(row.key, { gl_account_id: account?.id || '' })
+                    }
+                  />
                 </label>
                 <div style={twoColStyle}>
                   <label style={labelStyle}>
@@ -716,23 +958,25 @@ export function SupplierInvoiceForm() {
                   />
                 </label>
                 {nonPoType === 'LANDED_COST' ? (
-                  <label style={labelStyle}>
-                    Allocate to PO / goods receipt
+                  <div>
+                    <div style={{ ...labelStyle, marginBottom: 6 }}>Allocate to purchase order / receipt</div>
                     <GoodsReceiptLookup
-                      value={row.goods_receipt_id}
-                      onSelect={(receipt) => {
+                      poNumber={row.source_order_id}
+                      receiptId={row.goods_receipt_id}
+                      receiptNumber={row.goods_receipt_number}
+                      onChange={({ poNumber, receipt }) => {
                         updateDist(row.key, {
+                          source_order_id: poNumber,
                           goods_receipt_id: receipt ? String(receipt.id) : '',
+                          goods_receipt_number: receipt?.receipt_number || '',
                         })
-                        if (receipt?.source_order_id) {
-                          setReferencePoNumber(receipt.source_order_id)
-                        }
+                        if (poNumber) setReferencePoNumber(poNumber)
                       }}
                     />
-                    <span style={{ fontSize: 12, color: 'var(--muted, #666)', marginTop: 6 }}>
-                      Search the purchase order or receipt to allocate. Do not look up the freight vendor’s own receipts.
+                    <span style={{ fontSize: 12, color: 'var(--muted, #666)', marginTop: 6, display: 'block' }}>
+                      Search the goods PO, then choose its receipt. Do not look up the freight vendor’s own receipts.
                     </span>
-                  </label>
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -773,18 +1017,18 @@ export function SupplierInvoiceForm() {
               </label>
             </div>
           </>
-        ) : !sourceOrderId ? (
+        ) : !selectedReceipts.length ? (
           <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 16 }}>
-            Enter the purchase or subcontract order to 3-way match. For freight, rent, or other
-            vouchers without a PO, switch to Non-PO.
+            Select one or more posted goods receipts to 3-way match. For freight, rent, or other
+            vouchers without a receipt, switch to Non-PO.
           </p>
         ) : loading ? (
           <div>Loading order…</div>
         ) : (
           <>
             <p style={{ fontSize: 13, color: 'var(--text)' }}>
-              Lines default to unbilled received quantities at order prices. Approval posts Debit GRNI /
-              Credit Accounts Payable (with PPV for price variances).
+              Lines default to unbilled received quantities at receipt unit cost. Approval posts Debit
+              GRNI / Credit Accounts Payable on each receipt&apos;s posting date.
             </p>
 
             <SupplierInvoiceNumberField
@@ -871,7 +1115,7 @@ export function SupplierInvoiceForm() {
           </p>
         ) : null}
 
-        {isNonPo || sourceOrderId ? (
+        {isNonPo || selectedReceipts.length ? (
           <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
             <button
               type="button"
@@ -897,6 +1141,76 @@ export function SupplierInvoiceForm() {
           </div>
         ) : null}
       </div>
+
+      {pickerOpen ? (
+        <div style={modalOverlayStyle} onClick={() => setPickerOpen(false)}>
+          <div style={modalCardStyle} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <h3 style={{ ...sectionTitleStyle, margin: 0 }}>Select Goods Receipt</h3>
+              <button type="button" style={linkButtonStyle} onClick={() => setPickerOpen(false)}>
+                Close
+              </button>
+            </div>
+            <input
+              value={receiptSearch}
+              onChange={(e) => setReceiptSearch(e.target.value)}
+              style={{ ...inputStyle, marginTop: 12 }}
+              placeholder="Search receipt number or source document…"
+            />
+            <div style={{ overflowX: 'auto', marginTop: 12, maxHeight: 360 }}>
+              <table style={receiptTableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle} />
+                    <th style={thStyle}>Receipt ID</th>
+                    <th style={thStyle}>Posting Date</th>
+                    <th style={thStyle}>Source Document</th>
+                    <th style={thStyle}>Received Qty</th>
+                    <th style={thStyle}>Receipt Unit Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(receiptsQuery.data || []).map((receipt) => {
+                    const checked = selectedReceipts.some((row) => row.id === receipt.id)
+                    return (
+                      <tr key={receipt.id}>
+                        <td style={tdStyle}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedReceipts((rows) =>
+                                checked
+                                  ? rows.filter((row) => row.id !== receipt.id)
+                                  : [...rows, receipt],
+                              )
+                            }}
+                          />
+                        </td>
+                        <td style={tdStyle}>{receipt.receipt_number}</td>
+                        <td style={tdStyle}>{formatReceiptDate(receipt.receipt_date)}</td>
+                        <td style={tdStyle}>{receipt.source_order_id}</td>
+                        <td style={tdStyle}>{formatReceiptQty(receiptReceivedQty(receipt))}</td>
+                        <td style={tdStyle}>{formatReceiptMoney(receiptUnitCost(receipt))}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {receiptsQuery.isLoading ? (
+                <p style={{ fontSize: 13, color: 'var(--text)' }}>Loading receipts…</p>
+              ) : (receiptsQuery.data || []).length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text)' }}>No unbilled posted receipts found.</p>
+              ) : null}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" style={primaryButtonStyle} onClick={() => setPickerOpen(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1007,6 +1321,41 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+const receiptTableStyle: React.CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  fontSize: 13,
+}
+const thStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '8px 6px',
+  borderBottom: '1px solid var(--border)',
+  color: 'var(--text-h)',
+  whiteSpace: 'nowrap',
+}
+const tdStyle: React.CSSProperties = {
+  padding: '8px 6px',
+  borderBottom: '1px solid var(--border)',
+  color: 'var(--text)',
+}
+const modalOverlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0, 0, 0, 0.35)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 40,
+  padding: 16,
+}
+const modalCardStyle: React.CSSProperties = {
+  background: 'var(--bg)',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  padding: 20,
+  width: 'min(860px, 100%)',
+  boxShadow: 'var(--shadow)',
 }
 
 export default SupplierInvoiceForm
