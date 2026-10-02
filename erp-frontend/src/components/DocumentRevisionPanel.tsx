@@ -164,7 +164,6 @@ const tableStyle: CSSProperties = {
 
 const thStyle: CSSProperties = {
   textAlign: 'left',
-  borderBottom: '1px solid #eee',
   padding: '8px 6px',
   color: 'var(--text-h)',
 }

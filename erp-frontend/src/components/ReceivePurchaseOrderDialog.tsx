@@ -293,13 +293,13 @@ const thStyle: CSSProperties = {
   fontSize: 12,
   color: 'var(--text)',
   padding: '8px 6px',
-  borderBottom: '1px solid var(--border)',
+
 }
 
 const tdStyle: CSSProperties = {
   padding: '8px 6px',
   fontSize: 13,
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   verticalAlign: 'middle',
 }
 

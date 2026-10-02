@@ -32,6 +32,7 @@ from app.models import (
     WorkflowStep,
 )
 from app.services import finance
+from app.services.period_close import assert_transaction_date_open, journal_lock_kind
 
 # Canonical module keys used in workflow_definition.module
 MODULE_CANONICAL = {
@@ -175,6 +176,9 @@ def _on_bank_transfer_approved(db: Session, doc: BankTransfer) -> None:
 
 
 def _on_je_approved(db: Session, doc: JournalEntry) -> None:
+    assert_transaction_date_open(
+        db, doc.posting_date, document="journal entry", kind=journal_lock_kind(doc)
+    )
     if doc.posting_status == "Draft":
         doc.posting_status = "Posted"
     transfer = (

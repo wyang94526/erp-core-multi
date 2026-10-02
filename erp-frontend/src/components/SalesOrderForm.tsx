@@ -11,6 +11,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { salesOrderService, customerService, itemService, locationService, paymentTermsService } from '../api/services'
 import type { Customer, Item, Location } from '../types'
+import { PageHeader } from './PageHeader'
 import { DocumentAttachmentsPanel } from './DocumentAttachmentsPanel'
 import ItemLookup from './ItemLookup'
 import {
@@ -631,12 +632,7 @@ export function SalesOrderForm() {
   if (isEditMode && salesOrder && !isSalesOrderEditable(salesOrder)) {
     return (
       <div style={containerStyle}>
-        <header style={pageHeaderStyle}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h2 style={pageTitleStyle}>Edit Sales Order</h2>
-            <p style={pageSubStyle}>{salesOrder.sales_order_id}</p>
-          </div>
-        </header>
+        <PageHeader title="Edit Sales Order" subtitle={salesOrder.sales_order_id} />
         <div style={lockWarningStyle} role="alert">
           {SALES_ORDER_LOCKED_EDIT_MESSAGE}
         </div>
@@ -655,12 +651,10 @@ export function SalesOrderForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Sales Order' : 'Create New Sales Order'}</h2>
-          <p style={pageSubStyle}>Manage order header details, customer info and line items</p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Sales Order' : 'Create New Sales Order'}
+        subtitle="Manage order header details, customer info and line items"
+      />
 
       <form onSubmit={handleSubmit}>
         {/* Order Header Section */}
@@ -1196,25 +1190,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -1225,12 +1200,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const sectionHeadingStyleNoBorder: React.CSSProperties = {
@@ -1244,9 +1218,8 @@ const tableHeaderContainerStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  marginBottom: '16px',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+  marginBottom: '8px',
+
 }
 
 const gridStyle: React.CSSProperties = {
@@ -1317,7 +1290,7 @@ const tableStyle: React.CSSProperties = {
 }
 
 const theadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
+  backgroundColor: 'var(--social-bg)',
 }
 
 const thStyle: React.CSSProperties = {
@@ -1329,7 +1302,7 @@ const thStyle: React.CSSProperties = {
 }
 
 const tbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 
@@ -1354,7 +1327,7 @@ const orderTotalRowStyle: React.CSSProperties = {
   gap: '10px',
   marginTop: '16px',
   paddingTop: '16px',
-  borderTop: '2px solid var(--border)',
+  borderTop: '2px solid var(--divider)',
 }
 
 const orderTotalLabelStyle: React.CSSProperties = {

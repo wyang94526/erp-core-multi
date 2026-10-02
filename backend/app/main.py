@@ -15,6 +15,7 @@ from app.routers import (
     audit_logs,
     auth,
     cash_transactions,
+    company_profile,
     bank_accounts,
     bank_transfers,
     financial_reports,
@@ -42,6 +43,7 @@ from app.routers import (
     data_import,
     payment_terms,
     posting_rules,
+    finance_settings,
 )
 
 
@@ -78,6 +80,8 @@ app.include_router(items.router, prefix="/api/v1")
 app.include_router(accounts.router, prefix="/api/v1")
 app.include_router(payment_terms.router, prefix="/api/v1")
 app.include_router(posting_rules.router, prefix="/api/v1")
+app.include_router(finance_settings.router, prefix="/api/v1")
+app.include_router(company_profile.router, prefix="/api/v1")
 app.include_router(sales_orders.router, prefix="/api/v1")
 app.include_router(fulfillments.router, prefix="/api/v1")
 app.include_router(sales_invoices.router, prefix="/api/v1")

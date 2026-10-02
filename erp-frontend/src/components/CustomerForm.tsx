@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { customerService, paymentTermsService } from '../api/services'
 import type { CustomerWrite, Location, TaxIdType } from '../types'
 import { INCOTERM_OPTIONS, SHIPPING_METHOD_OPTIONS } from '../data/orderOptions'
+import { PageHeader } from './PageHeader'
 import { findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
 
 type TabId = 'general' | 'billTo' | 'shipTo' | 'certs'
@@ -575,12 +576,10 @@ export function CustomerForm() {
           {toast}
         </div>
       )}
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Customer' : 'Create New Customer'}</h2>
-          <p style={pageSubStyle}>Manufacturing customer master with Bill-To, Ship-To, and certifications</p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Customer' : 'Create New Customer'}
+        subtitle="Manufacturing customer master with Bill-To, Ship-To, and certifications"
+      />
 
       <form onSubmit={handleSubmit}>
         <div style={tabListStyle} role="tablist">
@@ -1224,31 +1223,12 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '16px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const tabListStyle: React.CSSProperties = {
   display: 'flex',
   gap: 4,
   flexWrap: 'wrap',
   marginBottom: 16,
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 }
 
 const tabButtonStyle: React.CSSProperties = {
@@ -1271,12 +1251,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const sectionHeaderRowStyle: React.CSSProperties = {

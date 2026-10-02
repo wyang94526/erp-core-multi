@@ -10,7 +10,10 @@ import { chartOfAccountsService } from '../api/services'
 import type { AccountType, ChartOfAccount } from '../types'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
+import { Plus } from 'lucide-react'
+import { headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyles'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { PageHeader } from './PageHeader'
 
 const COA_FILTERS: FilterField[] = [
   {
@@ -114,26 +117,21 @@ function ChartOfAccounts() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Chart of Accounts</h2>
-          <p style={pageSubStyle}>
-            Master list of GL accounts used by AR, AP, Cash, and General Ledger postings
-          </p>
-        </div>
+      <PageHeader
+        title="Chart of Accounts"
+        subtitle="Master list of GL accounts used by AR, AP, Cash, and General Ledger postings"
+      >
         <button
           type="button"
-          style={primaryButtonStyle}
+          style={showForm ? headerButtonStyle : primaryButtonStyle}
           onClick={() => {
             setShowForm((open) => !open)
             setFormError(null)
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
         >
-          {showForm ? 'Cancel' : '+ Add Account'}
+          {showForm ? 'Cancel' : <><Plus size={15} /> Add Account</>}
         </button>
-      </header>
+      </PageHeader>
 
       {showForm && (
         <form style={formCardStyle} onSubmit={handleCreate}>
@@ -301,43 +299,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
 const formCardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -400,7 +361,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -412,7 +372,7 @@ const directoryThStyle: React.CSSProperties = {
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

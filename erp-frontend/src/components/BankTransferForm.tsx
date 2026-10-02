@@ -12,6 +12,7 @@ import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { z } from 'zod'
 import { bankAccountService, bankTransferService } from '../api/services'
 import { bankTransferPath, isBankTransferEditable } from '../utils/bankTransfers'
+import { PageHeader } from './PageHeader'
 
 function formatCurrency(amount: number, currency = 'USD') {
   return Number(amount || 0).toLocaleString('en-US', {
@@ -220,15 +221,10 @@ export function BankTransferForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Bank Transfer' : 'New Bank Transfer'}</h2>
-          <p style={pageSubStyle}>
-            Transfer funds between internal company bank accounts. Save a draft, then submit it for
-            approval. The auto-generated journal stays Draft until the G/L entry is approved.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Bank Transfer' : 'New Bank Transfer'}
+        subtitle="Transfer funds between internal company bank accounts. Save a draft, then submit it for approval. The auto-generated journal stays Draft until the G/L entry is approved."
+      />
 
       <form onSubmit={handleSubmit(onSubmit)}>
         <div style={cardStyle}>
@@ -334,13 +330,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
 const cardStyle: CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -350,12 +339,11 @@ const cardStyle: CSSProperties = {
   boxShadow: 'var(--shadow)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 const gridStyle: CSSProperties = {
   display: 'grid',

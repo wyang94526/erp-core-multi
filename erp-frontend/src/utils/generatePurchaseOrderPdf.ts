@@ -7,12 +7,22 @@
 
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { PurchaseOrder } from '../types'
+import type { PurchaseOrder, Supplier } from '../types'
+import {
+  companyFooterLine,
+  drawBillShipBlocks,
+  drawPdfLetterhead,
+  PDF_BRAND_ALT_RGB,
+  PDF_BRAND_RGB,
+  type CompanyPdfBranding,
+} from './pdfLetterhead'
 
 export type PurchaseOrderVendorPdfInput = {
   po: PurchaseOrder
   /** Optional SKU -> description map for line items */
   itemDescriptions?: Record<string, string>
+  vendor?: Pick<Supplier, 'contact_name' | 'contact_email' | 'phone_number'> | null
+  branding?: CompanyPdfBranding | null
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -55,28 +65,12 @@ export function buildPurchaseOrderVendorPdfFilename(poNumber: string): string {
 }
 
 export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInput): void {
-  const { po, itemDescriptions = {} } = input
+  const { po, itemDescriptions = {}, vendor, branding } = input
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const marginX = 48
-  let y = 48
-
-  // Header
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.setTextColor(40, 40, 40)
-  doc.text('Grand-Tek Technology USA', marginX, y)
-
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(90, 90, 90)
-  doc.text('PURCHASE ORDER', pageWidth - marginX, y, { align: 'right' })
-  y += 22
-
-  doc.setDrawColor(168, 85, 247)
-  doc.setLineWidth(1.5)
-  doc.line(marginX, y, pageWidth - marginX, y)
-  y += 24
+  const companyName = (branding?.profile.company_name || 'Grand-Tek Technology USA').trim()
+  let y = drawPdfLetterhead(doc, branding, 'PURCHASE ORDER')
 
   doc.setTextColor(30, 30, 30)
   doc.setFont('helvetica', 'bold')
@@ -118,7 +112,15 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
     marginX,
     y,
   )
+  y += 14
+  doc.text(`Contact: ${(vendor?.contact_name || '').trim() || '—'}`, marginX, y)
+  y += 14
+  doc.text(`Email: ${(vendor?.contact_email || '').trim() || '—'}`, marginX, y)
+  y += 14
+  doc.text(`Phone: ${(vendor?.phone_number || '').trim() || '—'}`, marginX, y)
   y += 26
+
+  y = drawBillShipBlocks(doc, branding?.profile.bill_to, branding?.profile.ship_to, y)
 
   // Line items
   doc.setFont('helvetica', 'bold')
@@ -128,7 +130,8 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
 
   const lineRows =
     po.items?.length > 0
-      ? po.items.map((item) => [
+      ? po.items.map((item, index) => [
+          String(index + 1),
           item.sku || '—',
           (item.description || itemDescriptions[item.sku] || '').trim() || '—',
           item.uom || '—',
@@ -137,11 +140,11 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
           formatPercent(item.tax_rate),
           formatMoney(item.line_subtotal),
         ])
-      : [['—', 'No line items', '—', '—', '—', '—', '—']]
+      : [['—', '—', 'No line items', '—', '—', '—', '—', '—']]
 
   autoTable(doc, {
     startY: y,
-    head: [['Item / SKU', 'Description', 'UOM', 'Quantity', 'Unit Price ($)', 'Tax Rate (%)', 'Line Subtotal ($)']],
+    head: [['Line', 'Item / SKU', 'Description', 'UOM', 'Quantity', 'Unit Price ($)', 'Tax Rate (%)', 'Line Subtotal ($)']],
     body: lineRows,
     theme: 'grid',
     styles: {
@@ -153,18 +156,19 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
       lineWidth: 0.5,
     },
     headStyles: {
-      fillColor: [147, 51, 234],
+      fillColor: PDF_BRAND_RGB,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
     alternateRowStyles: {
-      fillColor: [248, 246, 252],
+      fillColor: PDF_BRAND_ALT_RGB,
     },
     columnStyles: {
-      3: { halign: 'right' },
+      0: { cellWidth: 36 },
       4: { halign: 'right' },
       5: { halign: 'right' },
       6: { halign: 'right' },
+      7: { halign: 'right' },
     },
     margin: { left: marginX, right: marginX },
   })
@@ -236,7 +240,7 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   const terms = doc.splitTextToSize(
-    'Please deliver goods according to the quantities, pricing, and expected delivery date on this purchase order. Acknowledge these terms upon acceptance. Contact Grand-Tek Technology USA for any discrepancies before processing.',
+    `Please deliver goods according to the quantities, pricing, and expected delivery date on this purchase order. Acknowledge these terms upon acceptance. Contact ${companyName} for any discrepancies before processing.`,
     pageWidth - marginX * 2,
   )
   doc.text(terms, marginX, y)
@@ -257,7 +261,7 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(
-      `Grand-Tek Technology USA · Confidential · Page ${i} of ${pageCount}`,
+      `${companyFooterLine(branding?.profile)} · Page ${i} of ${pageCount}`,
       pageWidth / 2,
       pageHeight - 24,
       { align: 'center' },

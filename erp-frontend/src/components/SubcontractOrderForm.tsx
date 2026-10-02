@@ -11,6 +11,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { itemService, subcontractOrderService, vendorService } from '../api/services'
 import type { Item, SalesOrderSubcontractLine, SubcontractCharge, Supplier } from '../types'
+import { PageHeader } from './PageHeader'
 import SalesOrderLookup from './SalesOrderLookup'
 import ScoCostSheet from './ScoCostSheet'
 import { defaultCostSheet } from '../utils/scoCostSheet'
@@ -244,13 +245,10 @@ export function SubcontractOrderForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <h2 style={pageTitleStyle}>Create New Subcontract Order</h2>
-        <p style={pageSubStyle}>
-          Link a customer sales order, select finished-good lines, review exploded material kits,
-          and enter vendor labor / shipping / admin charges per line.
-        </p>
-      </header>
+      <PageHeader
+        title="Create New Subcontract Order"
+        subtitle="Link a customer sales order, select finished-good lines, review exploded material kits, and enter vendor labor / shipping / admin charges per line."
+      />
 
       {soCreateBlocked ? (
         <div role="alert" style={{ ...warningAlertStyle, fontWeight: 600 }}>
@@ -660,9 +658,6 @@ function Field({
 }
 
 const containerStyle: React.CSSProperties = { padding: 24, maxWidth: 1100, margin: '0 auto', textAlign: 'left' }
-const pageHeaderStyle: React.CSSProperties = { marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16 }
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -672,12 +667,11 @@ const cardStyle: React.CSSProperties = {
   boxShadow: 'var(--shadow)',
 }
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px',
+  margin: '0 0 8px',
   fontSize: 18,
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: 8,
+
 }
 const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }
 const fieldGroupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column' }
@@ -730,7 +724,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontWeight: 'bold',
 }
 const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const thStyle: React.CSSProperties = { padding: '8px 6px', textAlign: 'left', borderBottom: '2px solid var(--border)' }
-const tdStyle: React.CSSProperties = { padding: '8px 6px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }
+const thStyle: React.CSSProperties = { padding: '8px 6px', textAlign: 'left', }
+const tdStyle: React.CSSProperties = { padding: '8px 6px', borderBottom: '1px solid var(--divider)', verticalAlign: 'middle' }
 
 export default SubcontractOrderForm

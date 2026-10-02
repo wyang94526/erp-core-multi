@@ -7,9 +7,10 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Banknote, CheckCircle2, FileDown, Loader2, Mail, Pencil, Send, Undo2, XCircle } from 'lucide-react'
-import { apBillService, vendorInvoiceService } from '../api/services'
+import { apBillService, vendorInvoiceService, vendorService } from '../api/services'
 import type { APBillDetail } from '../types'
 import { generateSupplierBillPdf } from '../utils/generateSupplierBillPdf'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { cashReferenceLinkStyle, goodsReceiptHref, purchaseOrderHref, sourceOrderHref } from '../utils/cashReference'
 import {
   HoverTip,
@@ -154,24 +155,39 @@ export function BillDetail() {
             ? 'Approved. Use Rescind to reverse the AP posting if the voucher is wrong, then Edit and resubmit.'
             : null
 
-  const handlePrint = () => {
+  const exportBillPdf = async (bill: APBillDetail) => {
+    const [branding, vendor] = await Promise.all([
+      loadCompanyPdfBranding().catch(() => null),
+      bill.vendor_id ? vendorService.getVendor(bill.vendor_id).catch(() => null) : Promise.resolve(null),
+    ])
+    generateSupplierBillPdf({
+      detail: bill,
+      branding,
+      vendor,
+    })
+  }
+
+  const handlePrint = async () => {
     if (!detail) return
     setPrinting(true)
+    setError(null)
     try {
-      generateSupplierBillPdf(detail)
+      await exportBillPdf(detail)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to print bill PDF')
     } finally {
       setPrinting(false)
     }
   }
 
-  const handleEmailVendor = () => {
+  const handleEmailVendor = async () => {
     if (!detail) return
     const email = (detail.vendor_email || '').trim()
     if (!email) {
       setError('No vendor email on file. Add a contact email on the vendor record.')
       return
     }
-    generateSupplierBillPdf(detail)
+    await exportBillPdf(detail)
     const subject = encodeURIComponent(`Bill ${detail.bill_id} from Grand-Tek Technology USA`)
     const body = encodeURIComponent(
       [
@@ -566,6 +582,7 @@ export function BillDetail() {
           <table style={tableStyle}>
             <thead>
               <tr style={theadRowStyle}>
+                <th style={thStyle}>Line</th>
                 <th style={thStyle}>Part # / Description</th>
                 <th style={thStyle}>Receipt</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Quantity</th>
@@ -576,13 +593,14 @@ export function BillDetail() {
             <tbody>
               {(detail.lines || []).length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={tdStyle}>
+                  <td colSpan={6} style={tdStyle}>
                     No line items on this bill.
                   </td>
                 </tr>
               ) : (
                 detail.lines.map((line, idx) => (
                   <tr key={`${line.item_id}-${idx}`}>
+                    <td style={tdStyle}>{idx + 1}</td>
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 600 }}>
                         {line.item_id ? (
@@ -687,12 +705,11 @@ const cardStyle: CSSProperties = {
   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px',
+  margin: '0 0 8px',
   fontSize: 18,
   fontWeight: 'bold',
   color: 'var(--text-h, #212121)',
-  borderBottom: '2px solid var(--border, #ddd)',
-  paddingBottom: 8,
+
 }
 const metaGridStyle: CSSProperties = {
   display: 'grid',
@@ -721,7 +738,7 @@ const labelStyle: CSSProperties = {
   flexShrink: 0,
 }
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const theadRowStyle: CSSProperties = { borderBottom: '2px solid var(--border, #ddd)', backgroundColor: 'var(--social-bg, #f5f5f5)' }
+const theadRowStyle: CSSProperties = { backgroundColor: 'var(--social-bg, #f5f5f5)' }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h, #212121)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text, #424242)', verticalAlign: 'top' }
 const errorBannerStyle: CSSProperties = {

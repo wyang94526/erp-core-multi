@@ -11,6 +11,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { itemService, itemBomService } from '../api/services'
 import type { ProductBOMComponent } from '../types'
+import { PageHeader } from './PageHeader'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
 import { BomVersionToolbar } from './BomVersionToolbar'
 import { ITEM_TYPE_OPTIONS, isStockItemType, normalizeItemType } from '../utils/itemTypes'
@@ -554,12 +555,10 @@ export function ItemForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Item' : 'Create New Item'}</h2>
-          <p style={pageSubStyle}>Manage product catalog information</p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Item' : 'Create New Item'}
+        subtitle="Manage product catalog information"
+      />
 
       <form onSubmit={handleSubmit}>
         <div style={cardStyle}>
@@ -571,8 +570,6 @@ export function ItemForm() {
               flexWrap: 'wrap',
               gap: '12px',
               marginBottom: '16px',
-              borderBottom: '2px solid var(--border)',
-              paddingBottom: '8px',
             }}
           >
             <h3 style={{ ...sectionHeadingStyle, margin: 0, border: 'none', padding: 0 }}>
@@ -1074,25 +1071,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -1103,12 +1081,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const gridStyle: React.CSSProperties = {
@@ -1218,7 +1195,6 @@ const bomTableStyle: React.CSSProperties = {
 }
 
 const bomTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -1231,7 +1207,7 @@ const bomThStyle: React.CSSProperties = {
 }
 
 const bomTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 }
 
 const bomTdStyle: React.CSSProperties = {

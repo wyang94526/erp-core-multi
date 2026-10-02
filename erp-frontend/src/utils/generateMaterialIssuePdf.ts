@@ -7,6 +7,7 @@
 
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { PDF_BRAND_ALT_RGB, PDF_BRAND_RGB, PDF_RULE_RGB } from './pdfLetterhead'
 import type {
   CalculatedComponentLine,
   MaterialIssue,
@@ -60,8 +61,9 @@ function supplierAddress(supplier?: Supplier | null): string[] {
     supplier.company_name,
     supplier.address_line1,
     supplier.address_line2,
-    [supplier.city, supplier.state, supplier.postal_code].filter(Boolean).join(', '),
-    supplier.country,
+    [[supplier.city, supplier.state, supplier.postal_code].filter(Boolean).join(', '), supplier.country]
+      .filter(Boolean)
+      .join(' '),
   ]
   return lines.map((line) => (line || '').trim()).filter(Boolean)
 }
@@ -91,7 +93,7 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
   doc.text('MATERIAL ISSUE / SHIPPING DOCUMENT', pageWidth - marginX, y, { align: 'right' })
   y += 22
 
-  doc.setDrawColor(168, 85, 247)
+  doc.setDrawColor(...PDF_RULE_RGB)
   doc.setLineWidth(1.5)
   doc.line(marginX, y, pageWidth - marginX, y)
   y += 22
@@ -206,11 +208,11 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
       lineWidth: 0.5,
     },
     headStyles: {
-      fillColor: [25, 118, 210],
+      fillColor: PDF_BRAND_RGB,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
-    alternateRowStyles: { fillColor: [245, 248, 252] },
+    alternateRowStyles: { fillColor: PDF_BRAND_ALT_RGB },
     columnStyles: {
       0: { cellWidth: 28 },
       4: { halign: 'right' },

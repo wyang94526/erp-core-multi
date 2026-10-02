@@ -4,6 +4,12 @@
  */
 
 import type React from 'react'
+import {
+  documentPageHeaderStyle,
+  documentPageSubStyle,
+  documentPageTitleStyle,
+  primaryButtonStyle as documentPrimaryButtonStyle,
+} from '../../utils/documentPageStyles'
 
 export const containerStyle: React.CSSProperties = {
   padding: '24px',
@@ -11,29 +17,9 @@ export const containerStyle: React.CSSProperties = {
   margin: '0 auto',
 }
 
-export const pageHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: '16px',
-  marginBottom: '20px',
-  paddingBottom: '16px',
-  borderBottom: '1px solid var(--border)',
-  flexWrap: 'wrap',
-}
-
-export const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '1.5rem',
-  fontWeight: 700,
-  color: 'var(--text-h)',
-}
-
-export const pageSubStyle: React.CSSProperties = {
-  margin: '6px 0 0',
-  fontSize: '0.9rem',
-  color: 'var(--text)',
-}
+export const pageHeaderStyle: React.CSSProperties = documentPageHeaderStyle
+export const pageTitleStyle: React.CSSProperties = documentPageTitleStyle
+export const pageSubStyle: React.CSSProperties = documentPageSubStyle
 
 export const metricsGridStyle: React.CSSProperties = {
   display: 'grid',
@@ -80,13 +66,12 @@ export const directoryThStyle: React.CSSProperties = {
   padding: '10px 12px',
   fontWeight: 600,
   color: 'var(--text-h)',
-  borderBottom: '1px solid var(--border)',
   whiteSpace: 'nowrap',
 }
 
 export const directoryTdStyle: React.CSSProperties = {
   padding: '10px 12px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   color: 'var(--text-h)',
 }
 
@@ -106,16 +91,4 @@ export const linkStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
-export const primaryButtonStyle: React.CSSProperties = {
-  backgroundColor: '#1976d2',
-  color: '#fff',
-  border: 'none',
-  borderRadius: '6px',
-  padding: '10px 16px',
-  fontSize: '0.875rem',
-  fontWeight: 600,
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '8px',
-}
+export const primaryButtonStyle: React.CSSProperties = documentPrimaryButtonStyle

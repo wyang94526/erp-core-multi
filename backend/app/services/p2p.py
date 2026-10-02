@@ -72,6 +72,7 @@ from app.services.posting_rules import (
     resolve_posting_rule,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
+from app.services.period_close import assert_dates_open, assert_transaction_date_open
 from app.services.item_types import (
     catalog_item,
     is_stock_tracked,
@@ -1521,6 +1522,9 @@ def receive_purchase_order(
     assert_po_approved_for_p2p(po, action="receive")
     if is_remaining_closed(po):
         raise HTTPException(status_code=400, detail=REMAINING_CLOSED_RECEIVE_DETAIL)
+    assert_transaction_date_open(
+        db, receipt_date or date.today(), document="goods receipt"
+    )
     if not lines:
         raise HTTPException(status_code=400, detail="At least one receipt line is required")
 
@@ -1983,6 +1987,7 @@ def adjust_goods_receipt_quantities(
             status_code=400,
             detail="Correct finished-goods quantity from the subcontract order, not this receipt.",
         )
+    assert_transaction_date_open(db, receipt.receipt_date, document="goods receipt")
     if not lines:
         raise HTTPException(status_code=400, detail="At least one receipt line is required")
 
@@ -2272,6 +2277,9 @@ def create_supplier_invoice(
         distributions=distributions,
         lines=lines,
         receipt_ids=receipt_ids,
+    )
+    assert_transaction_date_open(
+        db, invoice_date or date.today(), document="supplier invoice"
     )
     if resolved_type in NON_PO_TYPES:
         return _create_non_po_invoice(
@@ -2656,6 +2664,12 @@ def update_supplier_invoice(
 ) -> dict:
     invoice = _load_invoice(db, invoice_id)
     _assert_invoice_editable(invoice)
+    assert_dates_open(
+        db,
+        invoice.invoice_date,
+        invoice_date,
+        document="supplier invoice",
+    )
     resolved_type, source_type, source_order_id = validate_supplier_invoice_payload(
         invoice_type=invoice_type or invoice.invoice_type,
         source_type="NON_PO",

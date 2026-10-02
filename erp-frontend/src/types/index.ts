@@ -1395,6 +1395,63 @@ export interface MonthEndCloseResult {
   journal: JournalEntry
 }
 
+export type PeriodCloseStatus = 'OPEN' | 'SOFT_CLOSE' | 'HARD_CLOSE'
+
+export interface CompanyAddress {
+  location_name?: string | null
+  attention_to?: string | null
+  address_line1?: string | null
+  address_line2?: string | null
+  city?: string | null
+  state?: string | null
+  postal_code?: string | null
+  country?: string | null
+  contact_person?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+}
+
+export interface CompanyProfile {
+  id: string
+  company_name: string
+  contact_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  bill_to: CompanyAddress
+  ship_to: CompanyAddress
+  has_logo: boolean
+  logo_original_filename: string | null
+  logo_content_type: string | null
+  updated_by_user_id: string | null
+  updated_at: string | null
+}
+
+export type CompanyProfileUpdate = {
+  company_name?: string | null
+  contact_name?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  bill_to?: CompanyAddress
+  ship_to?: CompanyAddress
+}
+
+export interface FinancePeriodSettings {
+  id: string
+  soft_close_date: string | null
+  hard_close_date: string | null
+  current_closing_date: string | null
+  as_of_status?: PeriodCloseStatus | string
+  updated_by_user_id: string | null
+  updated_at: string | null
+}
+
+export type FinancePeriodSettingsUpdate = {
+  soft_close_date?: string | null
+  hard_close_date?: string | null
+  current_closing_date?: string | null
+  justification?: string
+}
+
 export interface JournalEntryCreatePayload {
   description: string;
   posting_date?: string;

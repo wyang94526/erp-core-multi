@@ -18,6 +18,8 @@ import ListFilterBar, {
   useListFilterParams,
   type FilterField,
 } from './ListFilterBar'
+import { headerButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 
 const MOVEMENT_FILTERS: FilterField[] = [
   {
@@ -107,23 +109,16 @@ export function StockMovements() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Stock Movements{titleSuffix}</h2>
-          <p style={pageSubStyle}>
-            Receipts, issues, adjustments, and transfers across warehouses
-          </p>
-        </div>
-        {productFilter && (
-          <button
-            type="button"
-            onClick={() => setSearchParams({})}
-            style={secondaryButtonStyle}
-          >
+      <PageHeader
+        title={`Stock Movements${titleSuffix}`}
+        subtitle="Receipts, issues, adjustments, and transfers across warehouses"
+      >
+        {productFilter ? (
+          <button type="button" onClick={() => setSearchParams({})} style={headerButtonStyle}>
             Clear product filter
           </button>
-        )}
-      </header>
+        ) : null}
+      </PageHeader>
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -247,42 +242,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  fontSize: '13px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-  cursor: 'pointer',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -298,12 +257,11 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

@@ -21,6 +21,7 @@ from app.services.document_revisions import list_change_logs, list_revisions
 from app.services.document_sequences import DOC_SALES_ORDER, generate_document_number
 from app.services.payment_terms import apply_payment_term_fields
 from app.services.item_types import validate_line_quantity
+from app.services.period_close import assert_transaction_date_open
 
 router = APIRouter(prefix="/sales-orders", tags=["sales_orders"])
 
@@ -89,6 +90,7 @@ def create_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db))
     Create a new Sales Order and its associated Line Items in a single transaction.
     """
     _validate_sales_order_refs(db, payload)
+    assert_transaction_date_open(db, payload.order_date, document="sales order")
 
     # 1. Extract the parent data, excluding the nested items
     order_data = payload.model_dump(exclude={"items"})
@@ -164,6 +166,7 @@ def update_sales_order(
         raise HTTPException(status_code=404, detail="Sales Order not found")
 
     o2c.require_sales_order_editable(order)
+    assert_transaction_date_open(db, order.order_date, document="sales order")
 
     # --- Business Logic & State Machine ---
     

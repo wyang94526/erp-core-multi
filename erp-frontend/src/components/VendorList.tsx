@@ -15,7 +15,10 @@ import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { PaginationControls } from './PaginationControls'
+import { Plus } from 'lucide-react'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { PageHeader } from './PageHeader'
 
 const VENDOR_FILTERS: FilterField[] = [
   {
@@ -138,20 +141,12 @@ export function VendorList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Vendors</h2>
-          <p style={pageSubStyle}>View, create and manage your vendor / supplier accounts</p>
-        </div>
-        <button
-          onClick={() => navigate('/vendors/new')}
-          style={primaryButtonStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
-        >
-          + Add Vendor
+      <PageHeader title="Vendors" subtitle="View, create and manage your vendor / supplier accounts">
+        <button type="button" onClick={() => navigate('/vendors/new')} style={primaryButtonStyle}>
+          <Plus size={15} />
+          Add Vendor
         </button>
-      </header>
+      </PageHeader>
 
       <ListFilterBar
         fields={VENDOR_FILTERS}
@@ -253,43 +248,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -305,7 +263,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -317,7 +274,7 @@ const directoryThStyle: React.CSSProperties = {
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

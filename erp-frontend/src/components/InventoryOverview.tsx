@@ -18,6 +18,7 @@ import ListFilterBar, {
   useListFilterParams,
   type FilterField,
 } from './ListFilterBar'
+import { PageHeader } from './PageHeader'
 
 const INVENTORY_FILTERS: FilterField[] = [
   {
@@ -200,14 +201,10 @@ export function InventoryOverview() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Stock On-Hand &amp; ATP</h2>
-          <p style={pageSubStyle}>
-            On-hand, allocations, on-order, and available-to-promise by item
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Stock On-Hand & ATP"
+        subtitle="On-hand, allocations, on-order, and available-to-promise by item"
+      />
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -405,30 +402,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const alertRowStyle: React.CSSProperties = {
   display: 'flex',
   gap: '16px',
@@ -474,7 +447,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -487,7 +459,7 @@ const directoryThStyle: React.CSSProperties = {
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

@@ -14,7 +14,10 @@ import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { billDetailHref, billEditHref, sourceOrderHref } from '../utils/cashReference'
+import { Plus } from 'lucide-react'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 import {
   matchesDeliveryDate,
   matchesRelativeDate,
@@ -171,21 +174,19 @@ export function SupplierInvoiceList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Supplier Invoices / Bills</h2>
-          <p style={pageSubStyle}>
-            Vendor bills for purchase orders, subcontract orders, and Non-PO expenses
-          </p>
-        </div>
+      <PageHeader
+        title="Supplier Invoices / Bills"
+        subtitle="Vendor bills for purchase orders, subcontract orders, and Non-PO expenses"
+      >
         <button
           type="button"
           style={primaryButtonStyle}
           onClick={() => navigate('/supplier-invoices/new?category=non-po')}
         >
+          <Plus size={15} />
           Create Non-PO Invoice
         </button>
-      </header>
+      </PageHeader>
 
       <ListFilterBar
         fields={FILTERS}
@@ -387,23 +388,11 @@ export function SupplierInvoiceList() {
 }
 
 const containerStyle: React.CSSProperties = { padding: 24, maxWidth: 1200, margin: '0 auto', textAlign: 'left' }
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: 20,
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: 16,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  flexWrap: 'wrap',
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const emptyStyle: React.CSSProperties = { padding: 30, textAlign: 'center', color: 'var(--text)' }
 const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const theadRowStyle: React.CSSProperties = { borderBottom: '2px solid var(--border)', backgroundColor: 'var(--social-bg)' }
+const theadRowStyle: React.CSSProperties = { backgroundColor: 'var(--social-bg)' }
 const thStyle: React.CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h)' }
-const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
+const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const tdStyle: React.CSSProperties = { padding: '12px 10px', color: 'var(--text)' }
 const badgeStyle: React.CSSProperties = { padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 'bold' }
 const tagStyle: React.CSSProperties = {
@@ -428,17 +417,6 @@ const returnLinkStyle: React.CSSProperties = {
   fontSize: 13,
 }
 const pagerStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16 }
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 14,
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '8px 14px',
   backgroundColor: 'transparent',

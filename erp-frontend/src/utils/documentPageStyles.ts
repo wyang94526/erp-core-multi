@@ -10,9 +10,7 @@ export function HoverTip({ label, children }: { label: string; children: ReactNo
 }
 
 export const documentPageHeaderStyle: CSSProperties = {
-  marginBottom: 24,
-  borderBottom: '1px solid var(--border, #ddd)',
-  paddingBottom: 16,
+  marginBottom: 12,
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',

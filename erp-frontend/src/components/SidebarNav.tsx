@@ -10,6 +10,7 @@ import {
   CalendarCheck,
   CalendarRange,
   Clock,
+  Lock,
   CreditCard,
   DollarSign,
   FileSpreadsheet,
@@ -64,6 +65,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   'book-open': BookOpen,
   'calendar-check': CalendarCheck,
   'calendar-range': CalendarRange,
+  lock: Lock,
 }
 
 function NavIcon({ name, size }: { name?: string; size: number }) {

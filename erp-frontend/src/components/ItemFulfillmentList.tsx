@@ -15,6 +15,7 @@ import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { PageHeader } from './PageHeader'
 import {
   overScoReceiptMessage,
   subcontractReceivedBySoLine,
@@ -204,12 +205,10 @@ export function ItemFulfillmentList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Item Fulfillments</h2>
-          <p style={pageSubStyle}>Ship approved sales order lines and update inventory on shipment</p>
-        </div>
-      </header>
+      <PageHeader
+        title="Item Fulfillments"
+        subtitle="Ship approved sales order lines and update inventory on shipment"
+      />
 
       <ListFilterBar
         fields={FILTERS}
@@ -524,18 +523,11 @@ const containerStyle: React.CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: 20,
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: 16,
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const emptyStyle: React.CSSProperties = { padding: 30, textAlign: 'center', color: 'var(--text)' }
 const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const theadRowStyle: React.CSSProperties = { borderBottom: '2px solid var(--border)', backgroundColor: 'var(--social-bg)' }
+const theadRowStyle: React.CSSProperties = { backgroundColor: 'var(--social-bg)' }
 const thStyle: React.CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h)' }
-const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
+const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const tdStyle: React.CSSProperties = { padding: '12px 10px', color: 'var(--text)' }
 const badgeStyle: React.CSSProperties = {
   padding: '4px 10px',

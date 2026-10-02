@@ -269,12 +269,11 @@ const cardStyle: CSSProperties = {
   boxShadow: 'var(--shadow)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 const gridStyle: CSSProperties = {
   display: 'grid',

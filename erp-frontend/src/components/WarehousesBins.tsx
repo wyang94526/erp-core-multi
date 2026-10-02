@@ -529,7 +529,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -541,7 +540,7 @@ const directoryThStyle: React.CSSProperties = {
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

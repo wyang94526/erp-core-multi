@@ -283,6 +283,51 @@ class PaymentTerm(Base):
     )
 
 
+class CompanyProfile(Base):
+    """Singleton company letterhead used on order PDFs (logo, contact, bill/ship)."""
+
+    __tablename__ = "company_profile"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_name = Column(String(255), nullable=False, default="Grand-Tek Technology USA")
+    contact_name = Column(String(255), nullable=True)
+    contact_email = Column(String(255), nullable=True)
+    contact_phone = Column(String(50), nullable=True)
+    bill_to = Column(JSONB, nullable=False, default=dict)
+    ship_to = Column(JSONB, nullable=False, default=dict)
+    logo_stored_filename = Column(String(255), nullable=True)
+    logo_original_filename = Column(String(255), nullable=True)
+    logo_content_type = Column(String(100), nullable=True)
+    logo_file_size = Column(Integer(), nullable=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+
+
+class FinancePeriodSettings(Base):
+    """Singleton period-close policy: Open, Soft Close, and Hard Close dates."""
+
+    __tablename__ = "finance_period_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    current_closing_date = Column(Date, nullable=True)
+    soft_close_date = Column(Date, nullable=True)
+    hard_close_date = Column(Date, nullable=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+
+
 class AuditLog(Base):
     __tablename__ = 'audit_logs'
 

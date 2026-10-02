@@ -20,6 +20,7 @@ import {
   subcontractOrderService,
 } from '../api/services'
 import { generateSalesOrderPdf } from '../utils/generateSalesOrderPdf'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import {
   invoiceStatusColors,
   invoiceStatusLabel,
@@ -243,7 +244,7 @@ export function SalesOrderDetail() {
     setExportingPdf(true)
     try {
       const uniqueItemIds = [...new Set((order.items || []).map((item) => item.item_id).filter(Boolean))]
-      const [customer, billTo, shipTo, catalogItems] = await Promise.all([
+      const [customer, billTo, shipTo, catalogItems, branding] = await Promise.all([
         order.customer_id
           ? customerService.getCustomer(order.customer_id).catch(() => null)
           : Promise.resolve(null),
@@ -254,6 +255,7 @@ export function SalesOrderDetail() {
           ? locationService.getLocation(order.ship_to_location_id).catch(() => null)
           : Promise.resolve(null),
         Promise.all(uniqueItemIds.map((itemId) => itemService.getItem(itemId).catch(() => null))),
+        loadCompanyPdfBranding().catch(() => null),
       ])
 
       const itemDescriptions = Object.fromEntries(
@@ -265,9 +267,13 @@ export function SalesOrderDetail() {
       generateSalesOrderPdf({
         order,
         customerName: customer?.company_name ?? null,
+        customerEmail: customer?.primary_email ?? null,
+        customerPhone: customer?.primary_phone ?? null,
+        customerContact: customer?.primary_contact_name ?? null,
         billTo,
         shipTo,
         itemDescriptions,
+        branding,
       })
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'Failed to print sales order PDF')
@@ -886,12 +892,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const gridStyle: React.CSSProperties = {
@@ -921,7 +926,6 @@ const tableStyle: React.CSSProperties = {
 }
 
 const theadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -933,7 +937,7 @@ const thStyle: React.CSSProperties = {
 }
 
 const tbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 }
 
 const tdStyle: React.CSSProperties = {

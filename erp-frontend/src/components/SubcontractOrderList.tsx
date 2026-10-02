@@ -20,7 +20,10 @@ import ListFilterBar, {
   type FilterField,
 } from './ListFilterBar'
 import { salesOrderDetailPath } from '../utils/salesOrders'
+import { Plus } from 'lucide-react'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 
 const SCO_FILTERS: FilterField[] = [
   {
@@ -171,36 +174,35 @@ export function SubcontractOrderList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Subcontract Orders</h2>
-          <p style={pageSubStyle}>Manage outside processing orders sent to subcontractors</p>
-          {itemIdFilter && (
-            <div style={filterBadgeRowStyle}>
-              <span style={filterBadgeStyle}>Filtered by Product: {itemIdFilter}</span>
-              <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
-                Clear filter
-              </button>
-            </div>
-          )}
-          {salesOrderIdFilter && (
-            <div style={filterBadgeRowStyle}>
-              <span style={filterBadgeStyle}>Filtered by Sales Order: {salesOrderIdFilter}</span>
-              <button onClick={handleClearFilter} style={clearFilterLinkStyle}>
-                Clear filter
-              </button>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => navigate('/subcontract-orders/new')}
-          style={primaryButtonStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
-        >
-          + Create Subcontract Order
+      <PageHeader
+        title="Subcontract Orders"
+        subtitle={
+          <>
+            Manage outside processing orders sent to subcontractors
+            {itemIdFilter && (
+              <span style={filterBadgeRowStyle}>
+                <span style={filterBadgeStyle}>Filtered by Product: {itemIdFilter}</span>
+                <button type="button" onClick={handleClearFilter} style={clearFilterLinkStyle}>
+                  Clear filter
+                </button>
+              </span>
+            )}
+            {salesOrderIdFilter && (
+              <span style={filterBadgeRowStyle}>
+                <span style={filterBadgeStyle}>Filtered by Sales Order: {salesOrderIdFilter}</span>
+                <button type="button" onClick={handleClearFilter} style={clearFilterLinkStyle}>
+                  Clear filter
+                </button>
+              </span>
+            )}
+          </>
+        }
+      >
+        <button type="button" onClick={() => navigate('/subcontract-orders/new')} style={primaryButtonStyle}>
+          <Plus size={15} />
+          Create Subcontract Order
         </button>
-      </header>
+      </PageHeader>
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -394,43 +396,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '8px 16px',
   backgroundColor: 'transparent',
@@ -457,7 +422,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -469,7 +433,7 @@ const directoryThStyle: React.CSSProperties = {
 }
 
 const directoryTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 }
 

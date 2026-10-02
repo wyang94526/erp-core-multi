@@ -37,6 +37,7 @@ from app.services.posting_rules import (
     resolve_posting_rule,
 )
 from app.services.payment_terms import apply_due_date, apply_payment_term_fields
+from app.services.period_close import assert_transaction_date_open
 from app.services.item_types import catalog_item, skip_inventory_movement
 from app.services.remaining_close import (
     NO_OPEN_REMAINING_DETAIL,
@@ -737,6 +738,9 @@ def update_fulfillment_status(
         fulfillment.tracking_number = tracking_number
 
     if status == "SHIPPED" and previous != "SHIPPED":
+        assert_transaction_date_open(
+            db, shipped_date or date.today(), document="item fulfillment"
+        )
         for line in fulfillment.lines:
             if skip_inventory_movement(catalog_item(db, line.item_id)):
                 continue
@@ -900,6 +904,7 @@ def create_sales_invoice(
             raise HTTPException(status_code=400, detail="Fulfillment must be SHIPPED before invoicing")
 
     issue = issue_date or date.today()
+    assert_transaction_date_open(db, issue, document="sales invoice")
     due, term = apply_due_date(
         db,
         invoice_date=issue,

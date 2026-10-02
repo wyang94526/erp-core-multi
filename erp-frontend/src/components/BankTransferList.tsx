@@ -17,7 +17,10 @@ import {
   isBankTransferDeletable,
   isBankTransferEditable,
 } from '../utils/bankTransfers'
+import { Plus } from 'lucide-react'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 
 const TRANSFER_FILTERS: FilterField[] = [
@@ -101,24 +104,15 @@ function BankTransferList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Bank Transfers</h2>
-          <p style={pageSubStyle}>
-            Move funds between company bank accounts. Submit a draft for approval; the generated
-            journal stays Draft until the G/L entry is approved.
-          </p>
-        </div>
-        <button
-          type="button"
-          style={primaryButtonStyle}
-          onClick={() => navigate('/bank-transfers/new')}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
-        >
-          + New Bank Transfer
+      <PageHeader
+        title="Bank Transfers"
+        subtitle="Move funds between company bank accounts. Submit a draft for approval; the generated journal stays Draft until the G/L entry is approved."
+      >
+        <button type="button" style={primaryButtonStyle} onClick={() => navigate('/bank-transfers/new')}>
+          <Plus size={15} />
+          New Bank Transfer
         </button>
-      </header>
+      </PageHeader>
 
       <ListFilterBar
         fields={TRANSFER_FILTERS}
@@ -302,30 +296,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
-const primaryButtonStyle: CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-  transition: 'background-color 0.2s',
-}
 const dashboardSectionStyle: CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -339,7 +309,7 @@ const directoryThStyle: CSSProperties = {
   fontSize: 12,
   color: 'var(--text)',
 }
-const directoryTbodyRowStyle: CSSProperties = { borderTop: '1px solid var(--border)' }
+const directoryTbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const directoryTdStyle: CSSProperties = { padding: '10px 12px', fontSize: 13 }
 const emptyStateWrapperStyle: CSSProperties = { padding: '30px', textAlign: 'center' }
 const statusBadgeStyle: CSSProperties = {

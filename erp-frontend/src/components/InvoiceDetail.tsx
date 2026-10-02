@@ -6,9 +6,16 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown, Loader2, Mail, Receipt, CheckCircle2, Ban } from 'lucide-react'
-import { arInvoiceService, salesInvoiceService } from '../api/services'
+import {
+  arInvoiceService,
+  customerService,
+  locationService,
+  salesInvoiceService,
+  salesOrderService,
+} from '../api/services'
 import type { ARInvoiceDetail } from '../types'
 import { generateSalesInvoicePdf } from '../utils/generateSalesInvoicePdf'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { cashReferenceLinkStyle } from '../utils/cashReference'
 import {
   HoverTip,
@@ -94,24 +101,55 @@ export function InvoiceDetail() {
   const approvalBadge = statusColors(detail?.approval_status || '')
   const siStatus = (detail?.sales_invoice_status || '').toUpperCase()
 
-  const handlePrint = () => {
+  const exportInvoicePdf = async (invoice: ARInvoiceDetail) => {
+    const order = invoice.sales_order_id
+      ? await salesOrderService.getSalesOrder(invoice.sales_order_id).catch(() => null)
+      : null
+    const [customer, billTo, shipTo, branding] = await Promise.all([
+      invoice.customer_id
+        ? customerService.getCustomer(invoice.customer_id).catch(() => null)
+        : Promise.resolve(null),
+      order?.bill_to_location_id
+        ? locationService.getLocation(order.bill_to_location_id).catch(() => null)
+        : Promise.resolve(null),
+      order?.ship_to_location_id
+        ? locationService.getLocation(order.ship_to_location_id).catch(() => null)
+        : Promise.resolve(null),
+      loadCompanyPdfBranding().catch(() => null),
+    ])
+    generateSalesInvoicePdf({
+      detail: invoice,
+      branding,
+      customerName: customer?.company_name ?? invoice.customer_name,
+      customerEmail: customer?.primary_email ?? invoice.customer_email,
+      customerPhone: customer?.primary_phone ?? null,
+      customerContact: customer?.primary_contact_name ?? null,
+      billTo,
+      shipTo,
+    })
+  }
+
+  const handlePrint = async () => {
     if (!detail) return
     setPrinting(true)
+    setError(null)
     try {
-      generateSalesInvoicePdf(detail)
+      await exportInvoicePdf(detail)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to print invoice PDF')
     } finally {
       setPrinting(false)
     }
   }
 
-  const handleResend = () => {
+  const handleResend = async () => {
     if (!detail) return
     const email = (detail.customer_email || '').trim()
     if (!email) {
       setError('No customer email on file. Add a primary email on the customer or buyer contact on the sales order.')
       return
     }
-    generateSalesInvoicePdf(detail)
+    await exportInvoicePdf(detail)
     const subject = encodeURIComponent(`Invoice ${detail.invoice_id} from Grand-Tek Technology USA`)
     const body = encodeURIComponent(
       [
@@ -353,6 +391,7 @@ export function InvoiceDetail() {
           <table style={tableStyle}>
             <thead>
               <tr style={theadRowStyle}>
+                <th style={thStyle}>Line</th>
                 <th style={thStyle}>Part # / Description</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Quantity</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Unit Price ($)</th>
@@ -362,13 +401,14 @@ export function InvoiceDetail() {
             <tbody>
               {(detail.lines || []).length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={tdStyle}>
+                  <td colSpan={5} style={tdStyle}>
                     No line items on this invoice.
                   </td>
                 </tr>
               ) : (
                 detail.lines.map((line, idx) => (
                   <tr key={`${line.item_id}-${idx}`}>
+                    <td style={tdStyle}>{idx + 1}</td>
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 600 }}>{line.item_id}</div>
                       <div style={{ color: 'var(--text)', fontSize: 12 }}>{line.description || '—'}</div>
@@ -456,12 +496,11 @@ const cardStyle: CSSProperties = {
   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px',
+  margin: '0 0 8px',
   fontSize: 18,
   fontWeight: 'bold',
   color: 'var(--text-h, #212121)',
-  borderBottom: '2px solid var(--border, #ddd)',
-  paddingBottom: 8,
+
 }
 const metaGridStyle: CSSProperties = {
   display: 'grid',
@@ -490,7 +529,7 @@ const labelStyle: CSSProperties = {
   flexShrink: 0,
 }
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const theadRowStyle: CSSProperties = { borderBottom: '2px solid var(--border, #ddd)', backgroundColor: 'var(--social-bg, #f5f5f5)' }
+const theadRowStyle: CSSProperties = { backgroundColor: 'var(--social-bg, #f5f5f5)' }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h, #212121)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text, #424242)', verticalAlign: 'top' }
 const totalsStyle: CSSProperties = {

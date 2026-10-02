@@ -16,6 +16,7 @@ import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { PageHeader } from './PageHeader'
 import {
   formatReceiptHeaderQty,
   formatReceiptMoney,
@@ -111,15 +112,10 @@ export function GoodsReceiptList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Goods Receipts</h2>
-          <p style={pageSubStyle}>
-            Posted receipts (PU67- / UP72-) and their GRNI journals, including receipts whose
-            source purchase order was later deleted.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Goods Receipts"
+        subtitle="Posted receipts (PU67- / UP72-) and their GRNI journals, including receipts whose source purchase order was later deleted."
+      />
 
       <ListFilterBar
         fields={FILTERS}
@@ -267,21 +263,13 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: 20,
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: 16,
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const emptyStyle: CSSProperties = { padding: 30, textAlign: 'center', color: 'var(--text)' }
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
 const theadRowStyle: CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h)' }
-const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--border)' }
+const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text)', verticalAlign: 'middle' }
 const badgeStyle: CSSProperties = {
   padding: '4px 10px',

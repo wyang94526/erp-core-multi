@@ -10,7 +10,10 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { fulfillmentService, itemService, salesOrderService, subcontractOrderService } from '../api/services'
+import { ArrowLeft } from 'lucide-react'
 import { isStockItemType } from '../utils/itemTypes'
+import { headerButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 import {
   fulfilledQtyByLine,
   overFulfillmentMessage,
@@ -164,18 +167,15 @@ export function ItemFulfillmentForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Fulfill Items</h2>
-          <p style={pageSubStyle}>
-            Sales order {order.sales_order_id} · {order.customer_id}. Partial shipments are
-            allowed — subcontracted items default to finished-goods received so far.
-          </p>
-        </div>
-        <button type="button" style={secondaryButtonStyle} onClick={() => navigate(`/orders/${id}`)}>
+      <PageHeader
+        title="Fulfill Items"
+        subtitle={`Sales order ${order.sales_order_id} · ${order.customer_id}. Partial shipments are allowed — subcontracted items default to finished-goods received so far.`}
+      >
+        <button type="button" style={headerButtonStyle} onClick={() => navigate(`/orders/${id}`)}>
+          <ArrowLeft size={15} />
           Back to Order
         </button>
-      </header>
+      </PageHeader>
 
       {!canFulfill ? (
         <div style={{ ...cardStyle, color: '#c62828' }}>
@@ -332,18 +332,6 @@ const containerStyle: React.CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: 20,
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: 16,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  flexWrap: 'wrap',
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -352,15 +340,15 @@ const cardStyle: React.CSSProperties = {
   boxShadow: 'var(--shadow)',
 }
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px',
+  margin: '0 0 8px',
   fontSize: 18,
   fontWeight: 'bold',
   color: 'var(--text-h)',
 }
 const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
-const theadRowStyle: React.CSSProperties = { borderBottom: '2px solid var(--border)', backgroundColor: 'var(--social-bg)' }
+const theadRowStyle: React.CSSProperties = { backgroundColor: 'var(--social-bg)' }
 const thStyle: React.CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h)' }
-const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
+const tbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const tdStyle: React.CSSProperties = { padding: '12px 10px', color: 'var(--text)' }
 const labelStyle: React.CSSProperties = {
   fontSize: 13,

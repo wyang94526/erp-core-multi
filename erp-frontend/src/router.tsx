@@ -56,12 +56,14 @@ import GeneralLedger from './components/GeneralLedger'
 import { ManualJournalEntryPage } from './components/ManualJournalEntryPage'
 import { MonthEndClosePage } from './components/MonthEndClosePage'
 import { YearEndClosePage } from './components/YearEndClosePage'
+import { PeriodManagementPage } from './components/PeriodManagementPage'
 import FinancialReports from './components/FinancialReports'
 import FinancialReportViewer from './components/FinancialReportViewer'
 import InventoryOverview from './components/InventoryOverview'
 import StockMovements from './components/StockMovements'
 import WarehousesBins from './components/WarehousesBins'
 import AdminRbacPage from './components/AdminRbacPage'
+import CompanyProfilePage from './components/CompanyProfilePage'
 import DataImportPreview from './components/DataImportPreview'
 import Dashboard from './components/Dashboard'
 import UserGuide from './components/help/UserGuide'
@@ -371,6 +373,10 @@ export const router = createBrowserRouter([
         element: <YearEndClosePage />,
       },
       {
+        path: 'general-ledger/period-management',
+        element: <PeriodManagementPage />,
+      },
+      {
         path: 'financial-reports',
         element: <FinancialReports />,
       },
@@ -394,6 +400,10 @@ export const router = createBrowserRouter([
       {
         path: 'vendor-invoices/new',
         element: <RedirectPreserveSearch to="/supplier-invoices/new" />,
+      },
+      {
+        path: 'admin/company-profile',
+        element: <CompanyProfilePage />,
       },
       {
         path: 'admin/rbac',

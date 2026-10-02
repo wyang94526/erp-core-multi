@@ -11,6 +11,7 @@ import { usePurchaseOrderState } from '../hooks/usePurchaseOrderState';
 import { purchaseOrderService, vendorService, approvalService, itemService, subcontractOrderService, goodsReceiptService, vendorInvoiceService } from '../api/services';
 import type { Supplier, PurchaseOrder, Item, SubcontractOrder, GoodsReceipt, SupplierInvoice } from '../types';
 import { generatePurchaseOrderVendorPdf } from '../utils/generatePurchaseOrderPdf';
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead';
 import { requiresCarrierAccount } from '../data/orderOptions';
 import { isNonStockItem } from '../utils/itemTypes'
 import { isRecallablePurchaseOrder, isPurchaseOrderEditable, purchaseOrderLockReason } from '../utils/poWorkflow'
@@ -571,13 +572,16 @@ export function PurchaseOrderForm() {
     setExportingPdf(true);
     try {
       let poForPdf = state;
-      if (!(poForPdf.supplier_name || '').trim() && poForPdf.supplier_id) {
+      let vendorForPdf: Supplier | null = null;
+      if (poForPdf.supplier_id) {
         try {
-          const supplier = await vendorService.getVendor(poForPdf.supplier_id);
-          poForPdf = {
-            ...poForPdf,
-            supplier_name: supplier.company_name,
-          };
+          vendorForPdf = await vendorService.getVendor(poForPdf.supplier_id);
+          if (!(poForPdf.supplier_name || '').trim() && vendorForPdf) {
+            poForPdf = {
+              ...poForPdf,
+              supplier_name: vendorForPdf.company_name,
+            };
+          }
         } catch {
           // Keep ID-only supplier info if lookup fails.
         }
@@ -588,10 +592,13 @@ export function PurchaseOrderForm() {
           .filter((p) => p.item_id)
           .map((p) => [p.item_id, p.description || p.customer_part_number || '']),
       );
+      const branding = await loadCompanyPdfBranding().catch(() => null);
 
       generatePurchaseOrderVendorPdf({
         po: poForPdf,
         itemDescriptions,
+        vendor: vendorForPdf,
+        branding,
       });
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'Failed to export vendor PDF');
@@ -1175,12 +1182,11 @@ const relatedDocsTableStyle: React.CSSProperties = {
 };
 
 const relatedDocsTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 };
 
 const relatedDocsTbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 };
 
 const relatedDocsThStyle: React.CSSProperties = {

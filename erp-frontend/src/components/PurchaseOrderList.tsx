@@ -20,7 +20,10 @@ import {
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { formatPaginationLabel } from '../utils/pagination'
+import { Plus } from 'lucide-react'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 import {
   matchesDeliveryDate,
   matchesRelativeDate,
@@ -238,20 +241,12 @@ export function PurchaseOrderList() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>Purchase Orders</h2>
-          <p style={pageSubStyle}>View, create and manage purchase orders with vendors</p>
-        </div>
-        <button
-          onClick={() => navigate('/purchase-orders/new')}
-          style={primaryButtonStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1565c0')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
-        >
-          + Create Purchase Order
+      <PageHeader title="Purchase Orders" subtitle="View, create and manage purchase orders with vendors">
+        <button type="button" onClick={() => navigate('/purchase-orders/new')} style={primaryButtonStyle}>
+          <Plus size={15} />
+          Create Purchase Order
         </button>
-      </header>
+      </PageHeader>
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -492,43 +487,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
 const secondaryButtonStyle: React.CSSProperties = {
   padding: '8px 14px',
   backgroundColor: 'var(--bg)',
@@ -555,7 +513,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: '#f5f5f5',
 }
 

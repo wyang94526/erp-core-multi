@@ -5,12 +5,8 @@
 
 import type { ReactNode } from 'react'
 import { HandHeart, ShieldCheck, UserRound } from 'lucide-react'
-import {
-  containerStyle,
-  pageHeaderStyle,
-  pageSubStyle,
-  pageTitleStyle,
-} from './dashboardStyles'
+import { containerStyle } from './dashboardStyles'
+import { PageHeader } from '../PageHeader'
 
 type WelcomeOnboardingProps = {
   fullName: string
@@ -21,12 +17,7 @@ export default function WelcomeOnboarding({ fullName }: WelcomeOnboardingProps) 
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Welcome</h2>
-          <p style={pageSubStyle}>Get started with Grand-Tek Technology USA</p>
-        </div>
-      </header>
+      <PageHeader title="Welcome" subtitle="Get started with Grand-Tek Technology USA" />
 
       <section
         style={{

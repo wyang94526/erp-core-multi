@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.services.financial_reports import ZERO, AccountBalance, _account_balances, money
+from app.services.period_close import period_lock_message
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.journal_source import SOURCE_YEAR_END_CLOSE, generated_journal_fields, rule_id
 from app.services.posting_rules import (
@@ -441,6 +442,11 @@ def preview_year_end_close(
 
     today = datetime.utcnow().date()
     year_still_open = today <= end
+    lock_message = period_lock_message(
+        db, end, document="year-end close", kind="adjustment"
+    )
+    if lock_message:
+        blockers.append(lock_message)
     can_run = not blockers
     return {
         "fiscal_year": year,

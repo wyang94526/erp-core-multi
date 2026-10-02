@@ -13,6 +13,7 @@ import { RecordCashPaymentDialog, type CashPaymentChoice } from './RecordCashPay
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { PageHeader } from './PageHeader'
 import ListFilterBar, {
   DashboardContextBanner,
   useListFilterParams,
@@ -143,12 +144,10 @@ function APBills() {
 
   return (
     <div style={containerStyle}>
-      <div style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>AP Aging & Payments</h1>
-          <p style={pageSubStyle}>Vendor bills generated from approved Purchase Orders</p>
-        </div>
-      </div>
+      <PageHeader
+        title="AP Aging & Payments"
+        subtitle="Vendor bills generated from approved Purchase Orders"
+      />
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -333,30 +332,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid #ddd',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: '#212121',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: '#616161',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: '#fff',
   border: '1px solid #ddd',
@@ -372,7 +347,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid #ddd',
   backgroundColor: '#f5f5f5',
 }
 

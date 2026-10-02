@@ -89,6 +89,7 @@ from app.services.posting_rules import (
     resolve_posting_pair,
     resolve_posting_rule,
 )
+from app.services.period_close import assert_transaction_date_open
 
 # Catalog fallbacks — live posting uses posting_rules rows when present.
 CASH_ACCOUNT_CODE, CASH_ACCOUNT_NAME, _ = catalog_account(
@@ -379,6 +380,7 @@ def _post_balanced_journal_entry(
     cash movement hits G/L balances immediately.
     """
     today = posting_date or datetime.utcnow().date()
+    assert_transaction_date_open(db, today, document="journal entry")
     period = today.strftime("%Y-%m")
     entry = JournalEntry(
         journal_number=generate_document_number(db, DOC_JOURNAL, today),
@@ -908,6 +910,7 @@ def create_bank_transfer(
     transfer_date: date,
     reference_number: str | None = None,
 ) -> BankTransfer:
+    assert_transaction_date_open(db, transfer_date, document="bank transfer")
     assert_bank_transfer_accounts(from_account_id, to_account_id)
     pay_amount = assert_bank_transfer_amount(amount)
     from_account = _require_active_bank_account(db, from_account_id.strip(), "From")
@@ -996,6 +999,8 @@ def update_bank_transfer(
         )
     if (transfer.status or "").upper() == "POSTED":
         raise HTTPException(status_code=400, detail="Posted transfers cannot be edited")
+    assert_transaction_date_open(db, transfer.transfer_date, document="bank transfer")
+    assert_transaction_date_open(db, transfer_date, document="bank transfer")
     from_account, to_account, pay_amount = _validate_transfer_accounts_and_amount(
         db,
         from_account_id=from_account_id,
@@ -1266,6 +1271,9 @@ def receive_payment(
             status_code=400,
             detail=f"AR invoice must be APPROVED before payment (current: {invoice.approval_status})",
         )
+    assert_transaction_date_open(
+        db, payment_date or date.today(), document="cash receipt"
+    )
 
     already_paid = _cash_applied_total(db, {invoice.invoice_id}, "Check Deposit")
     pay_amount, remaining_after = settlement_apply_amount(
@@ -1338,6 +1346,9 @@ def make_payment(
             status_code=400,
             detail=f"AP bill must be APPROVED before payment (current: {bill.approval_status})",
         )
+    assert_transaction_date_open(
+        db, payment_date or date.today(), document="cash payment"
+    )
 
     supplier_invoice = _supplier_invoice_for_ap(db, bill)
     invoice_total = _money(

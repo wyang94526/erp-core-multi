@@ -12,6 +12,9 @@ import type { ChartOfAccount, PostingRule } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { pageSubStyle } from './dashboard/dashboardStyles'
+import { PageHeader } from './PageHeader'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
 
 const RULE_FILTERS: FilterField[] = []
 
@@ -189,18 +192,10 @@ function PostingRules() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Posting Rules</h2>
-          <p style={pageSubStyle}>
-            Auto-generated journals read these debit and credit accounts. Change them here to
-            maintain your chart — the next posting uses the new setup. Vendor AP mapping and
-            bank-account G/L still override AP and cash. Month-end close parks current-period NI
-            (3354 / 3353). Year-end close zeros all P&amp;L into retained earnings (3350) and
-            reverses the monthly NI park (3353 / 3354).
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Posting Rules"
+        subtitle="Auto-generated journals read these debit and credit accounts. Change them here to maintain your chart — the next posting uses the new setup. Vendor AP mapping and bank-account G/L still override AP and cash. Month-end close parks current-period NI (3354 / 3353). Year-end close zeros all P&L into retained earnings (3350) and reverses the monthly NI park (3353 / 3354)."
+      />
 
       <ListFilterBar
         fields={RULE_FILTERS}
@@ -377,24 +372,6 @@ const containerStyle: React.CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
 const formCardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -446,7 +423,7 @@ const directoryThStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--text)',
 }
-const directoryTbodyRowStyle: React.CSSProperties = { borderTop: '1px solid var(--border)' }
+const directoryTbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const directoryTdStyle: React.CSSProperties = { padding: '10px 12px', fontSize: 13 }
 const emptyStateWrapperStyle: React.CSSProperties = { padding: '30px', textAlign: 'center' }
 const ghostButtonStyle: React.CSSProperties = {

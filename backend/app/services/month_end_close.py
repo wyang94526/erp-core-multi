@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.services.accounting import normalize_journal_period
+from app.services.period_close import period_lock_message
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.financial_reports import ZERO, _account_balances, money
 from app.services.journal_source import SOURCE_MONTH_END_CLOSE, generated_journal_fields, rule_id
@@ -256,6 +257,11 @@ def preview_month_end_close(
 
     today = datetime.utcnow().date()
     period_still_open = today <= end
+    lock_message = period_lock_message(
+        db, end, document="month-end close", kind="adjustment"
+    )
+    if lock_message:
+        blockers.append(lock_message)
     return {
         "period": close_period,
         "close_date": end,

@@ -1888,7 +1888,7 @@ const tabsRowStyle: CSSProperties = {
   display: 'flex',
   gap: 4,
   padding: '0 16px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   background: 'var(--bg)',
 }
 

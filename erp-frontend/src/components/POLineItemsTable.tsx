@@ -578,9 +578,8 @@ const tableHeaderContainerStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  marginBottom: '16px',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+  marginBottom: '8px',
+
 };
 
 const sectionHeadingStyle: React.CSSProperties = {
@@ -626,7 +625,7 @@ const tableStyle: React.CSSProperties = {
 };
 
 const theadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
+  backgroundColor: 'var(--social-bg)',
 };
 
 const thStyle: React.CSSProperties = {
@@ -638,7 +637,7 @@ const thStyle: React.CSSProperties = {
 };
 
 const tbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   transition: 'background-color 0.2s',
 };
 

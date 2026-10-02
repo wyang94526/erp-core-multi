@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { approvalService, chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
+import { usePeriodStatus } from '../hooks/useFinancePeriodSettings'
 import type { JournalEntry, JournalLineDraft } from '../types'
 import { newJournalLine } from '../utils/journalCsvImport'
 import {
@@ -77,6 +78,7 @@ export function ManualJournalEntryPage() {
   const canSubmit = hasPermission('journal:submit')
 
   const [postingDate, setPostingDate] = useState(todayISO)
+  const periodStatus = usePeriodStatus(postingDate, 'adjustment')
   const [period, setPeriod] = useState(periodFromDate(todayISO()))
   const [periodDirty, setPeriodDirty] = useState(false)
   const [reference, setReference] = useState('')
@@ -204,6 +206,10 @@ export function ManualJournalEntryPage() {
   const goBack = () => navigate(returnTo)
 
   const handleSave = async (submitAfter: boolean) => {
+    if (periodStatus.blocked) {
+      setError(periodStatus.message || 'This posting date is hard-closed.')
+      return
+    }
     const message = validate()
     if (message) {
       setError(message)
@@ -468,6 +474,9 @@ export function ManualJournalEntryPage() {
           </span>
         </div>
 
+        {periodStatus.message && (
+          <div style={periodStatus.blocked ? errorStyle : hintStyle}>{periodStatus.message}</div>
+        )}
         {error && <div style={errorStyle}>{error}</div>}
 
         <div style={actionsStyle}>
@@ -475,12 +484,17 @@ export function ManualJournalEntryPage() {
             {readOnly ? backLabel : 'Cancel'}
           </button>
           {!readOnly && (
-            <button type="button" style={secondaryBtn} disabled={busy} onClick={() => void handleSave(false)}>
+            <button
+              type="button"
+              style={secondaryBtn}
+              disabled={busy || periodStatus.blocked}
+              onClick={() => void handleSave(false)}
+            >
               {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Draft'}
             </button>
           )}
           {!readOnly && canSubmit && (
-            <button type="submit" style={primaryBtn} disabled={busy}>
+            <button type="submit" style={primaryBtn} disabled={busy || periodStatus.blocked}>
               {busy ? 'Submitting…' : 'Submit for Approval'}
             </button>
           )}
@@ -590,7 +604,6 @@ const thStyle: CSSProperties = {
   padding: '8px',
   textAlign: 'left',
   background: '#f5f5f5',
-  borderBottom: '1px solid #ddd',
   fontSize: '12px',
 }
 

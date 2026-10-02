@@ -409,7 +409,7 @@ const listStyle: React.CSSProperties = {
 
 const listItemStyle: React.CSSProperties = {
   padding: '8px 0',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   fontSize: '13px',
 }
 

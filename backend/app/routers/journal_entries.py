@@ -33,6 +33,7 @@ from app.services import month_end_close, year_end_close
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.journal_list import apply_journal_list_filters
 from app.services.journal_source import assert_journal_mutable
+from app.services.period_close import KIND_ADJUSTMENT, assert_transaction_date_open
 
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
 
@@ -200,6 +201,9 @@ def run_year_end_close(
 def _create_journal_entry(db: Session, payload: JournalEntryCreate, user: User) -> JournalEntry:
     posting_rows = _validated_posting_rows(db, payload.postings)
     posting_date = resolve_posting_date(payload.posting_date)
+    assert_transaction_date_open(
+        db, posting_date, document="journal entry", kind=KIND_ADJUSTMENT
+    )
     period = normalize_journal_period(payload.period, posting_date)
     reference = (payload.reference or "").strip() or None
 
@@ -298,6 +302,16 @@ def update_journal_entry(
             detail=f"Cannot edit a journal entry with approval status {approval}",
         )
     assert_journal_mutable(entry)
+    assert_transaction_date_open(
+        db, entry.posting_date, document="journal entry", kind=KIND_ADJUSTMENT
+    )
+    if payload.posting_date is not None:
+        assert_transaction_date_open(
+            db,
+            resolve_posting_date(payload.posting_date),
+            document="journal entry",
+            kind=KIND_ADJUSTMENT,
+        )
 
     data = payload.model_dump(exclude_unset=True)
     _apply_header(

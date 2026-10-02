@@ -215,7 +215,7 @@ export default function InteractiveTransactionTable<T>({
                       style={{
                         padding: '12px 16px 16px',
                         background: '#f5f9fc',
-                        borderBottom: '1px solid var(--border)',
+                        borderBottom: '1px solid var(--divider)',
                       }}
                     >
                       {renderExpanded(row)}

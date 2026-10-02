@@ -15,6 +15,7 @@ import { ArrowLeft, Ban, FileDown, Loader2, Mail, Pencil, Receipt, RotateCcw } f
 import { itemService, purchaseOrderService, subcontractOrderService, vendorService } from '../api/services'
 import { generateMaterialIssueShippingPdf } from '../utils/generateMaterialIssuePdf'
 import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { defaultCostSheet } from '../utils/scoCostSheet'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
 import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
@@ -403,20 +404,23 @@ export function SubcontractOrderDetail() {
     setExportError(null)
     setExportingPdf(true)
     try {
-      const [supplier, item] = await Promise.all([
+      const [supplier, item, branding] = await Promise.all([
         sco.supplier_id
           ? vendorService.getVendor(sco.supplier_id).catch(() => null)
           : Promise.resolve(null),
         sco.item_id
           ? itemService.getItem(sco.item_id).catch(() => null)
           : Promise.resolve(null),
+        loadCompanyPdfBranding().catch(() => null),
       ])
 
       generateSubcontractVendorPdf({
         sco,
         supplierName: supplier?.company_name ?? null,
+        supplierContact: supplier,
         productName: item?.description ?? null,
         components: kitLines,
+        branding,
       })
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'Failed to export vendor PDF')
@@ -1678,12 +1682,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const sectionHeadingStyleNoBorder: React.CSSProperties = {
@@ -1697,9 +1700,8 @@ const tableHeaderContainerStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  marginBottom: '16px',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+  marginBottom: '8px',
+
 }
 
 const addButtonStyle: React.CSSProperties = {
@@ -1766,7 +1768,6 @@ const tableStyle: React.CSSProperties = {
 }
 
 const theadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
 
@@ -1778,7 +1779,7 @@ const thStyle: React.CSSProperties = {
 }
 
 const tbodyRowStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 }
 
 const tdStyle: React.CSSProperties = {
@@ -1854,7 +1855,7 @@ const issueCardHeaderStyle: React.CSSProperties = {
   gap: 12,
   flexWrap: 'wrap',
   padding: '12px 14px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   backgroundColor: 'var(--social-bg)',
 }
 

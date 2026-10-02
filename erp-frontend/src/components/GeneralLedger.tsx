@@ -5,7 +5,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Lock } from 'lucide-react'
+import { BookOpen, CalendarCheck, CalendarRange, Lock, Upload } from 'lucide-react'
+import { headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 import { chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import type { JournalEntry, PostingRule } from '../types'
 import { parseJournalBulkCsvFile } from '../utils/journalCsvImport'
@@ -243,46 +245,44 @@ function GeneralLedger() {
 
   return (
     <div style={containerStyle}>
-      <div style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>General Ledger</h1>
-          <p style={pageSubStyle}>Double-entry journal postings and period close</p>
-        </div>
-        <div style={headerActionsStyle}>
-          {canCreate && (
-            <>
-              <button style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
-                + Manual Journal Entry
-              </button>
-              <button
-                type="button"
-                style={secondaryButtonStyle}
-                disabled={importing}
-                onClick={() => csvInputRef.current?.click()}
-              >
-                {importing ? 'Importing…' : 'Import Journals (CSV)'}
-              </button>
-              <input
-                ref={csvInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ''
-                  void handleImportJournals(file)
-                }}
-              />
-            </>
-          )}
-          <button style={secondaryButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
-            Run Month-End Close
-          </button>
-          <button style={secondaryButtonStyle} onClick={() => navigate(YEAR_END_CLOSE_PATH)}>
-            Year-End Close
-          </button>
-        </div>
-      </div>
+      <PageHeader title="General Ledger" subtitle="Double-entry journal postings and period close">
+        {canCreate && (
+          <>
+            <button type="button" style={primaryButtonStyle} onClick={() => navigate(JOURNAL_CREATE_PATH)}>
+              <BookOpen size={15} />
+              Manual Journal Entry
+            </button>
+            <button
+              type="button"
+              style={headerButtonStyle}
+              disabled={importing}
+              onClick={() => csvInputRef.current?.click()}
+            >
+              <Upload size={15} />
+              {importing ? 'Importing…' : 'Import Journals (CSV)'}
+            </button>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                void handleImportJournals(file)
+              }}
+            />
+          </>
+        )}
+        <button type="button" style={headerButtonStyle} onClick={() => navigate(MONTH_END_CLOSE_PATH)}>
+          <CalendarCheck size={15} />
+          Run Month-End Close
+        </button>
+        <button type="button" style={headerButtonStyle} onClick={() => navigate(YEAR_END_CLOSE_PATH)}>
+          <CalendarRange size={15} />
+          Year-End Close
+        </button>
+      </PageHeader>
 
       {importMessage && <div style={successBannerStyle}>{importMessage}</div>}
       {error && <div style={errorBannerStyle}>{error}</div>}
@@ -331,7 +331,7 @@ function GeneralLedger() {
             {hasActiveFilters ? 'No journal entries match the current filters.' : 'No journal entries found.'}
             {hasActiveFilters ? (
               <div style={{ marginTop: 12 }}>
-                <button type="button" style={secondaryButtonStyle} onClick={clearFilters}>
+                <button type="button" style={headerButtonStyle} onClick={clearFilters}>
                   Clear filters
                 </button>
               </div>
@@ -597,61 +597,10 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid #ddd',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const headerActionsStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  flexWrap: 'wrap',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: '#212121',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: '#616161',
-}
-
 const filterCountStyle: React.CSSProperties = {
   margin: '-8px 0 16px',
   fontSize: '13px',
   color: '#616161',
-}
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#2196F3',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  transition: 'background-color 0.2s',
-  fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: React.CSSProperties = {
-  ...primaryButtonStyle,
-  backgroundColor: '#fff',
-  color: '#1565c0',
-  border: '1px solid #90caf9',
 }
 
 const dashboardSectionStyle: React.CSSProperties = {
@@ -722,7 +671,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid #ddd',
   backgroundColor: '#f5f5f5',
 }
 

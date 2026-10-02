@@ -8,13 +8,25 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { Location, SalesOrder } from '../types'
+import {
+  companyFooterLine,
+  drawBillShipBlocks,
+  drawPdfLetterhead,
+  PDF_BRAND_ALT_RGB,
+  PDF_BRAND_RGB,
+  type CompanyPdfBranding,
+} from './pdfLetterhead'
 
 export type SalesOrderPdfInput = {
   order: SalesOrder
   customerName?: string | null
+  customerEmail?: string | null
+  customerPhone?: string | null
+  customerContact?: string | null
   billTo?: Location | null
   shipTo?: Location | null
   itemDescriptions?: Record<string, string>
+  branding?: CompanyPdfBranding | null
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -54,24 +66,6 @@ function formatQty(value: number | null | undefined): string {
   })
 }
 
-function formatLocation(loc: Location | null | undefined, fallbackId: string): string[] {
-  if (!loc) return [fallbackId || '—']
-  const lines: string[] = []
-  if (loc.location_name?.trim()) lines.push(loc.location_name.trim())
-  if (loc.attention_to?.trim()) lines.push(`Attn: ${loc.attention_to.trim()}`)
-  else if (loc.contact_person?.trim()) lines.push(`Attn: ${loc.contact_person.trim()}`)
-  if (loc.address_line1?.trim()) lines.push(loc.address_line1.trim())
-  const cityLine = [loc.city, loc.state_province || loc.state, loc.postal_code]
-    .map((p) => p?.trim())
-    .filter(Boolean)
-    .join(', ')
-  if (loc.address_line2?.trim()) lines.push(loc.address_line2.trim())
-  if (cityLine) lines.push(cityLine)
-  if (loc.country?.trim()) lines.push(loc.country.trim())
-  if (lines.length === 0) lines.push(loc.location_id || fallbackId || '—')
-  return lines
-}
-
 export function buildSalesOrderPdfFilename(salesOrderId: string): string {
   const safe = (salesOrderId || 'UNKNOWN').replace(/[^\w.-]+/g, '-')
   return `SO-${safe}.pdf`
@@ -81,31 +75,20 @@ export function generateSalesOrderPdf(input: SalesOrderPdfInput): void {
   const {
     order,
     customerName,
+    customerEmail,
+    customerPhone,
+    customerContact,
     billTo,
     shipTo,
     itemDescriptions = {},
+    branding,
   } = input
   const currency = (order.currency || 'USD').trim() || 'USD'
+  const companyName = (branding?.profile.company_name || 'Grand-Tek Technology USA').trim()
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const marginX = 48
-  let y = 48
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.setTextColor(40, 40, 40)
-  doc.text('Grand-Tek Technology USA', marginX, y)
-
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(90, 90, 90)
-  doc.text('SALES ORDER', pageWidth - marginX, y, { align: 'right' })
-  y += 22
-
-  doc.setDrawColor(168, 85, 247)
-  doc.setLineWidth(1.5)
-  doc.line(marginX, y, pageWidth - marginX, y)
-  y += 24
+  let y = drawPdfLetterhead(doc, branding, 'SALES ORDER')
 
   doc.setTextColor(30, 30, 30)
   doc.setFont('helvetica', 'bold')
@@ -138,34 +121,25 @@ export function generateSalesOrderPdf(input: SalesOrderPdfInput): void {
   y += 14
   doc.text(`Customer Name: ${customerName?.trim() || '—'}`, marginX, y)
   y += 14
-  doc.text(`Buyer: ${(order.buyer_contact_name || '').trim() || '—'}`, marginX, y)
+  doc.text(
+    `Contact: ${(order.buyer_contact_name || customerContact || '').trim() || '—'}`,
+    marginX,
+    y,
+  )
   y += 14
-  doc.text(`Buyer Email: ${(order.buyer_contact_email || '').trim() || '—'}`, marginX, y)
+  doc.text(
+    `Email: ${(order.buyer_contact_email || customerEmail || '').trim() || '—'}`,
+    marginX,
+    y,
+  )
+  y += 14
+  doc.text(`Phone: ${(customerPhone || '').trim() || '—'}`, marginX, y)
   y += 26
 
-  const colWidth = (pageWidth - marginX * 2 - 24) / 2
-  const leftX = marginX
-  const rightX = marginX + colWidth + 24
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text('Bill To', leftX, y)
-  doc.text('Ship To', rightX, y)
-  y += 14
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-
-  const wrap = (lines: string[]) =>
-    lines.flatMap((line) => doc.splitTextToSize(line, colWidth) as string[])
-  const billLines = wrap(formatLocation(billTo, order.bill_to_location_id))
-  const shipLines = wrap(formatLocation(shipTo, order.ship_to_location_id))
-  const maxLines = Math.max(billLines.length, shipLines.length, 1)
-  for (let i = 0; i < maxLines; i += 1) {
-    if (billLines[i]) doc.text(billLines[i], leftX, y)
-    if (shipLines[i]) doc.text(shipLines[i], rightX, y)
-    y += 13
-  }
-  y += 18
+  y = drawBillShipBlocks(doc, billTo, shipTo, y, {
+    bill: order.bill_to_location_id,
+    ship: order.ship_to_location_id,
+  })
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
@@ -199,12 +173,12 @@ export function generateSalesOrderPdf(input: SalesOrderPdfInput): void {
       lineWidth: 0.5,
     },
     headStyles: {
-      fillColor: [147, 51, 234],
+      fillColor: PDF_BRAND_RGB,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
     alternateRowStyles: {
-      fillColor: [248, 246, 252],
+      fillColor: PDF_BRAND_ALT_RGB,
     },
     columnStyles: {
       0: { cellWidth: 36 },
@@ -248,7 +222,7 @@ export function generateSalesOrderPdf(input: SalesOrderPdfInput): void {
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   const terms = doc.splitTextToSize(
-    'Please confirm this sales order according to the quantities, pricing, and shipping terms listed. Contact Grand-Tek Technology USA for any discrepancies before fulfillment.',
+    `Please confirm this sales order according to the quantities, pricing, and shipping terms listed. Contact ${companyName} for any discrepancies before fulfillment.`,
     pageWidth - marginX * 2,
   )
   doc.text(terms, marginX, y)
@@ -269,7 +243,7 @@ export function generateSalesOrderPdf(input: SalesOrderPdfInput): void {
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(
-      `Grand-Tek Technology USA · Confidential · Page ${i} of ${pageCount}`,
+      `${companyFooterLine(branding?.profile)} · Page ${i} of ${pageCount}`,
       pageWidth / 2,
       pageHeight - 24,
       { align: 'center' },

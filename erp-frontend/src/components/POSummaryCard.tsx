@@ -131,12 +131,11 @@ const containerStyle: React.CSSProperties = {
 };
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 };
 
 const totalsListStyle: React.CSSProperties = {
@@ -228,7 +227,7 @@ const grandTotalRowStyle: React.CSSProperties = {
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderTop: '2px solid var(--border)',
+  borderTop: '2px solid var(--divider)',
   paddingTop: '16px',
   marginTop: '8px',
 };

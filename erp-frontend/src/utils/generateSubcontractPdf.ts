@@ -7,13 +7,23 @@
 
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { CalculatedComponentLine, SubcontractOrder } from '../types'
+import type { CalculatedComponentLine, SubcontractOrder, Supplier } from '../types'
+import {
+  companyFooterLine,
+  drawBillShipBlocks,
+  drawPdfLetterhead,
+  PDF_BRAND_ALT_RGB,
+  PDF_BRAND_RGB,
+  type CompanyPdfBranding,
+} from './pdfLetterhead'
 
 export type SubcontractVendorPdfInput = {
   sco: SubcontractOrder
   supplierName?: string | null
+  supplierContact?: Pick<Supplier, 'contact_name' | 'contact_email' | 'phone_number'> | null
   productName?: string | null
   components: CalculatedComponentLine[]
+  branding?: CompanyPdfBranding | null
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -40,28 +50,12 @@ export function buildSubcontractVendorPdfFilename(scoNumber: string): string {
 }
 
 export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): void {
-  const { sco, supplierName, productName, components } = input
+  const { sco, supplierName, supplierContact, productName, components, branding } = input
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const marginX = 48
-  let y = 48
-
-  // Header
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.setTextColor(40, 40, 40)
-  doc.text('Grand-Tek Technology USA', marginX, y)
-
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(90, 90, 90)
-  doc.text('SUBCONTRACT ORDER', pageWidth - marginX, y, { align: 'right' })
-  y += 22
-
-  doc.setDrawColor(168, 85, 247)
-  doc.setLineWidth(1.5)
-  doc.line(marginX, y, pageWidth - marginX, y)
-  y += 24
+  const companyName = (branding?.profile.company_name || 'Grand-Tek Technology USA').trim()
+  let y = drawPdfLetterhead(doc, branding, 'SUBCONTRACT ORDER')
 
   doc.setTextColor(30, 30, 30)
   doc.setFont('helvetica', 'bold')
@@ -97,7 +91,15 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
   doc.text(`Supplier ID: ${sco.supplier_id || '—'}`, marginX, y)
   y += 14
   doc.text(`Supplier Name: ${supplierName?.trim() || '—'}`, marginX, y)
+  y += 14
+  doc.text(`Contact: ${(supplierContact?.contact_name || '').trim() || '—'}`, marginX, y)
+  y += 14
+  doc.text(`Email: ${(supplierContact?.contact_email || '').trim() || '—'}`, marginX, y)
+  y += 14
+  doc.text(`Phone: ${(supplierContact?.phone_number || '').trim() || '—'}`, marginX, y)
   y += 26
+
+  y = drawBillShipBlocks(doc, branding?.profile.bill_to, branding?.profile.ship_to, y)
 
   // Order summary
   doc.setFont('helvetica', 'bold')
@@ -155,12 +157,12 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
       lineWidth: 0.5,
     },
     headStyles: {
-      fillColor: [147, 51, 234],
+      fillColor: PDF_BRAND_RGB,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
     alternateRowStyles: {
-      fillColor: [248, 246, 252],
+      fillColor: PDF_BRAND_ALT_RGB,
     },
     columnStyles: {
       3: { halign: 'right' },
@@ -205,7 +207,7 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
         body: chargeBody,
         theme: 'grid',
         styles: { font: 'helvetica', fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [147, 51, 234], textColor: [255, 255, 255] },
+        headStyles: { fillColor: PDF_BRAND_RGB, textColor: [255, 255, 255] },
         margin: { left: marginX, right: marginX },
       })
       y = ((doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y) + 18
@@ -226,7 +228,7 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   const terms = doc.splitTextToSize(
-    'Please process this subcontract purchase attachment according to the quantities and component kit listed above. Contact Grand-Tek Technology USA for any discrepancies before processing.',
+    `Please process this subcontract purchase attachment according to the quantities and component kit listed above. Contact ${companyName} for any discrepancies before processing.`,
     pageWidth - marginX * 2,
   )
   doc.text(terms, marginX, y)
@@ -248,7 +250,7 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(
-      `Grand-Tek Technology USA · Confidential · Page ${i} of ${pageCount}`,
+      `${companyFooterLine(branding?.profile)} · Page ${i} of ${pageCount}`,
       pageWidth / 2,
       pageHeight - 24,
       { align: 'center' },

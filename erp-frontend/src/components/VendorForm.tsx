@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { chartOfAccountsService, inventoryService, paymentTermsService, vendorService, workCenterService } from '../api/services'
 import type { SupplierWrite, TaxDocumentType, VendorPaymentMethod, VendorQcStatus, VendorType } from '../types'
 import { INCOTERM_OPTIONS } from '../data/orderOptions'
+import { PageHeader } from './PageHeader'
 import { findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
 const VENDOR_TYPE_OPTIONS: Array<{ value: VendorType; label: string }> = [
   { value: 'material', label: 'Material supplier' },
@@ -504,12 +505,10 @@ export function VendorForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Vendor' : 'Create New Vendor'}</h2>
-          <p style={pageSubStyle}>Material suppliers and subcontractors for purchasing and outside processing</p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Vendor' : 'Create New Vendor'}
+        subtitle="Material suppliers and subcontractors for purchasing and outside processing"
+      />
 
       <form onSubmit={handleSubmit}>
         <Section title="Basic Info">
@@ -983,25 +982,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: 'var(--text-h)',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: 'var(--text)',
-}
-
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -1012,12 +992,11 @@ const cardStyle: React.CSSProperties = {
 }
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 
 const gridStyle: React.CSSProperties = {
@@ -1065,7 +1044,7 @@ const subsectionStyle: React.CSSProperties = {
   fontWeight: 700,
   color: 'var(--text-h)',
   paddingTop: 8,
-  borderTop: '1px solid var(--border)',
+  borderTop: '1px solid var(--divider)',
 }
 
 const fieldGroupStyle: React.CSSProperties = {

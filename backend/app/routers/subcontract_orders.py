@@ -57,6 +57,7 @@ from app.services.document_sequences import (
     generate_document_number,
     next_document_number,
 )
+from app.services.period_close import assert_transaction_date_open
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
@@ -554,6 +555,7 @@ def create_subcontract_order(
     first = prepared[0]
     header_qty = sum(item["raw"].quantity_ordered for item in prepared)
     order_date = payload.order_date or date.today()
+    assert_transaction_date_open(db, order_date, document="subcontract order")
     sco = SubcontractOrder(
         sco_number=generate_document_number(db, DOC_SUBCONTRACT_ORDER, order_date),
         supplier_id=payload.supplier_id,
@@ -733,6 +735,7 @@ def update_subcontract_order(
 
     if sco.status in _CLOSED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Cannot modify a {sco.status.lower()} subcontract order")
+    assert_transaction_date_open(db, sco.order_date, document="subcontract order")
 
     data = payload.model_dump(exclude_unset=True)
     line_updates = data.pop("lines", None)
@@ -1069,6 +1072,9 @@ def receive_goods(
     deduct = min(wip, Decimal(payload.quantity_received))
     product.wip_quantity = int(wip - deduct)
 
+    assert_transaction_date_open(
+        db, payload.receipt_date or date.today(), document="finished goods receipt"
+    )
     receipt = FinishedGoodsReceipt(
         receipt_id=receipt_id,
         sco_number=sco_number,

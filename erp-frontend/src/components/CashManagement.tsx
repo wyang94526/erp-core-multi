@@ -17,6 +17,8 @@ import ListFilterBar, {
 } from './ListFilterBar'
 import { cashReferenceHref, cashReferenceLabel, cashReferenceLinkStyle } from '../utils/cashReference'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { headerButtonStyle } from '../utils/documentPageStyles'
+import { PageHeader } from './PageHeader'
 
 const CASH_FILTERS: FilterField[] = [
   {
@@ -151,15 +153,11 @@ function CashManagement() {
 
   return (
     <div style={containerStyle}>
-      <div style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>Cash Management</h1>
-          <p style={pageSubStyle}>Chronological ledger of all cash inflows and outflows</p>
-        </div>
-        <Link to="/bank-accounts" style={bankAccountsLinkStyle}>
+      <PageHeader title="Cash Management" subtitle="Chronological ledger of all cash inflows and outflows">
+        <Link to="/bank-accounts" style={{ ...headerButtonStyle, textDecoration: 'none' }}>
           Manage bank accounts
         </Link>
-      </div>
+      </PageHeader>
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -382,30 +380,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid #ddd',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: '#212121',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: '#616161',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: '#fff',
   border: '1px solid #ddd',
@@ -421,7 +395,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid #ddd',
   backgroundColor: '#f5f5f5',
 }
 
@@ -521,19 +494,6 @@ const metaDtStyle: React.CSSProperties = {
 const metaDdStyle: React.CSSProperties = {
   margin: 0,
   color: '#212121',
-}
-
-const bankAccountsLinkStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-  textDecoration: 'none',
 }
 
 const emptyStateWrapperStyle: React.CSSProperties = {

@@ -21,13 +21,8 @@ import PurchasingDashboard from './dashboard/PurchasingDashboard'
 import InventoryDashboard from './dashboard/InventoryDashboard'
 import FinanceDashboard from './dashboard/FinanceDashboard'
 import WelcomeOnboarding from './dashboard/WelcomeOnboarding'
-import {
-  containerStyle,
-  emptyStateStyle,
-  pageHeaderStyle,
-  pageSubStyle,
-  pageTitleStyle,
-} from './dashboard/dashboardStyles'
+import { containerStyle, emptyStateStyle } from './dashboard/dashboardStyles'
+import { PageHeader } from './PageHeader'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -68,14 +63,10 @@ export default function Dashboard() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Dashboard</h2>
-          <p style={pageSubStyle}>
-            Personalized {roleName} overview for Grand-Tek Technology USA
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Dashboard"
+        subtitle={`Personalized ${roleName} overview for Grand-Tek Technology USA`}
+      />
 
       <GreetingBanner
         fullName={user?.full_name || 'User'}

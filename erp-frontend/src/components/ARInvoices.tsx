@@ -18,6 +18,7 @@ import ListFilterBar, {
 } from './ListFilterBar'
 import { invoiceDetailHref } from '../utils/cashReference'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
+import { PageHeader } from './PageHeader'
 
 const AR_FILTERS: FilterField[] = [
   {
@@ -141,14 +142,10 @@ function ARInvoices() {
 
   return (
     <div style={containerStyle}>
-      <div style={pageHeaderStyle}>
-        <div>
-          <h1 style={pageTitleStyle}>AR Aging & Collections</h1>
-          <p style={pageSubStyle}>
-            Open customer receivables. Approved Sales Invoices post here (invoice id matches INV-YYYY-NNNN when created from O2C).
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="AR Aging & Collections"
+        subtitle="Open customer receivables. Approved Sales Invoices post here (invoice id matches INV-YYYY-NNNN when created from O2C)."
+      />
 
       {fromDashboard ? (
         <DashboardContextBanner
@@ -320,30 +317,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid #ddd',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-
-const pageTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: '#212121',
-}
-
-const pageSubStyle: React.CSSProperties = {
-  margin: '4px 0 0 0',
-  fontSize: '14px',
-  color: '#616161',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: '#fff',
   border: '1px solid #ddd',
@@ -359,7 +332,6 @@ const directoryTableStyle: React.CSSProperties = {
 }
 
 const directoryTheadRowStyle: React.CSSProperties = {
-  borderBottom: '2px solid #ddd',
   backgroundColor: '#f5f5f5',
 }
 

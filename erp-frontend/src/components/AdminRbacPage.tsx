@@ -1093,11 +1093,10 @@ const tableStyle: React.CSSProperties = {
 }
 const th: React.CSSProperties = {
   textAlign: 'left',
-  borderBottom: '1px solid var(--border)',
   padding: '8px',
 }
 const td: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   padding: '8px',
   verticalAlign: 'top',
 }

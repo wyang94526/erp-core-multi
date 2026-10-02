@@ -10,6 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { bankAccountService, chartOfAccountsService } from '../api/services'
 import type { BankAccountType, BankAccountWrite } from '../types'
+import { PageHeader } from './PageHeader'
 import {
   BANK_ACCOUNT_TYPES,
   BANK_CURRENCIES,
@@ -152,16 +153,14 @@ export function BankAccountForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>{isEditMode ? 'Edit Bank Account' : 'Create New Bank Account'}</h2>
-          <p style={pageSubStyle}>
-            {isEditMode
-              ? `Editing ${bankAccountId}`
-              : 'Company bank master data used by Cash Management and reconciliation'}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={isEditMode ? 'Edit Bank Account' : 'Create New Bank Account'}
+        subtitle={
+          isEditMode
+            ? `Editing ${bankAccountId}`
+            : 'Company bank master data used by Cash Management and reconciliation'
+        }
+      />
 
       <form onSubmit={handleSave}>
         <div style={cardStyle}>
@@ -292,13 +291,6 @@ const containerStyle: CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-}
-const pageTitleStyle: CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
 const cardStyle: CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -308,12 +300,11 @@ const cardStyle: CSSProperties = {
   boxShadow: 'var(--shadow)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 }
 const gridStyle: CSSProperties = {
   display: 'grid',

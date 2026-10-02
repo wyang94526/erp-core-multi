@@ -23,8 +23,11 @@ import {
 import type { GoodsReceipt, GoodsReceiptLine } from '../types'
 import { addDaysIso, findPaymentTerm, paymentTermLabel } from '../utils/paymentTerms'
 import { formatReceiptMoney, formatReceiptQty } from '../utils/goodsReceipts'
+import { ArrowLeft } from 'lucide-react'
+import { headerButtonStyle } from '../utils/documentPageStyles'
 import AccountLookup from './AccountLookup'
 import GoodsReceiptLookup from './GoodsReceiptLookup'
+import { PageHeader } from './PageHeader'
 
 type InvoiceCategory = 'PO' | 'NON_PO'
 type NonPoType = 'EXPENSE' | 'LANDED_COST'
@@ -569,31 +572,31 @@ export function SupplierInvoiceForm() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>
-            {isEdit
-              ? `Edit ${editQuery.data?.invoice.invoice_number || editBillId}`
-              : isNonPo
-                ? 'Create Non-PO Invoice'
-                : 'Create Supplier Invoice'}
-          </h2>
-          <p style={pageSubStyle}>
-            {isEdit
-              ? 'Draft, returned, and pending Non-PO invoices can be corrected, then saved or submitted again.'
-              : isNonPo
-                ? 'Freight, duty, rent, utilities, and other vouchers that are not 3-way matched to a PO'
-                : selectedReceipts.length
-                  ? `${selectedReceipts.length} goods receipt${selectedReceipts.length === 1 ? '' : 's'} selected${
-                      sourceOrderId ? ` · ${orderLabel} ${sourceOrderId}` : ''
-                    }${vendorFromOrder ? ` · ${vendorFromOrder}` : ''}`
-                  : 'Match a vendor invoice to posted goods receipts'}
-          </p>
-        </div>
-        <button type="button" style={secondaryButtonStyle} onClick={() => navigate(backPath)}>
+      <PageHeader
+        title={
+          isEdit
+            ? `Edit ${editQuery.data?.invoice.invoice_number || editBillId}`
+            : isNonPo
+              ? 'Create Non-PO Invoice'
+              : 'Create Supplier Invoice'
+        }
+        subtitle={
+          isEdit
+            ? 'Draft, returned, and pending Non-PO invoices can be corrected, then saved or submitted again.'
+            : isNonPo
+              ? 'Freight, duty, rent, utilities, and other vouchers that are not 3-way matched to a PO'
+              : selectedReceipts.length
+                ? `${selectedReceipts.length} goods receipt${selectedReceipts.length === 1 ? '' : 's'} selected${
+                    sourceOrderId ? ` · ${orderLabel} ${sourceOrderId}` : ''
+                  }${vendorFromOrder ? ` · ${vendorFromOrder}` : ''}`
+                : 'Match a vendor invoice to posted goods receipts'
+        }
+      >
+        <button type="button" style={headerButtonStyle} onClick={() => navigate(backPath)}>
+          <ArrowLeft size={15} />
           {isEdit ? 'Back to Bill' : isNonPo || !sourceOrderId ? 'Back to Invoices' : 'Back to Order'}
         </button>
-      </header>
+      </PageHeader>
 
       {isEdit && editQuery.isLoading ? (
         <div style={cardStyle}>Loading invoice…</div>
@@ -1215,30 +1218,18 @@ export function SupplierInvoiceForm() {
   )
 }
 
-const containerStyle: React.CSSProperties = {
-  padding: 24,
-  maxWidth: 800,
-  margin: '0 auto',
-  textAlign: 'left',
-}
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: 20,
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: 16,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  flexWrap: 'wrap',
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: 28, fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0', fontSize: 14, color: 'var(--text)' }
 const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
   borderRadius: 8,
   padding: 24,
   boxShadow: 'var(--shadow)',
+}
+const containerStyle: React.CSSProperties = {
+  padding: 24,
+  maxWidth: 800,
+  margin: '0 auto',
+  textAlign: 'left',
 }
 const labelStyle: React.CSSProperties = {
   fontSize: 13,
@@ -1330,13 +1321,12 @@ const receiptTableStyle: React.CSSProperties = {
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
   padding: '8px 6px',
-  borderBottom: '1px solid var(--border)',
   color: 'var(--text-h)',
   whiteSpace: 'nowrap',
 }
 const tdStyle: React.CSSProperties = {
   padding: '8px 6px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   color: 'var(--text)',
 }
 const modalOverlayStyle: React.CSSProperties = {

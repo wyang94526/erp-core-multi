@@ -29,6 +29,7 @@ from app.services.po_totals import apply_estimated_landed_unit_costs, apply_po_t
 from app.services.payment_terms import apply_payment_term_fields
 from app.services.item_types import catalog_item, validate_line_quantity
 from app.services.po_sco_demand import assert_sco_component_qty_within_demand
+from app.services.period_close import assert_dates_open, assert_transaction_date_open
 
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
@@ -210,6 +211,7 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     data["carrier_account"] = _blank_to_none(data.get("carrier_account"))
     data["incoterms"] = _blank_to_none(data.get("incoterms"))
     order_date = data.get("order_date") or date.today()
+    assert_transaction_date_open(db, order_date, document="purchase order")
     data["order_date"] = order_date
     data["po_number"] = generate_document_number(db, DOC_PURCHASE_ORDER, order_date)
     data["root_document_id"] = data["po_number"]
@@ -263,6 +265,12 @@ def update_purchase_order(
         raise HTTPException(status_code=404, detail="Purchase order not found")
     p2p.attach_po_recall_flags(db, po)
     p2p.assert_purchase_order_editable(po)
+    assert_dates_open(
+        db,
+        po.order_date,
+        payload.order_date,
+        document="purchase order",
+    )
 
     data = payload.model_dump(exclude_unset=True, exclude={"items"})
 

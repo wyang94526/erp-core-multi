@@ -191,12 +191,12 @@ const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collap
 const thStyle: React.CSSProperties = {
   padding: '8px 6px',
   textAlign: 'left',
-  borderBottom: '2px solid var(--border)',
+
 }
 const tdStyle: React.CSSProperties = {
   padding: '8px 6px',
   verticalAlign: 'top',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
 }
 const inputStyle: React.CSSProperties = {
   width: '100%',

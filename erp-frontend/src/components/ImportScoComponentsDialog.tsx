@@ -370,13 +370,12 @@ const modalStyle: React.CSSProperties = {
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
   padding: '8px 6px',
-  borderBottom: '1px solid var(--border)',
   fontSize: 12,
 }
 
 const tdStyle: React.CSSProperties = {
   padding: '8px 6px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   verticalAlign: 'top',
 }
 

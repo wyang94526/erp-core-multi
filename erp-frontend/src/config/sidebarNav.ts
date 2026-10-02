@@ -283,6 +283,14 @@ export const NAV_CATEGORIES: NavCategory[] = [
             end: true,
             icon: 'calendar-range',
           },
+          {
+            kind: 'link',
+            label: 'Period Management',
+            to: '/general-ledger/period-management',
+            permission: 'journal:view',
+            end: true,
+            icon: 'lock',
+          },
         ],
       },
       {
@@ -314,6 +322,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
     label: '⚙️ Administration',
     roles: ['ROLE-ADMIN'],
     entries: [
+      { kind: 'link', label: 'Company Profile', to: '/admin/company-profile', permission: 'admin:manage' },
       { kind: 'link', label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
       {
         kind: 'link',

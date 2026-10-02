@@ -10,7 +10,10 @@ import { paymentTermsService } from '../api/services'
 import type { PaymentTerm } from '../types'
 import { csvFilename, downloadCsv, matchesSearch } from '../utils/csvExport'
 import { useSortableData } from '../hooks/useSortableData'
+import { Plus } from 'lucide-react'
+import { headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyles'
 import ListFilterBar, { useListFilterParams, type FilterField } from './ListFilterBar'
+import { PageHeader } from './PageHeader'
 
 const TERM_FILTERS: FilterField[] = [
   {
@@ -158,16 +161,13 @@ function PaymentTerms() {
 
   return (
     <div style={containerStyle}>
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Payment Terms</h2>
-          <p style={pageSubStyle}>
-            Master list used by vendors, customers, purchase orders, and AP/AR invoices
-          </p>
-        </div>
+      <PageHeader
+        title="Payment Terms"
+        subtitle="Master list used by vendors, customers, purchase orders, and AP/AR invoices"
+      >
         <button
           type="button"
-          style={primaryButtonStyle}
+          style={showForm ? headerButtonStyle : primaryButtonStyle}
           onClick={() => {
             if (showForm) {
               setShowForm(false)
@@ -178,9 +178,9 @@ function PaymentTerms() {
             }
           }}
         >
-          {showForm ? 'Cancel' : '+ Add Payment Term'}
+          {showForm ? 'Cancel' : <><Plus size={15} /> Add Payment Term</>}
         </button>
-      </header>
+      </PageHeader>
 
       <ListFilterBar
         fields={TERM_FILTERS}
@@ -339,29 +339,6 @@ const containerStyle: React.CSSProperties = {
   margin: '0 auto',
   textAlign: 'left',
 }
-const pageHeaderStyle: React.CSSProperties = {
-  marginBottom: '24px',
-  borderBottom: '1px solid var(--border)',
-  paddingBottom: '16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: '12px',
-}
-const pageTitleStyle: React.CSSProperties = { margin: 0, fontSize: '28px', fontWeight: 'bold', color: 'var(--text-h)' }
-const pageSubStyle: React.CSSProperties = { margin: '4px 0 0 0', fontSize: '14px', color: 'var(--text)' }
-const primaryButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: 'bold',
-  fontFamily: 'inherit',
-}
 const formCardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)',
   border: '1px solid var(--border)',
@@ -397,7 +374,7 @@ const directoryThStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--text)',
 }
-const directoryTbodyRowStyle: React.CSSProperties = { borderTop: '1px solid var(--border)' }
+const directoryTbodyRowStyle: React.CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const directoryTdStyle: React.CSSProperties = { padding: '10px 12px', fontSize: 13 }
 const emptyStateWrapperStyle: React.CSSProperties = { padding: '30px', textAlign: 'center' }
 const statusBadgeStyle: React.CSSProperties = {

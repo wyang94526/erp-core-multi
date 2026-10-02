@@ -3,6 +3,7 @@
   --text-h: #08060d;
   --bg: #fff;
   --border: #e5e4e7;
+  --divider: #b4b3b8;
   --code-bg: #f4f3ec;
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
@@ -37,6 +38,7 @@
     --text-h: #f3f4f6;
     --bg: #16171d;
     --border: #2e303a;
+    --divider: #6b6d78;
     --code-bg: #1f2028;
     --accent: #c084fc;
     --accent-bg: rgba(192, 132, 252, 0.15);
@@ -105,7 +107,7 @@ body {
   font-weight: 600;
   color: var(--text-h);
   padding: 4px 8px 16px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--divider);
   margin-bottom: 12px;
 }
 
@@ -121,7 +123,7 @@ body {
 .app-sidebar-footer {
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px solid #ddd;
+  border-top: 1px solid var(--divider);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -520,7 +522,7 @@ body {
   gap: 12px;
   padding: 12px 16px;
   background: #f5f5f5;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--divider);
   flex-shrink: 0;
 }
 
@@ -984,7 +986,7 @@ code {
   justify-content: space-between;
   gap: 12px;
   padding: 16px 16px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 
 .ai-drawer-title {
@@ -1081,8 +1083,11 @@ code {
 .ai-markdown .ai-table th,
 .ai-markdown .ai-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
   white-space: nowrap;
+}
+
+.ai-markdown .ai-table td {
+  border-bottom: 1px solid var(--divider);
 }
 
 .ai-markdown .ai-table thead th {
@@ -1094,7 +1099,7 @@ code {
 .ai-markdown .ai-table-total th,
 .ai-markdown .ai-table-total td {
   border-bottom: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
   font-weight: 700;
 }
 
@@ -1138,7 +1143,7 @@ code {
   display: flex;
   gap: 8px;
   padding: 12px 14px 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .ai-drawer-compose textarea {
@@ -1288,7 +1293,7 @@ code {
 
 .help-drawer-footer {
   padding: 12px 16px 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
   font-size: 14px;
 }
 
@@ -1516,7 +1521,7 @@ code {
 }
 
 .help-accordion {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .help-accordion-trigger {
@@ -1632,7 +1637,7 @@ code {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   background: var(--code-bg);
 }
 
@@ -2067,7 +2072,7 @@ code {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 
 .workflow-lightbox-header h2 {
@@ -2128,6 +2133,18 @@ code {
   .financial-report-page {
     max-width: none !important;
     padding: 0 !important;
+  }
+
+  .financial-report-print-only {
+    border-bottom: 2px solid rgb(0, 176, 180);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+
+  .financial-report-print-root thead th {
+    background-color: rgb(64, 64, 64) !important;
+    color: #fff !important;
+    border-bottom: none !important;
   }
 }
 

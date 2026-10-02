@@ -96,10 +96,9 @@ export function GoodsReceiptHistoryTable({
 
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
 const theadRowStyle: CSSProperties = {
-  borderBottom: '2px solid var(--border)',
   backgroundColor: 'var(--social-bg)',
 }
-const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--border)' }
+const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--divider)' }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text)', verticalAlign: 'middle' }
 const badgeStyle: CSSProperties = {

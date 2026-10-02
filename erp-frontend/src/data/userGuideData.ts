@@ -880,12 +880,18 @@ export const HELP_ARTICLES: HelpArticle[] = [
     id: 'finance-close',
     module: 'finance',
     title: 'Month-End and Year-End Close',
-    routeMatch: ['/general-ledger/month-end-close', '/general-ledger/year-end-close'],
+    routeMatch: [
+      '/general-ledger/month-end-close',
+      '/general-ledger/year-end-close',
+      '/general-ledger/period-management',
+    ],
     summary:
       'Month-End Close parks current-period net income to temporary accounts 3354 (IS) and 3353 (BS). Revenue and expense stay open. Year-End Close zeros full-year P&L into 3350 and reverses the monthly NI park.',
     steps: [
+      'Use Period Management to Soft Close the month after operational AP/AR documents are complete. Soft Close still allows adjusting journals and Month-End / Year-End Close.',
       'Each month, including December, open General Ledger → Month-End Close and select the period.',
       'Generate the MEC park journal (Debit 3354 / Credit 3353 for net income; reverse on a loss). Do not close P&L.',
+      'Hard Close the period on Period Management when adjustments are done. Only an Admin can reopen a hard close, and a justification is required.',
       'Operational journals post when they are approved; they are not batch-posted here.',
       'When the fiscal year is ready, open Year-End Close. Approve remaining operational and monthly park journals first.',
       'Generate the YEC-YYYY journal (close P&L to 3350, then reverse 3353 / 3354), then submit it for approval.',
@@ -981,7 +987,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { kind: 'required', text: 'New employees stuck on Welcome need a role assigned here.' },
     ],
     tips: [
-      'Company profile in the UI is the top-bar title “Grand-Tek Technology USA”. Legal/tax identity for vendors/customers lives on those masters, not in a separate profile screen.',
+      'Company letterhead (logo, contact, bill-to / ship-to) is under Administration → Company Profile and prints on order PDFs.',
       'CSV Import (Administration) maps TIPTOP customer/vendor/item/BOM files, plus optional chartOfAccount.csv and 試算表 trial-balance files, then upserts them into the database.',
     ],
     faqs: [
@@ -1002,21 +1008,22 @@ export const HELP_ARTICLES: HelpArticle[] = [
     id: 'admin-company-profile',
     module: 'admin',
     title: 'Company Profile & Workspace Settings',
-    routeMatch: ['/admin'],
+    routeMatch: ['/admin', '/admin/company-profile'],
     summary:
-      'The workspace is branded as Grand-Tek Technology USA in the top bar. Legal identity, tax IDs, and banking live on customer and vendor masters rather than a separate company-profile form.',
+      'Administrators maintain the company letterhead under Administration → Company Profile. The logo, contact, email, and bill-to / ship-to locations print on Sales Order, Purchase Order, and Subcontract Order PDFs.',
     screenshots: [
       { src: '/guide-screenshots/topbar.jpg', caption: 'Top bar company title and user menu' },
     ],
     steps: [
-      'Confirm the company name in the application header (Grand-Tek Technology USA). This is the workspace identity users see on every screen.',
-      'Open your user menu (top right) to see your name, assigned roles, and Change password.',
-      'Administrators maintain users, roles, permissions, and approval workflows under Administration → Users & Roles.',
-      'Customer Tax ID types (EIN, TIN, VAT, SSN) and vendor W-8 / W-9 / SWIFT details are maintained on those master records, not a global profile page.',
-      'Use Administration → CSV Import when loading TIPTOP master files.',
+      'Open Administration → Company Profile (permission admin:manage).',
+      'Upload a PNG or JPEG logo. The file is stored in the system and attached to each order PDF header.',
+      'Enter the company contact, email, and phone printed next to the logo.',
+      'Enter Bill To and Ship To locations. Purchase Order and Subcontract Order PDFs use these company addresses. Sales Order PDFs use the customer bill-to / ship-to, including location contact and email.',
+      'Save the profile, then open an order and click PDF to confirm the letterhead.',
+      'Customer Tax ID types and vendor W-8 / W-9 / SWIFT details stay on those master records.',
     ],
     callouts: [
-      { kind: 'important', text: 'There is no separate Company Profile editor. Change legal/tax data on the customer or vendor that owns it.' },
+      { kind: 'important', text: 'Upload the logo on Company Profile once. Every new Sales, Purchase, and Subcontract order PDF uses that image.' },
       { kind: 'tip', text: 'Need a new role or sidebar module? That is an Administration change, not a personal setting.' },
     ],
     faqs: [
@@ -1029,7 +1036,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     troubleshooting: [
       {
         issue: 'I cannot open Administration',
-        fix: 'Only ROLE-ADMIN with admin:manage can open Users & Roles and CSV Import. Other roles use Help and their operational modules.',
+        fix: 'Only ROLE-ADMIN with admin:manage can open Company Profile, Users & Roles, and CSV Import. Other roles use Help and their operational modules.',
       },
     ],
   },

@@ -1085,7 +1085,7 @@ const uploadBox: React.CSSProperties = {
 const tbBox: React.CSSProperties = {
   marginTop: '14px',
   paddingTop: '12px',
-  borderTop: '1px solid var(--border)',
+  borderTop: '1px solid var(--divider)',
 }
 const periodLabel: React.CSSProperties = {
   display: 'flex',
@@ -1159,12 +1159,11 @@ const tableStyle: React.CSSProperties = {
 }
 const th: React.CSSProperties = {
   textAlign: 'left',
-  borderBottom: '1px solid var(--border)',
   padding: '8px',
   color: 'var(--text-h)',
 }
 const td: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   padding: '8px',
   verticalAlign: 'top',
   color: 'var(--text)',

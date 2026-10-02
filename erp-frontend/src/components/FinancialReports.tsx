@@ -18,14 +18,8 @@ import {
   reportCardId,
   reportCategorySectionId,
 } from '../utils/financialReports'
-import {
-  containerStyle,
-  emptyStateStyle,
-  pageHeaderStyle,
-  pageSubStyle,
-  pageTitleStyle,
-  primaryButtonStyle,
-} from './dashboard/dashboardStyles'
+import { containerStyle, emptyStateStyle, primaryButtonStyle } from './dashboard/dashboardStyles'
+import { PageHeader } from './PageHeader'
 
 const CATEGORY_ICONS = {
   primary: Scale,
@@ -63,8 +57,10 @@ export default function FinancialReports() {
   if (!canView) {
     return (
       <div style={containerStyle}>
-        <h2 style={pageTitleStyle}>Financial Reports</h2>
-        <p style={pageSubStyle}>You need the report:view permission to open financial statements.</p>
+        <PageHeader
+          title="Financial Reports"
+          subtitle="You need the report:view permission to open financial statements."
+        />
       </div>
     )
   }
@@ -73,14 +69,10 @@ export default function FinancialReports() {
 
   return (
     <div style={containerStyle} className="report-hub">
-      <header style={pageHeaderStyle}>
-        <div>
-          <h2 style={pageTitleStyle}>Financial Reports</h2>
-          <p style={pageSubStyle}>
-            Open a statement from the cards below. Category names in the sidebar return here; report names open the generator.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Financial Reports"
+        subtitle="Open a statement from the cards below. Category names in the sidebar return here; report names open the generator."
+      />
 
       {isError ? (
         <p style={{ ...emptyStateStyle, color: '#c62828' }}>

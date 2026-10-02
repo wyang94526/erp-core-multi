@@ -592,12 +592,11 @@ const containerStyle: React.CSSProperties = {
 };
 
 const sectionHeadingStyle: React.CSSProperties = {
-  margin: '0 0 16px 0',
+  margin: '0 0 8px 0',
   fontSize: '18px',
   fontWeight: 'bold',
   color: 'var(--text-h)',
-  borderBottom: '2px solid var(--border)',
-  paddingBottom: '8px',
+
 };
 
 const gridStyle: React.CSSProperties = {
@@ -668,7 +667,7 @@ const dropdownListStyle: React.CSSProperties = {
 const dropdownItemStyle: React.CSSProperties = {
   padding: '10px 12px',
   cursor: 'pointer',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   fontSize: '13px',
   color: 'var(--text-h)',
 };

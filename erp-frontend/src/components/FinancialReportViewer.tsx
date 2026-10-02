@@ -21,12 +21,13 @@ import {
   reportFileStem,
   reportToCsv,
 } from '../utils/financialReports'
+import { ArrowLeft, FileDown, Play } from 'lucide-react'
+import { containerStyle, pageSubStyle, pageTitleStyle } from './dashboard/dashboardStyles'
+import { PageHeader } from './PageHeader'
 import {
-  containerStyle,
-  pageHeaderStyle,
-  pageSubStyle,
-  pageTitleStyle,
-} from './dashboard/dashboardStyles'
+  headerButtonStyle,
+  primaryButtonStyle,
+} from '../utils/documentPageStyles'
 
 function filtersFromSearch(search: URLSearchParams): FinancialReportQuery {
   const defaults = defaultReportFilters()
@@ -98,23 +99,27 @@ export default function FinancialReportViewer() {
   if (!canView) {
     return (
       <div style={containerStyle}>
-        <h2 style={pageTitleStyle}>Financial Reports</h2>
-        <p style={pageSubStyle}>You need the report:view permission to view this statement.</p>
+        <PageHeader
+          title="Financial Reports"
+          subtitle="You need the report:view permission to view this statement."
+        />
       </div>
     )
   }
 
   return (
     <div style={containerStyle} className="financial-report-page">
-      <header style={pageHeaderStyle} className="financial-report-no-print">
-        <div>
-          <h2 style={pageTitleStyle}>{data?.title || catalogTitle || 'Financial Report'}</h2>
-          <p style={pageSubStyle}>{data?.subtitle || 'Set period filters, then generate the statement.'}</p>
-        </div>
-        <button type="button" style={secondaryButtonStyle} onClick={() => navigate('/financial-reports')}>
-          Financial Reports
-        </button>
-      </header>
+      <div className="financial-report-no-print">
+        <PageHeader
+          title={data?.title || catalogTitle || 'Financial Report'}
+          subtitle={data?.subtitle || 'Set period filters, then generate the statement.'}
+        >
+          <button type="button" style={headerButtonStyle} onClick={() => navigate('/financial-reports')}>
+            <ArrowLeft size={15} />
+            Financial Reports
+          </button>
+        </PageHeader>
+      </div>
 
       <form style={filterBarStyle} onSubmit={handleApply} className="financial-report-no-print">
         <label style={filterLabelStyle}>
@@ -200,9 +205,11 @@ export default function FinancialReportViewer() {
         </label>
         <div style={filterActionsStyle}>
           <button type="submit" style={primaryButtonStyle} disabled={isFetching}>
+            <Play size={15} />
             {isFetching ? 'Generating…' : 'Generate Report'}
           </button>
-          <button type="button" style={secondaryButtonStyle} onClick={handleExport} disabled={!data}>
+          <button type="button" style={headerButtonStyle} onClick={handleExport} disabled={!data}>
+            <FileDown size={15} />
             Export
           </button>
         </div>
@@ -212,7 +219,7 @@ export default function FinancialReportViewer() {
       {isError ? (
         <p style={{ ...pageSubStyle, color: '#c62828' }}>
           {error instanceof Error ? error.message : 'Failed to generate report'}
-          <button type="button" style={{ ...secondaryButtonStyle, marginLeft: 12 }} onClick={() => void refetch()}>
+          <button type="button" style={{ ...headerButtonStyle, marginLeft: 12 }} onClick={() => void refetch()}>
             Retry
           </button>
         </p>
@@ -362,30 +369,6 @@ const inputStyle: CSSProperties = {
   color: 'var(--text-h)',
 }
 
-const primaryButtonStyle: CSSProperties = {
-  padding: '9px 14px',
-  backgroundColor: '#1976d2',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-}
-
-const secondaryButtonStyle: CSSProperties = {
-  padding: '9px 14px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  fontFamily: 'inherit',
-}
-
 const tableWrap: CSSProperties = {
   overflowX: 'auto',
   border: '1px solid var(--border)',
@@ -402,7 +385,6 @@ const tableStyle: CSSProperties = {
 const thStyle: CSSProperties = {
   padding: '10px 12px',
   backgroundColor: 'var(--social-bg)',
-  borderBottom: '1px solid var(--border)',
   fontSize: 12,
   color: 'var(--text)',
   whiteSpace: 'nowrap',
@@ -410,7 +392,7 @@ const thStyle: CSSProperties = {
 
 const tdStyle: CSSProperties = {
   padding: '8px 12px',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--divider)',
   color: 'var(--text-h)',
   verticalAlign: 'top',
 }

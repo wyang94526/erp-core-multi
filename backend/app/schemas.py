@@ -224,6 +224,61 @@ class ChartOfAccountRead(ORMModel):
     created_at: datetime
 
 
+class CompanyAddress(BaseModel):
+    location_name: str | None = None
+    attention_to: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    postal_code: str | None = None
+    country: str | None = None
+    contact_person: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+
+
+class CompanyProfileRead(ORMModel):
+    id: UUID
+    company_name: str
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    bill_to: CompanyAddress
+    ship_to: CompanyAddress
+    has_logo: bool = False
+    logo_original_filename: str | None = None
+    logo_content_type: str | None = None
+    updated_by_user_id: UUID | None = None
+    updated_at: datetime | None = None
+
+
+class CompanyProfileUpdate(BaseModel):
+    company_name: str | None = Field(default=None, min_length=1, max_length=255)
+    contact_name: str | None = Field(default=None, max_length=255)
+    contact_email: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    bill_to: CompanyAddress | None = None
+    ship_to: CompanyAddress | None = None
+
+
+class FinancePeriodSettingsRead(ORMModel):
+    id: UUID
+    soft_close_date: date | None = None
+    hard_close_date: date | None = None
+    current_closing_date: date | None = None
+    as_of_status: str = "OPEN"
+    updated_by_user_id: UUID | None = None
+    updated_at: datetime | None = None
+
+
+class FinancePeriodSettingsUpdate(BaseModel):
+    soft_close_date: date | None = None
+    hard_close_date: date | None = None
+    current_closing_date: date | None = None
+    justification: str | None = Field(default=None, max_length=2000)
+
+
 class PostingRuleUpdate(BaseModel):
     debit_account_id: UUID | None = None
     credit_account_id: UUID | None = None

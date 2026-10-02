@@ -43,6 +43,10 @@ import type {
   JournalBulkImportResult,
   MonthEndClosePreview,
   MonthEndCloseResult,
+  FinancePeriodSettings,
+  FinancePeriodSettingsUpdate,
+  CompanyProfile,
+  CompanyProfileUpdate,
   YearEndClosePreview,
   YearEndCloseResult,
   ChartOfAccount,
@@ -2273,6 +2277,40 @@ export const financialReportService = {
     );
   },
 };
+
+export const companyProfileService = {
+  async get(): Promise<CompanyProfile> {
+    return apiClient.get<CompanyProfile>('/api/v1/company-profile')
+  },
+
+  async update(payload: CompanyProfileUpdate): Promise<CompanyProfile> {
+    return apiClient.patch<CompanyProfile>('/api/v1/company-profile', payload)
+  },
+
+  async uploadLogo(file: File): Promise<CompanyProfile> {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.upload<CompanyProfile>('/api/v1/company-profile/logo', formData)
+  },
+
+  async getLogoBlob(): Promise<Blob> {
+    return apiClient.fetchBlob('/api/v1/company-profile/logo')
+  },
+
+  async removeLogo(): Promise<CompanyProfile> {
+    return apiClient.delete<CompanyProfile>('/api/v1/company-profile/logo')
+  },
+}
+
+export const financeSettingsService = {
+  async get(): Promise<FinancePeriodSettings> {
+    return apiClient.get<FinancePeriodSettings>('/api/v1/finance-settings')
+  },
+
+  async update(payload: FinancePeriodSettingsUpdate): Promise<FinancePeriodSettings> {
+    return apiClient.patch<FinancePeriodSettings>('/api/v1/finance-settings', payload)
+  },
+}
 
 // ==========================================
 // GENERAL LEDGER / JOURNAL ENTRY SERVICES

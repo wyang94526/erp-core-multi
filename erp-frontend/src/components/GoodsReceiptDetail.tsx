@@ -501,12 +501,11 @@ const cardStyle: CSSProperties = {
   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
 }
 const sectionHeadingStyle: CSSProperties = {
-  margin: '0 0 16px',
+  margin: '0 0 8px',
   fontSize: 18,
   fontWeight: 'bold',
   color: 'var(--text-h, #212121)',
-  borderBottom: '2px solid var(--border, #ddd)',
-  paddingBottom: 8,
+
 }
 const subHeadingStyle: CSSProperties = {
   margin: '0 0 10px',
@@ -534,10 +533,9 @@ const labelStyle: CSSProperties = {
 const valueStyle: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--text, #424242)' }
 const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
 const theadRowStyle: CSSProperties = {
-  borderBottom: '2px solid var(--border, #ddd)',
   backgroundColor: 'var(--social-bg, #f5f5f5)',
 }
-const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--border, #eee)' }
+const tbodyRowStyle: CSSProperties = { borderBottom: '1px solid var(--divider, #eee)' }
 const thStyle: CSSProperties = { padding: '12px 10px', textAlign: 'left', fontWeight: 'bold', color: 'var(--text-h, #212121)' }
 const tdStyle: CSSProperties = { padding: '12px 10px', color: 'var(--text, #424242)', verticalAlign: 'middle' }
 const linkButtonStyle: CSSProperties = {
