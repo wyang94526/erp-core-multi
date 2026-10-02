@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { PurchaseOrder, Supplier } from '../types'
+import { downloadPdf } from './pdfDownload'
 import {
   companyFooterLine,
   drawBillShipBlocks,
@@ -268,5 +269,5 @@ export function generatePurchaseOrderVendorPdf(input: PurchaseOrderVendorPdfInpu
     )
   }
 
-  doc.save(buildPurchaseOrderVendorPdfFilename(po.po_number))
+  downloadPdf(doc, buildPurchaseOrderVendorPdfFilename(po.po_number))
 }

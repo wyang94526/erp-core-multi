@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { APBillDetail, Supplier } from '../types'
+import { downloadPdf } from './pdfDownload'
 import {
   companyFooterLine,
   drawBillShipBlocks,
@@ -252,5 +253,5 @@ export function generateSupplierBillPdf(input: SupplierBillPdfInput): void {
     )
   }
 
-  doc.save(buildSupplierBillPdfFilename(detail.bill_id))
+  downloadPdf(doc, buildSupplierBillPdfFilename(detail.bill_id))
 }

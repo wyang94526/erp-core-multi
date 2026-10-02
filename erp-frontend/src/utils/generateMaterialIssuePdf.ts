@@ -7,6 +7,7 @@
 
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { downloadPdf } from './pdfDownload'
 import { PDF_BRAND_ALT_RGB, PDF_BRAND_RGB, PDF_RULE_RGB } from './pdfLetterhead'
 import type {
   CalculatedComponentLine,
@@ -264,5 +265,5 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
     )
   }
 
-  doc.save(buildMaterialIssuePdfFilename(sco.sco_number, issue.issue_id))
+  downloadPdf(doc, buildMaterialIssuePdfFilename(sco.sco_number, issue.issue_id))
 }

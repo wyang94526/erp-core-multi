@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { CalculatedComponentLine, SubcontractOrder, Supplier } from '../types'
+import { downloadPdf } from './pdfDownload'
 import {
   companyFooterLine,
   drawBillShipBlocks,
@@ -257,5 +258,5 @@ export function generateSubcontractVendorPdf(input: SubcontractVendorPdfInput): 
     )
   }
 
-  doc.save(buildSubcontractVendorPdfFilename(sco.sco_number))
+  downloadPdf(doc, buildSubcontractVendorPdfFilename(sco.sco_number))
 }

@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { ARInvoiceDetail, Location } from '../types'
+import { downloadPdf } from './pdfDownload'
 import {
   companyFooterLine,
   drawBillShipBlocks,
@@ -247,5 +248,5 @@ export function generateSalesInvoicePdf(input: SalesInvoicePdfInput): void {
     )
   }
 
-  doc.save(buildSalesInvoicePdfFilename(detail.invoice_id))
+  downloadPdf(doc, buildSalesInvoicePdfFilename(detail.invoice_id))
 }
