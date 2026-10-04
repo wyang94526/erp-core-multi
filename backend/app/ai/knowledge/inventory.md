@@ -16,3 +16,4 @@ Stock is stored per warehouse/bin in `inventory_stock`, with company-wide cache 
 - "What is stock for PROD-1020G?"
 - "Summarize inventory levels"
 - "Which items are low stock?"
+- "Products under inventory threshold" / "below reorder point" → on hand ≤ `reorder_point` (same as Inventory reorder alerts).

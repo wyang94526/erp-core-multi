@@ -30,5 +30,7 @@ SO-line allocation: remaining = SO qty − SUM(non-cancelled SCO line qty) for t
 ## AI tool tips
 Ask: "list subcontract orders" or "show SCO-2026-0001".
 To draft via AI:
+- From a sales order: "create corresponding subcontract order and purchase order for PU61-…"
+  (parent SO must be approved; material PO uses kit demand after the SCO is created)
 - Clone: "create Subcontract Order like SCO-2026-0001 with x 2"
 - New: "create subcontract order for SUP-… item PROD-1020G quantity 50"

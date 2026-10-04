@@ -39,6 +39,8 @@ approve the bill (GRNI → AP), then pay (AP → Cash). Freight, customs duty, r
 charges without a PO use **Create Non-PO Invoice** (`LANDED_COST` or `EXPENSE`).
 To correct a mistaken received quantity, open the PU67- goods receipt and adjust line quantities
 (`PATCH /api/v1/goods-receipts/{id}/quantities`). That updates on-hand stock and GRNI.
+
+Ask: "unbilled goods receipts ready to invoice" for posted receipts still waiting on a supplier invoice.
 You cannot exceed remaining ordered qty or reduce below billed qty.
 
 ## Permissions
@@ -47,7 +49,9 @@ You cannot exceed remaining ordered qty or reduce below billed qty.
 - `po:submit` / `po:approve` — workflow actions
 
 ## AI tool tips
-Ask: "list purchase orders with status Approved" or "show PO-26060001".
+Ask: "list purchase orders with status Approved", "Which POs are overdue?", "list the qty received by purchase order", or "show PO-26060001".
+Overdue means expected_delivery_date is before today and the PO is not Void/Closed (same as Purchase Orders → Expected delivery: Overdue).
+Qty received by purchase order is posted goods-receipt quantity (PU67-), not PO dollar amount.
 To draft via AI:
 - Clone: "create Purchase Order like PO-P2P-1C772F with x 100"
 - New: "create draft PO for SUP-… with 2x PROD-1001G"

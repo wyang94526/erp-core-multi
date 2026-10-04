@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from langchain_core.tools import tool
@@ -20,10 +20,12 @@ from app.models import (
     CustomerLocation,
     Item,
     PurchaseOrder,
+    PurchaseOrderItem,
     SalesOrder,
     SubcontractOrder,
     Supplier,
     User,
+    VendorItemMapping,
 )
 from app.ai.lookups import LOOKUP_TOOLS
 from app.services.inventory import list_stock_overview
@@ -107,16 +109,53 @@ def get_sales_order_detail(order_id: str) -> str:
 
 
 @tool
-def get_inventory_levels(item_sku: str = "") -> str:
-    """Get inventory stock levels. Pass item_sku (internal item_id) to filter one SKU, or omit for a summary of all."""
+def get_inventory_levels(
+    item_sku: str = "",
+    below_threshold: bool = False,
+    status: str = "",
+    question: str = "",
+    limit: int = 40,
+) -> str:
+    """Get inventory stock levels.
+
+    Pass item_sku (internal item_id) to filter one SKU, or omit for a list.
+    For "products under inventory threshold", "below reorder point", or
+    "reorder alerts", pass below_threshold=true (or question= the user wording).
+    That is on_hand <= reorder_point, same as Inventory reorder alerts.
+    """
+    from app.ai.lookups import (
+        format_inventory_answer,
+        infer_inventory_status,
+        is_below_threshold_wording,
+    )
+
     ctx = get_ai_context()
     overview = list_stock_overview(ctx.db)
+    if question.strip() and is_below_threshold_wording(question):
+        below_threshold = True
+    if question.strip() and not status.strip() and not below_threshold:
+        status = infer_inventory_status(question)
     if item_sku.strip():
         sku = item_sku.strip().upper()
         overview = [r for r in overview if r.item_id.upper() == sku]
         if not overview:
-            # soft match
             overview = [r for r in list_stock_overview(ctx.db) if sku in r.item_id.upper()]
+    if below_threshold:
+        overview = [
+            r
+            for r in overview
+            if int(r.on_hand_quantity or 0) <= int(r.reorder_point or 0)
+        ]
+    elif status.strip():
+        overview = [r for r in overview if (r.status or "").lower() == status.strip().lower()]
+    overview.sort(
+        key=lambda r: (
+            0 if r.status == "Out of Stock" else 1 if r.status == "Low Stock" else 2,
+            int(r.on_hand_quantity or 0) - int(r.reorder_point or 0),
+            r.item_id,
+        )
+    )
+    cap = max(1, min(int(limit or 40), 50))
     rows = [
         {
             "item_id": r.item_id,
@@ -125,45 +164,91 @@ def get_inventory_levels(item_sku: str = "") -> str:
             "allocated": r.allocated_quantity,
             "on_order": r.on_order_quantity,
             "atp": r.available_to_promise,
+            "reorder_point": r.reorder_point,
             "status": r.status,
             "warehouse": r.primary_warehouse_code,
             "bin": r.primary_bin_code,
         }
-        for r in overview[:40]
+        for r in overview[:cap]
     ]
-    return _json({"count": len(rows), "stock": rows})
+    return format_inventory_answer(
+        _json(
+            {
+                "count": len(overview),
+                "shown": len(rows),
+                "below_threshold": below_threshold,
+                "status": status.strip(),
+                "stock": rows,
+            }
+        )
+    )
 
 
 @tool
-def get_purchase_orders(vendor_id: str = "", status: str = "", limit: int = 20) -> str:
-    """List purchase orders, optionally filtered by vendor/supplier_id and/or status (Draft, Submitted, Approved, Void)."""
+def get_purchase_orders(
+    vendor_id: str = "",
+    status: str = "",
+    limit: int = 20,
+    overdue: bool = False,
+) -> str:
+    """List purchase orders, optionally filtered by vendor/supplier_id and/or status (Draft, Submitted, Approved, Void).
+
+    overdue=true returns open POs whose expected_delivery_date is before today.
+    """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "po:view")
     if denied:
         return denied
 
-    q = ctx.db.query(PurchaseOrder)
+    from sqlalchemy.orm import joinedload
+
+    q = ctx.db.query(PurchaseOrder).options(joinedload(PurchaseOrder.supplier))
     if vendor_id.strip():
         q = q.filter(PurchaseOrder.supplier_id == vendor_id.strip())
     if status.strip():
         # Accept DRAFT/Approved style from users
         st = status.strip()
         q = q.filter(PurchaseOrder.status.ilike(st))
-    orders = q.order_by(PurchaseOrder.created_at.desc()).limit(max(1, min(limit, 50))).all()
-    rows = [
-        {
-            "po_number": o.po_number,
-            "supplier_id": o.supplier_id,
-            "status": o.status,
-            "approval_status": o.approval_status,
-            "billing_status": getattr(o, "billing_status", None),
-            "grand_total": o.grand_total,
-            "order_date": o.order_date,
-            "payment_terms": o.payment_terms,
-        }
-        for o in orders
-    ]
-    return _json({"count": len(rows), "orders": rows})
+    if overdue:
+        today = date.today()
+        q = q.filter(
+            PurchaseOrder.expected_delivery_date.isnot(None),
+            PurchaseOrder.expected_delivery_date < today,
+            ~PurchaseOrder.status.ilike("Void"),
+            ~PurchaseOrder.status.ilike("Closed"),
+        )
+    q = q.order_by(
+        PurchaseOrder.expected_delivery_date.asc() if overdue else PurchaseOrder.created_at.desc()
+    )
+    orders = q.limit(max(1, min(limit, 50))).all()
+    today = date.today()
+    rows = []
+    for o in orders:
+        expected = getattr(o, "expected_delivery_date", None)
+        days_late = None
+        if overdue and expected:
+            days_late = (today - expected).days
+        supplier = getattr(o, "supplier", None)
+        rows.append(
+            {
+                "po_number": o.po_number,
+                "supplier_id": o.supplier_id,
+                "supplier_name": getattr(supplier, "company_name", None),
+                "status": o.status,
+                "approval_status": o.approval_status,
+                "billing_status": getattr(o, "billing_status", None),
+                "grand_total": o.grand_total,
+                "order_date": o.order_date,
+                "expected_delivery_date": expected,
+                "days_late": days_late,
+                "payment_terms": o.payment_terms,
+            }
+        )
+    from app.ai.lookups import format_purchase_orders_answer
+
+    return format_purchase_orders_answer(
+        _json({"count": len(rows), "overdue": overdue, "orders": rows})
+    )
 
 
 @tool
@@ -481,6 +566,10 @@ def get_subcontract_order_detail(sco_number: str) -> str:
                     "component_item_id": c.component_item_id,
                     "quantity_required": c.quantity_required,
                     "quantity_issued": c.quantity_issued,
+                    "quantity_unissued": max(
+                        Decimal(str(c.quantity_required or 0)) - Decimal(str(c.quantity_issued or 0)),
+                        Decimal("0"),
+                    ),
                 }
                 for c in (order.components or [])
             ],
@@ -597,6 +686,343 @@ def propose_draft_subcontract_order(
     )
 
 
+def _last_sco_for_item(db: Session, item_id: str) -> SubcontractOrder | None:
+    return (
+        db.query(SubcontractOrder)
+        .filter(
+            SubcontractOrder.item_id == item_id,
+            ~SubcontractOrder.status.ilike("CANCELLED"),
+        )
+        .order_by(SubcontractOrder.created_at.desc())
+        .first()
+    )
+
+
+def _resolve_sco_supplier(db: Session, item_id: str) -> str | None:
+    last = _last_sco_for_item(db, item_id)
+    if last and last.supplier_id:
+        return last.supplier_id
+    mapping = (
+        db.query(VendorItemMapping)
+        .filter(VendorItemMapping.item_id == item_id)
+        .order_by(VendorItemMapping.is_primary_vendor.desc(), VendorItemMapping.mapping_id)
+        .first()
+    )
+    return mapping.supplier_id if mapping else None
+
+
+def _resolve_material_supplier(db: Session, item_ids: list[str]) -> str | None:
+    ids = [i for i in item_ids if i]
+    if not ids:
+        return None
+    last = (
+        db.query(PurchaseOrder)
+        .join(PurchaseOrderItem, PurchaseOrderItem.po_number == PurchaseOrder.po_number)
+        .filter(
+            PurchaseOrderItem.sku.in_(ids),
+            PurchaseOrder.status != "Void",
+        )
+        .order_by(PurchaseOrder.order_date.desc(), PurchaseOrder.created_at.desc())
+        .first()
+    )
+    if last and last.supplier_id:
+        return last.supplier_id
+    mapping = (
+        db.query(VendorItemMapping)
+        .filter(VendorItemMapping.item_id.in_(ids))
+        .order_by(VendorItemMapping.is_primary_vendor.desc(), VendorItemMapping.mapping_id)
+        .first()
+    )
+    return mapping.supplier_id if mapping else None
+
+
+def _last_po_terms(db: Session, supplier_id: str) -> str:
+    last = (
+        db.query(PurchaseOrder)
+        .filter(PurchaseOrder.supplier_id == supplier_id, PurchaseOrder.status != "Void")
+        .order_by(PurchaseOrder.order_date.desc(), PurchaseOrder.created_at.desc())
+        .first()
+    )
+    if last and last.payment_terms:
+        return last.payment_terms
+    supplier = db.get(Supplier, supplier_id)
+    return getattr(supplier, "payment_terms", None) or "Net 30"
+
+
+def _preview_bom_lines(db: Session, item_id: str, quantity: int) -> list[dict[str, Any]]:
+    from app.services.catalog import material_bom_lines, required_quantity
+
+    rows = []
+    for line in material_bom_lines(db, item_id):
+        qty = required_quantity(
+            line.quantity_per,
+            quantity,
+            getattr(line, "scrap_factor", None),
+            getattr(line, "yield_loss_percentage", None),
+        )
+        rows.append(
+            {
+                "sku": line.component_item_id,
+                "quantity": str(qty),
+            }
+        )
+    return rows
+
+
+def _create_material_po_for_sco(
+    db: Session, sco_number: str, supplier_id: str
+) -> dict[str, Any]:
+    from app.routers.purchase_orders import create_purchase_order
+    from app.schemas import PurchaseOrderCreate
+    from app.services.po_sco_demand import unfulfilled_components
+
+    components = unfulfilled_components(db, sco_number, supplier_id=supplier_id)
+    if not components:
+        return {"error": f"No remaining kit demand on {sco_number} to buy."}
+
+    line_items: list[dict[str, Any]] = []
+    for row in components:
+        qty = Decimal(str(row.get("quantity_remaining") or 0))
+        if qty <= 0:
+            continue
+        unit_price = Decimal(str(row.get("unit_cost") or 0)).quantize(Decimal("0.0001"))
+        line_subtotal = (unit_price * qty).quantize(Decimal("0.01"))
+        line_items.append(
+            {
+                "sku": row["component_item_id"],
+                "description": row.get("description"),
+                "uom": row.get("uom") or "Each",
+                "sco_component_id": row.get("sco_component_id"),
+                "quantity": str(qty),
+                "unit_price": str(unit_price),
+                "tax_rate": "0",
+                "line_subtotal": str(line_subtotal),
+                "line_tax": "0.00",
+                "line_total": str(line_subtotal),
+            }
+        )
+    if not line_items:
+        return {"error": f"No remaining kit demand on {sco_number} to buy."}
+
+    subtotal = sum((Decimal(li["line_subtotal"]) for li in line_items), Decimal("0"))
+    payload = PurchaseOrderCreate.model_validate(
+        {
+            "supplier_id": supplier_id,
+            "po_type": "MATERIAL",
+            "sco_number": sco_number,
+            "order_date": date.today().isoformat(),
+            "payment_terms": _last_po_terms(db, supplier_id),
+            "status": "Draft",
+            "subtotal": str(subtotal),
+            "total_tax": "0.00",
+            "discount_amount": "0.00",
+            "grand_total": str(subtotal),
+            "notes": f"Created via AI from {sco_number}",
+            "items": line_items,
+        }
+    )
+    order = create_purchase_order(payload, db)
+    return {
+        "po_number": order.po_number,
+        "status": order.status,
+        "grand_total": str(order.grand_total),
+        "supplier_id": order.supplier_id,
+        "line_count": len(line_items),
+    }
+
+
+def _so_from_orders_message(
+    *,
+    sales_order_id: str,
+    approval_status: str,
+    status: str,
+    can_create: bool,
+    gate_message: str | None,
+    lines: list[dict[str, Any]],
+    processor_id: str | None,
+    material_supplier_id: str | None,
+    existing_scos: list[str],
+) -> str:
+    parts = [f"## Corresponding orders for {sales_order_id}", ""]
+    parts.append(
+        f"Sales order **{sales_order_id}** is **{status}** "
+        f"(approval **{approval_status}**)."
+    )
+    if existing_scos:
+        parts.append("Existing subcontract orders: " + ", ".join(f"**{n}**" for n in existing_scos))
+    if lines:
+        parts.append("")
+        parts.append("| SO line | Assembly | Remaining | BOM |")
+        parts.append("| ---: | :--- | ---: | :--- |")
+        for row in lines:
+            bom = (
+                f"v{row.get('active_bom_version_no')}"
+                if row.get("has_active_bom")
+                else "none"
+            )
+            parts.append(
+                f"| {row.get('line_number')} | {row.get('item_id')} | "
+                f"{row.get('quantity_remaining')} | {bom} |"
+            )
+    if processor_id:
+        parts.append("")
+        parts.append(f"Processor (SCO vendor): **{processor_id}**")
+    if material_supplier_id:
+        parts.append(f"Material PO vendor: **{material_supplier_id}**")
+    if not can_create:
+        parts.append("")
+        parts.append(gate_message or "A subcontract order cannot be created from this sales order yet.")
+        if (approval_status or "").upper() != "APPROVED":
+            parts.append(
+                f"Approve **{sales_order_id}**, then ask again to create the draft SCO and material PO."
+            )
+    return "\n".join(parts)
+
+
+@tool
+def propose_orders_from_sales_order(
+    sales_order_id: str,
+    create_material_po: bool = True,
+    sco_supplier_id: str = "",
+    material_supplier_id: str = "",
+) -> str:
+    """Propose a subcontract order (and optional material PO) from a sales order.
+
+    Use for "create corresponding subcontract order and purchase order for PU61-…".
+    Links SCO lines to remaining SO qty with a Material BOM. The material PO is
+    created after the SCO so kit lines get sco_component_id. Does not write until
+    the user confirms. Parent SO must be approved.
+    """
+    from app.services.subcontract import sales_order_subcontract_availability
+
+    ctx = get_ai_context()
+    so_id = sales_order_id.strip().upper()
+    if not so_id:
+        return _json({"error": "sales_order_id is required"})
+
+    denied = _require_perm(ctx.user, "subcontract:create")
+    if denied:
+        return denied
+    if create_material_po:
+        denied_po = _require_perm(ctx.user, "po:create")
+        if denied_po:
+            return denied_po
+
+    try:
+        avail = sales_order_subcontract_availability(ctx.db, so_id)
+    except Exception as exc:
+        return _json({"error": str(exc.detail) if getattr(exc, "detail", None) else str(exc)})
+
+    selectable = [
+        row
+        for row in (avail.get("lines") or [])
+        if int(row.get("quantity_remaining") or 0) > 0 and row.get("has_active_bom")
+    ]
+    existing = (
+        ctx.db.query(SubcontractOrder.sco_number)
+        .filter(
+            SubcontractOrder.sales_order_id == so_id,
+            ~SubcontractOrder.status.ilike("CANCELLED"),
+        )
+        .all()
+    )
+    existing_ids = [row[0] for row in existing]
+    first_item = (selectable[0]["item_id"] if selectable else None) or (
+        (avail.get("lines") or [{}])[0].get("item_id") if avail.get("lines") else None
+    )
+    processor = sco_supplier_id.strip() or (
+        _resolve_sco_supplier(ctx.db, first_item) if first_item else None
+    )
+    bom_skus: list[str] = []
+    if first_item and selectable:
+        bom_skus = [
+            row["sku"]
+            for sel in selectable
+            for row in _preview_bom_lines(ctx.db, sel["item_id"], int(sel["quantity_remaining"]))
+        ]
+    mat_vendor = material_supplier_id.strip() or _resolve_material_supplier(ctx.db, bom_skus)
+
+    message = _so_from_orders_message(
+        sales_order_id=so_id,
+        approval_status=str(avail.get("approval_status") or ""),
+        status=str(avail.get("status") or ""),
+        can_create=bool(avail.get("can_create")),
+        gate_message=avail.get("message"),
+        lines=avail.get("lines") or [],
+        processor_id=processor,
+        material_supplier_id=mat_vendor if create_material_po else None,
+        existing_scos=existing_ids,
+    )
+
+    if not avail.get("can_create"):
+        return _json({"error": message, "message": message})
+
+    if not processor:
+        return _json(
+            {
+                "error": message
+                + "\n\nI need a subcontract processor (supplier_id) to draft the SCO.",
+                "message": message
+                + "\n\nI need a subcontract processor (supplier_id) to draft the SCO.",
+            }
+        )
+
+    last = _last_sco_for_item(ctx.db, first_item) if first_item else None
+    unit_price = Decimal(str(last.unit_price or 0)) if last else Decimal("0")
+    expected = date.today() + timedelta(days=7)
+    lines = [
+        {
+            "so_item_id": row["so_item_id"],
+            "item_id": row["item_id"],
+            "quantity_ordered": int(row["quantity_remaining"]),
+            "bom_header_id": row.get("active_bom_header_id"),
+            "unit_price": str(unit_price),
+        }
+        for row in selectable
+    ]
+    qty_total = sum(int(row["quantity_ordered"]) for row in lines)
+    payload = {
+        "supplier_id": processor,
+        "sales_order_id": so_id,
+        "order_date": date.today().isoformat(),
+        "expected_return_date": expected.isoformat(),
+        "notes": f"Created via AI from {so_id}",
+        "lines": lines,
+        "create_material_po": bool(create_material_po),
+        "material_supplier_id": mat_vendor,
+    }
+    summary = (
+        f"Create subcontract order from {so_id} for processor {processor} "
+        f"({qty_total} assembly qty"
+    )
+    if create_material_po and mat_vendor:
+        summary += f"), then draft material PO to {mat_vendor}"
+    else:
+        summary += ")"
+    summary += "; numbers assigned on save"
+    message += "\n\n" + (
+        "A confirmation dialog will create the **draft SCO**"
+        + (" and **draft material PO**" if create_material_po else "")
+        + f" from **{so_id}**."
+    )
+    action = create_pending_action(
+        user_id=str(ctx.user.id),
+        action_type="create_sco_and_po_from_sales_order",
+        summary=summary,
+        payload=payload,
+    )
+    return _json(
+        {
+            "pending_confirmation": True,
+            "action_id": action.action_id,
+            "action_type": action.action_type,
+            "summary": summary,
+            "message": message,
+            "payload": payload,
+        }
+    )
+
+
 @tool
 def search_erp_knowledge(query: str) -> str:
     """Search ERP documentation for how modules, statuses, and workflows work.
@@ -628,101 +1054,197 @@ def search_erp_knowledge(query: str) -> str:
 
 @tool
 def propose_draft_sales_order(
-    customer_id: str,
-    items_json: str,
+    customer_id: str = "",
+    items_json: str = "",
     customer_po_number: str = "AI-DRAFT",
     sales_order_id: str = "",
+    template_so_number: str = "",
+    quantity_multiplier: float = 1.0,
 ) -> str:
     """Propose creating a DRAFT sales order. Does NOT write until the user confirms in the UI.
 
-    items_json must be a JSON array like:
-    [{"item_id":"PROD-1001G","quantity":2,"unit_price":10.5}]
-    Bill-to / ship-to locations are auto-selected from the customer when possible.
-    The sales order ID is assigned on save as PU61-YYMMXXXX from the order date.
+    Provide either:
+    - template_so_number: clone an existing SO (SO-… or PU61-…), optional quantity_multiplier
+      (e.g. 2 for "2x quantity" / "x 2"), or
+    - customer_id + items_json JSON array like [{"item_id":"PROD-1001G","quantity":2,"unit_price":10.5}]
+
+    When cloning, customer, locations, terms, and lines come from the template; quantities
+    are multiplied by quantity_multiplier. Bill-to / ship-to fall back to customer defaults
+    if the template locations are missing. The sales order ID is assigned on save as
+    PU61-YYMMXXXX from the order date.
     """
     ctx = get_ai_context()
     denied = _require_perm(ctx.user, "sales_order:create")
     if denied:
         return denied
 
-    customer = ctx.db.get(Customer, customer_id.strip())
+    from sqlalchemy.orm import joinedload
+
+    mult = Decimal(str(quantity_multiplier or 1))
+    if mult <= 0:
+        return _json({"error": "quantity_multiplier must be positive"})
+
+    template_id = template_so_number.strip()
+    cust_id = customer_id.strip()
+    po_number = customer_po_number.strip() or "AI-DRAFT"
+    bill_id = ""
+    ship_id = ""
+    payment_terms = None
+    payment_term_id = None
+    freight_terms = None
+    shipping_method = None
+    currency = "USD"
+    buyer_name = None
+    buyer_email = None
+    line_items: list[dict[str, Any]] = []
+    total = Decimal("0.00")
+
+    if template_id:
+        template = (
+            ctx.db.query(SalesOrder)
+            .options(joinedload(SalesOrder.items))
+            .filter(SalesOrder.sales_order_id == template_id)
+            .first()
+        )
+        if not template:
+            return _json({"error": f"Template sales order '{template_id}' not found"})
+        if not template.items:
+            return _json({"error": f"Template '{template_id}' has no line items"})
+        cust_id = template.customer_id
+        bill_id = template.bill_to_location_id or ""
+        ship_id = template.ship_to_location_id or ""
+        payment_terms = template.payment_terms
+        payment_term_id = str(template.payment_term_id) if template.payment_term_id else None
+        freight_terms = template.freight_terms
+        shipping_method = template.shipping_method
+        currency = template.currency or "USD"
+        buyer_name = template.buyer_contact_name
+        buyer_email = template.buyer_contact_email
+        base_po = (template.customer_po_number or "AI-DRAFT").strip()
+        suffix = f"-x{mult.normalize()}" if mult != 1 else "-COPY"
+        po_number = f"{base_po}{suffix}"[:50]
+        for idx, row in enumerate(sorted(template.items, key=lambda item: item.line_number or 0), start=1):
+            qty = int(
+                (Decimal(str(row.quantity_ordered or 0)) * mult).quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP
+                )
+            )
+            if qty <= 0:
+                return _json({"error": f"Invalid scaled quantity for item {row.item_id}"})
+            unit_price = Decimal(str(row.unit_price or 0))
+            tax_amount = (Decimal(str(row.tax_amount or 0)) * mult).quantize(Decimal("0.01"))
+            line_total = (unit_price * qty + tax_amount).quantize(Decimal("0.01"))
+            total += line_total
+            line_items.append(
+                {
+                    "line_number": idx,
+                    "item_id": row.item_id,
+                    "customer_part_number": row.customer_part_number,
+                    "quantity_ordered": qty,
+                    "unit_price": str(unit_price),
+                    "tax_amount": str(tax_amount),
+                    "total_amount": str(line_total),
+                }
+            )
+    else:
+        if not cust_id:
+            return _json({"error": "customer_id is required when not cloning a template SO"})
+        try:
+            raw_items = json.loads(items_json) if items_json.strip() else []
+        except json.JSONDecodeError:
+            return _json({"error": "items_json must be valid JSON array"})
+        if not isinstance(raw_items, list) or not raw_items:
+            return _json({"error": "items_json must be a non-empty array"})
+        for idx, row in enumerate(raw_items, start=1):
+            item_id = str(row.get("item_id", "")).strip()
+            qty = int(row.get("quantity") or row.get("quantity_ordered") or 0)
+            if not item_id or qty <= 0:
+                return _json({"error": f"Invalid line {idx}: need item_id and positive quantity"})
+            catalog = ctx.db.get(Item, item_id)
+            if not catalog:
+                return _json({"error": f"Item '{item_id}' not found"})
+            unit_price = Decimal(
+                str(row.get("unit_price") if row.get("unit_price") is not None else (catalog.unit_price or 0))
+            )
+            line_total = (unit_price * qty).quantize(Decimal("0.01"))
+            total += line_total
+            line_items.append(
+                {
+                    "line_number": idx,
+                    "item_id": item_id,
+                    "quantity_ordered": qty,
+                    "unit_price": str(unit_price),
+                    "tax_amount": "0.00",
+                    "total_amount": str(line_total),
+                }
+            )
+
+    customer = ctx.db.get(Customer, cust_id)
     if not customer:
-        return _json({"error": f"Customer '{customer_id}' not found"})
-
-    try:
-        raw_items = json.loads(items_json)
-    except json.JSONDecodeError:
-        return _json({"error": "items_json must be valid JSON array"})
-
-    if not isinstance(raw_items, list) or not raw_items:
-        return _json({"error": "items_json must be a non-empty array"})
+        return _json({"error": f"Customer '{cust_id}' not found"})
 
     locations = (
         ctx.db.query(CustomerLocation)
-        .filter(CustomerLocation.customer_id == customer_id.strip())
+        .filter(CustomerLocation.customer_id == cust_id)
         .all()
     )
-    bill = next(
-        (l for l in locations if l.location_type in ("BILL_TO", "BOTH") and getattr(l, "is_default", False)),
-        None,
-    ) or next((l for l in locations if l.location_type in ("BILL_TO", "BOTH")), None)
-    ship = next(
-        (l for l in locations if l.location_type in ("SHIP_TO", "BOTH") and getattr(l, "is_default", False)),
-        None,
-    ) or next((l for l in locations if l.location_type in ("SHIP_TO", "BOTH")), None)
+    loc_ids = {loc.location_id for loc in locations}
+    bill = next((loc for loc in locations if loc.location_id == bill_id), None)
+    ship = next((loc for loc in locations if loc.location_id == ship_id), None)
+    if not bill:
+        bill = next(
+            (
+                loc
+                for loc in locations
+                if loc.location_type in ("BILL_TO", "BOTH") and getattr(loc, "is_default", False)
+            ),
+            None,
+        ) or next((loc for loc in locations if loc.location_type in ("BILL_TO", "BOTH")), None)
+    if not ship:
+        ship = next(
+            (
+                loc
+                for loc in locations
+                if loc.location_type in ("SHIP_TO", "BOTH") and getattr(loc, "is_default", False)
+            ),
+            None,
+        ) or next((loc for loc in locations if loc.location_type in ("SHIP_TO", "BOTH")), None)
     if not bill or not ship:
         return _json(
             {
                 "error": "Customer is missing BILL_TO/SHIP_TO locations",
                 "locations": [
-                    {"location_id": l.location_id, "type": l.location_type} for l in locations
+                    {"location_id": loc.location_id, "type": loc.location_type} for loc in locations
                 ],
             }
         )
-
-    line_items = []
-    total = Decimal("0.00")
-    for idx, row in enumerate(raw_items, start=1):
-        item_id = str(row.get("item_id", "")).strip()
-        qty = int(row.get("quantity") or row.get("quantity_ordered") or 0)
-        if not item_id or qty <= 0:
-            return _json({"error": f"Invalid line {idx}: need item_id and positive quantity"})
-        catalog = ctx.db.get(Item, item_id)
-        if not catalog:
-            return _json({"error": f"Item '{item_id}' not found"})
-        unit_price = Decimal(str(row.get("unit_price") if row.get("unit_price") is not None else (catalog.unit_price or 0)))
-        line_total = (unit_price * qty).quantize(Decimal("0.01"))
-        total += line_total
-        line_items.append(
-            {
-                "line_number": idx,
-                "item_id": item_id,
-                "quantity_ordered": qty,
-                "unit_price": str(unit_price),
-                "tax_amount": "0.00",
-                "total_amount": str(line_total),
-            }
-        )
+    if bill.location_id not in loc_ids or ship.location_id not in loc_ids:
+        return _json({"error": "Template bill-to/ship-to locations do not belong to this customer"})
 
     payload = {
-        "customer_id": customer_id.strip(),
+        "customer_id": cust_id,
         "bill_to_location_id": bill.location_id,
         "ship_to_location_id": ship.location_id,
-        "customer_po_number": customer_po_number.strip() or "AI-DRAFT",
+        "customer_po_number": po_number,
         "po_revision_number": 0,
         "order_date": date.today().isoformat(),
-        "payment_terms": customer.payment_terms,
-        "freight_terms": customer.preferred_incoterms,
-        "shipping_method": customer.preferred_shipping_method,
-        "currency": customer.currency or "USD",
+        "payment_terms": payment_terms or customer.payment_terms,
+        "payment_term_id": payment_term_id,
+        "freight_terms": freight_terms or customer.preferred_incoterms,
+        "shipping_method": shipping_method or customer.preferred_shipping_method,
+        "currency": currency or customer.currency or "USD",
+        "buyer_contact_name": buyer_name or None,
+        "buyer_contact_email": buyer_email or None,
         "status": "DRAFT",
         "total_amount": str(total),
         "items": line_items,
     }
     summary = (
-        f"Create draft sales order for customer {customer_id} "
+        f"Create draft sales order for customer {cust_id} "
         f"({len(line_items)} line(s), total ${total}; number assigned on save)"
     )
+    if template_id:
+        summary += f" cloned from {template_id} ×{mult}"
     action = create_pending_action(
         user_id=str(ctx.user.id),
         action_type="create_draft_sales_order",
@@ -790,6 +1312,41 @@ def execute_confirmed_action(db: Session, user: User, action_type: str, payload:
             "quantity_ordered": order.quantity_ordered,
             "unit_price": order.unit_price,
         }
+    if action_type == "create_sco_and_po_from_sales_order":
+        denied = _require_perm(user, "subcontract:create")
+        if denied:
+            raise PermissionError(denied)
+        from app.routers.subcontract_orders import create_subcontract_order
+        from app.schemas import SubcontractOrderCreate
+
+        body = dict(payload)
+        create_material_po = bool(body.pop("create_material_po", False))
+        material_supplier_id = (body.pop("material_supplier_id", None) or "").strip()
+        create_payload = SubcontractOrderCreate.model_validate(body)
+        order = create_subcontract_order(create_payload, db)
+        result: dict[str, Any] = {
+            "sco_number": order.sco_number,
+            "status": order.status,
+            "approval_status": order.approval_status,
+            "supplier_id": order.supplier_id,
+            "item_id": order.item_id,
+            "quantity_ordered": order.quantity_ordered,
+            "sales_order_id": order.sales_order_id,
+        }
+        if create_material_po:
+            denied_po = _require_perm(user, "po:create")
+            if denied_po:
+                result["po_error"] = denied_po
+            elif not material_supplier_id:
+                result["po_error"] = "No material vendor could be resolved for the kit."
+            else:
+                try:
+                    po_result = _create_material_po_for_sco(db, order.sco_number, material_supplier_id)
+                    result.update(po_result)
+                except Exception as exc:
+                    detail = getattr(exc, "detail", None)
+                    result["po_error"] = str(detail or exc)
+        return result
     raise ValueError(f"Unsupported action type: {action_type}")
 
 
@@ -806,4 +1363,5 @@ ERP_TOOLS = [
     propose_draft_sales_order,
     propose_draft_purchase_order,
     propose_draft_subcontract_order,
+    propose_orders_from_sales_order,
 ]

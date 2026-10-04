@@ -3,9 +3,16 @@
  * @date: 2026-09-19
  */
 
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { FileDown, Loader2 } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { aiService, type AiPendingAction } from '../api/services'
+import {
+  exportAiChatTurns,
+  pairAiChatTurns,
+  turnForAssistantMessage,
+  type AiChatTurn,
+} from '../utils/generateAiChatExport'
 import SimpleMarkdown from './SimpleMarkdown'
 
 type ChatMessage = {
@@ -76,7 +83,10 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<AiPendingAction | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [exporting, setExporting] = useState<'pdf' | 'md' | string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const turns = useMemo(() => pairAiChatTurns(messages), [messages])
+  const canExport = turns.length > 0 && !loading
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -137,6 +147,19 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
     }
   }
 
+  const exportTurns = async (target: AiChatTurn[], format: 'pdf' | 'md', exportKey: string) => {
+    if (!target.length || exporting) return
+    setExporting(exportKey)
+    setError(null)
+    try {
+      await exportAiChatTurns(target, format)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed')
+    } finally {
+      setExporting(null)
+    }
+  }
+
   if (!open) return null
 
   return (
@@ -148,21 +171,78 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
             <div className="ai-drawer-title">AI Assistant</div>
             <div className="ai-drawer-sub">Grand-Tek Technology USA agent</div>
           </div>
-          <button type="button" className="ai-drawer-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <div className="ai-drawer-header-actions">
+            <button
+              type="button"
+              className="ai-drawer-export"
+              onClick={() => void exportTurns(turns, 'pdf', 'all-pdf')}
+              disabled={!canExport || Boolean(exporting)}
+              title="Export prompts and responses as PDF"
+            >
+              {exporting === 'all-pdf' ? <Loader2 size={14} className="ai-export-spin" /> : <FileDown size={14} />}
+              PDF
+            </button>
+            <button
+              type="button"
+              className="ai-drawer-export"
+              onClick={() => void exportTurns(turns, 'md', 'all-md')}
+              disabled={!canExport || Boolean(exporting)}
+              title="Export prompts and responses as Markdown"
+            >
+              {exporting === 'all-md' ? <Loader2 size={14} className="ai-export-spin" /> : <FileDown size={14} />}
+              MD
+            </button>
+            <button type="button" className="ai-drawer-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </header>
 
         <div className="ai-drawer-messages">
-          {messages.map((m) => (
-            <div key={m.id} className={`ai-bubble ai-bubble-${m.role}`}>
-              {m.role === 'assistant' ? (
-                <SimpleMarkdown content={m.content} onInternalNavigate={onClose} />
-              ) : (
-                <p>{m.content}</p>
-              )}
-            </div>
-          ))}
+          {messages.map((m) => {
+            const turn = m.role === 'assistant' ? turnForAssistantMessage(turns, m.id) : null
+            return (
+              <div key={m.id} className={`ai-bubble ai-bubble-${m.role}`}>
+                {m.role === 'assistant' ? (
+                  <SimpleMarkdown content={m.content} onInternalNavigate={onClose} />
+                ) : (
+                  <p>{m.content}</p>
+                )}
+                {turn && (
+                  <div className="ai-bubble-export-row">
+                    <button
+                      type="button"
+                      className="ai-bubble-export"
+                      onClick={() => void exportTurns([turn], 'pdf', `${m.id}-pdf`)}
+                      disabled={Boolean(exporting)}
+                      title="Export this prompt and response as PDF"
+                    >
+                      {exporting === `${m.id}-pdf` ? (
+                        <Loader2 size={12} className="ai-export-spin" />
+                      ) : (
+                        <FileDown size={12} />
+                      )}
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-bubble-export"
+                      onClick={() => void exportTurns([turn], 'md', `${m.id}-md`)}
+                      disabled={Boolean(exporting)}
+                      title="Export this prompt and response as Markdown"
+                    >
+                      {exporting === `${m.id}-md` ? (
+                        <Loader2 size={12} className="ai-export-spin" />
+                      ) : (
+                        <FileDown size={12} />
+                      )}
+                      MD
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {loading && (
             <div className="ai-bubble ai-bubble-assistant ai-typing">Thinking…</div>
           )}

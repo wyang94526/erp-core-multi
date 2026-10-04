@@ -12,7 +12,10 @@ from app.ai.agent import (
 )
 from app.ai.lookups import (
     format_financial_report_answer,
+    format_period_answer,
+    infer_entity_and_status,
     infer_financial_report_type,
+    infer_period_grain,
     infer_period_kind,
     parse_financial_report_period,
 )
@@ -29,6 +32,11 @@ class FinancialReportIntentTests(unittest.TestCase):
         self.assertEqual(infer_financial_report_type("P&L for 2026-06"), "income-statement")
         self.assertEqual(infer_financial_report_type("Show me P& L for June 2026"), "income-statement")
         self.assertEqual(parse_financial_report_period("P&L for 2026-06"), {"period": "2026-06"})
+        self.assertEqual(
+            parse_financial_report_period("P&L for the period 09/2026"),
+            {"period": "2026-09"},
+        )
+        self.assertEqual(parse_financial_report_period("invoice status 9-2026"), {"period": "2026-09"})
 
     def test_balance_sheet_and_full_year(self):
         self.assertEqual(infer_financial_report_type("Balance sheet as of 2026"), "balance-sheet")
@@ -40,6 +48,30 @@ class FinancialReportIntentTests(unittest.TestCase):
     def test_order_questions_are_not_reports(self):
         self.assertFalse(_is_financial_report_question("list purchase orders"))
         self.assertEqual(infer_financial_report_type("list purchase orders"), "")
+        self.assertEqual(
+            infer_financial_report_type("show me inovice due in October 2026"),
+            "",
+        )
+        self.assertFalse(_is_financial_report_question("show me inovice due in October 2026"))
+        self.assertEqual(
+            infer_financial_report_type("show me inovice billed in October 2026"),
+            "",
+        )
+        self.assertFalse(_is_financial_report_question("show me inovice billed in October 2026"))
+        self.assertEqual(
+            infer_financial_report_type(
+                "show me purchase orders in October 2026 for Vendor Accelerate Global Solution"
+            ),
+            "",
+        )
+        self.assertFalse(
+            _is_financial_report_question("show me journals in September 2026")
+        )
+        self.assertFalse(_is_financial_report_question("what receipts are in September 2026"))
+        self.assertEqual(
+            parse_financial_report_period("show me inovice due in October 2026"),
+            {"period": "2026-10"},
+        )
 
     def test_show_me_is_not_a_howto_question(self):
         self.assertFalse(_is_howto_question("show me the revenue for September 2026"))
@@ -234,6 +266,110 @@ class MonthlyTotalsIntentTests(unittest.TestCase):
         self.assertFalse(_is_financial_report_question(question))
         self.assertEqual(infer_period_kind(question), "sales_orders")
 
+    def test_profit_by_month_is_gl_profit_not_out_of_scope(self):
+        question = "show the profit by month for 2026"
+        self.assertTrue(_is_period_question(question))
+        self.assertFalse(_is_financial_report_question(question))
+        self.assertEqual(infer_financial_report_type(question), "")
+        self.assertEqual(infer_period_kind(question), "gl_profit")
+        self.assertEqual(infer_period_kind("net income by month for 2026"), "gl_profit")
+
+    def test_profit_synonyms_by_month_are_gl_profit(self):
+        for question in (
+            "show profits by month for 2026",
+            "profitability by month for 2026",
+            "earnings by month for 2026",
+            "net earnings by month for 2026",
+            "bottom line by month for 2026",
+            "P&L by month for 2026",
+            "P and L by month for 2026",
+            "PnL by month for 2026",
+            "profit and loss by month for 2026",
+        ):
+            self.assertTrue(_is_period_question(question), question)
+            self.assertFalse(_is_financial_report_question(question), question)
+            self.assertEqual(infer_financial_report_type(question), "", question)
+            self.assertEqual(infer_period_kind(question), "gl_profit", question)
+
+    def test_named_month_p_and_l_stays_income_statement(self):
+        question = "P&L for September 2026"
+        self.assertTrue(_is_financial_report_question(question))
+        self.assertFalse(_is_period_question(question))
+        self.assertEqual(infer_financial_report_type(question), "income-statement")
+
+    def test_operating_profit_and_ebitda_are_not_net_income(self):
+        self.assertNotEqual(infer_period_kind("operating profit by month for 2026"), "gl_profit")
+        self.assertNotEqual(infer_period_kind("EBITDA by month for 2026"), "gl_profit")
+
+    def test_expense_purchase_invoice_synonyms(self):
+        cases = {
+            "opex by month for 2026": "gl_expense",
+            "spending by month for 2026": "gl_expense",
+            "operating expenses by month for 2026": "gl_expense",
+            "turnover by month for 2026": "gl_revenue",
+            "purchases by month for 2026": "purchase_orders",
+            "procurement by month for 2026": "purchase_orders",
+            "PO by month for 2026": "purchase_orders",
+            "purchase invoices by month for 2026": "supplier_invoices",
+            "vendor invoice by month for 2026": "supplier_invoices",
+            "customer invoices by month for 2026": "sales_invoices",
+            "invoices by month for 2026": "sales_invoices",
+            "bills by month for 2026": "ap_bills",
+            "vendor bills by month for 2026": "ap_bills",
+        }
+        for question, kind in cases.items():
+            self.assertTrue(_is_period_question(question), question)
+            self.assertFalse(_is_financial_report_question(question), question)
+            self.assertEqual(infer_period_kind(question), kind, question)
+
+    def test_cogs_is_not_gl_expense(self):
+        self.assertNotEqual(infer_period_kind("COGS by month for 2026"), "gl_expense")
+
+    def test_material_issues_by_week_is_in_scope(self):
+        question = "show materials issues by week"
+        self.assertTrue(_is_period_question(question))
+        self.assertFalse(_is_financial_report_question(question))
+        self.assertEqual(infer_period_kind(question), "material_issues")
+        self.assertEqual(infer_period_grain(question), "week")
+
+    @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_material_issues_by_week(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Material issues by week\n\n| Week | Issues | Qty issued |\n"
+        )
+        reply, pending = _run_heuristic("show materials issues by week", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "material_issues")
+        self.assertIn("Material issues by week", reply)
+        self.assertNotIn("outside information", reply)
+        self.assertIsNone(pending)
+
+    def test_compare_revenue_by_quarter_is_not_a_statement(self):
+        question = "compare revenue by quarter"
+        self.assertTrue(_is_period_question(question))
+        self.assertFalse(_is_financial_report_question(question))
+        self.assertEqual(infer_financial_report_type(question), "")
+        self.assertEqual(infer_period_kind(question), "gl_revenue")
+        self.assertEqual(infer_period_grain(question), "quarter")
+        self.assertEqual(infer_period_grain("revenue by month for 2026"), "month")
+
+    @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_revenue_by_quarter(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Revenue by quarter\n\n| Quarter | Journals | Amount |\n"
+        )
+        reply, pending = _run_heuristic("compare revenue by quarter", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "gl_revenue")
+        self.assertIn("Revenue by quarter", reply)
+        self.assertNotIn("Income Statement", reply)
+        self.assertIsNone(pending)
+
+    def test_count_synonyms_map_entities(self):
+        self.assertEqual(infer_entity_and_status("how many POs")[0], "purchase_orders")
+        self.assertEqual(infer_entity_and_status("how many invoices")[0], "sales_invoices")
+        self.assertEqual(infer_entity_and_status("how many purchase invoices")[0], "supplier_invoices")
+
     @patch("app.ai.lookups.get_orders_by_month")
     def test_heuristic_routes_revenue_by_month(self, mock_tool):
         mock_tool.invoke.return_value = "## Revenue by month (2026)\n\n| Month | Amount |\n"
@@ -255,6 +391,111 @@ class MonthlyTotalsIntentTests(unittest.TestCase):
         self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "sales_orders")
         self.assertIn("Sales orders by month", reply)
         self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_profit_by_month(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Profit by month (2026)\n\n| Month | Revenue | Expenses | Net Income |\n"
+        )
+        reply, pending = _run_heuristic("show the profit by month for 2026", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "gl_profit")
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["year"], 2026)
+        self.assertIn("Profit by month", reply)
+        self.assertNotIn("weather", reply)
+        self.assertNotIn("outside information", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_pnl_by_month_synonym(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Profit by month (2026)\n\n| Month | Revenue | Expenses | Net Income |\n"
+        )
+        reply, pending = _run_heuristic("P&L by month for 2026", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "gl_profit")
+        self.assertIn("Profit by month", reply)
+        self.assertIsNone(pending)
+
+
+class ProfitByMonthFormatTests(unittest.TestCase):
+    def test_profit_table_has_revenue_expense_net(self):
+        markdown = format_period_answer(
+            """
+            {
+              "kind": "gl_profit",
+              "title": "Profit by month (2026)",
+              "count_label": "Months",
+              "months": [
+                {
+                  "month": "2026-09",
+                  "label": "Sep 2026",
+                  "revenue": "1000.00",
+                  "expense": "400.00",
+                  "net_income": "600.00"
+                }
+              ],
+              "note": "Posted journals only."
+            }
+            """
+        )
+        self.assertIn("## Profit by month (2026)", markdown)
+        self.assertIn("| Month | Revenue | Expenses | Net Income |", markdown)
+        self.assertIn("| Sep 2026 | $1,000.00 | $400.00 | $600.00 |", markdown)
+        self.assertIn("| Total | $1,000.00 | $400.00 | $600.00 |", markdown)
+        self.assertIn("```ai-chart", markdown)
+        self.assertIn("Posted journals only.", markdown)
+
+    def test_quarter_revenue_table_uses_quarter_header(self):
+        markdown = format_period_answer(
+            """
+            {
+              "kind": "gl_revenue",
+              "title": "Revenue by quarter",
+              "count_label": "Journals",
+              "grain": "quarter",
+              "months": [
+                {
+                  "month": "2026-Q3",
+                  "label": "Q3 2026",
+                  "order_count": 4,
+                  "total_amount": "635760.00"
+                }
+              ]
+            }
+            """
+        )
+        self.assertIn("## Revenue by quarter", markdown)
+        self.assertIn("| Quarter | Journals | Amount |", markdown)
+        self.assertIn("| Q3 2026 | 4 | $635,760.00 |", markdown)
+        self.assertNotIn("Income Statement", markdown)
+
+    def test_material_issues_week_table_uses_qty(self):
+        markdown = format_period_answer(
+            """
+            {
+              "kind": "material_issues",
+              "title": "Material issues by week",
+              "count_label": "Issues",
+              "grain": "week",
+              "amount_format": "quantity",
+              "order_count": 2,
+              "total_amount": "150.0000",
+              "months": [
+                {
+                  "month": "2026-W36",
+                  "label": "Sep 1–7, 2026",
+                  "order_count": 2,
+                  "total_amount": "150.0000"
+                }
+              ]
+            }
+            """
+        )
+        self.assertIn("## Material issues by week", markdown)
+        self.assertIn("| Week | Issues | Qty issued |", markdown)
+        self.assertIn("| Sep 1–7, 2026 | 2 | 150 |", markdown)
+        self.assertNotIn("$150", markdown)
 
 
 if __name__ == "__main__":

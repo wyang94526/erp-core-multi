@@ -129,4 +129,21 @@ def confirm_action(
             f"Draft purchase order **{result.get('po_number')}** created "
             f"(status {result.get('status')}, total {result.get('grand_total')})."
         )
+    elif action.action_type == "create_draft_subcontract_order" and result:
+        reply = (
+            f"Subcontract order **{result.get('sco_number')}** created "
+            f"(status {result.get('status')}, item {result.get('item_id')})."
+        )
+    elif action.action_type == "create_sco_and_po_from_sales_order" and result:
+        reply = (
+            f"Subcontract order **{result.get('sco_number')}** created "
+            f"from {result.get('sales_order_id')}."
+        )
+        if result.get("po_number"):
+            reply += (
+                f" Draft material PO **{result.get('po_number')}** created "
+                f"(total {result.get('grand_total')})."
+            )
+        elif result.get("po_error"):
+            reply += f" Material PO was not created: {result.get('po_error')}"
     return {"reply": reply, "result": result}

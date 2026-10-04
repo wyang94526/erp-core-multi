@@ -14,6 +14,8 @@ Required fields:
 
 The server assigns `sales_order_id` on create as `PU61-{YY}{MM}{XXXX}` from the order date (not the system date). Do not invent an ID.
 
+After the sales order is approved, ask: "create corresponding subcontract order and purchase order for PU61-…" to draft the processor SCO (linked SO lines) and the material kit PO.
+
 Default create status is `DRAFT`. Submitting enters the approval workflow based on amount bands.
 
 ## Invoicing
@@ -27,3 +29,4 @@ Sales invoices may be created after a shipped fulfillment. Invoice numbers are a
 ## AI tool tips
 Ask: "list sales orders with status DRAFT" or "show PU61-26090001".
 To draft via AI: "create draft order for CUST-GTT-USA with 2x PROD-1001G".
+To clone: "create a sales order like PU61-26090004 with 2x quantity" (also accepts SO- IDs).
