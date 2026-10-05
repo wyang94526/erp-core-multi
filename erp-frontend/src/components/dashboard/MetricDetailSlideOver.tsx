@@ -440,7 +440,11 @@ export default function MetricDetailSlideOver({
                 {data.recentAuditLogs.slice(0, 8).map((log) => (
                   <li key={log.id}>
                     {log.changed_at ? new Date(log.changed_at).toLocaleString() : '—'} ·{' '}
-                    {log.table_name} · {log.action}
+                    {log.table_label || log.table_name} · {log.action_label || log.action}
+                    {log.record_label ? ` · ${log.record_label}` : ''}
+                    {log.user_name || log.user_email
+                      ? ` · ${log.user_name || log.user_email}`
+                      : ''}
                   </li>
                 ))}
               </ul>

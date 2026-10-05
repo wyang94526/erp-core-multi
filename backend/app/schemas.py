@@ -150,11 +150,16 @@ class AuditLogUpdate(BaseModel):
 class AuditLogRead(ORMModel):
     id: int
     table_name: str
+    table_label: str | None = None
     record_id: UUID
+    record_label: str | None = None
     action: str
+    action_label: str | None = None
     old_data: dict[str, Any] | None
     new_data: dict[str, Any] | None
     user_id: UUID | None
+    user_name: str | None = None
+    user_email: str | None = None
     changed_at: datetime
 
 

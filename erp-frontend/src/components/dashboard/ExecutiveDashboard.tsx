@@ -109,13 +109,24 @@ export default function ExecutiveDashboard({
                     <td style={directoryTdStyle}>
                       {log.changed_at ? new Date(log.changed_at).toLocaleString() : '—'}
                     </td>
-                    <td style={directoryTdStyle}>{log.table_name}</td>
-                    <td style={directoryTdStyle}>{log.action}</td>
-                    <td style={directoryTdStyle}>
-                      <code style={{ fontSize: '0.8rem' }}>{log.record_id.slice(0, 8)}…</code>
+                    <td style={directoryTdStyle}>{log.table_label || log.table_name}</td>
+                    <td style={directoryTdStyle}>{log.action_label || log.action}</td>
+                    <td style={{ ...directoryTdStyle, whiteSpace: 'normal', maxWidth: 280 }}>
+                      <div style={{ fontWeight: 600 }} title={log.record_id}>
+                        {log.record_label || log.record_id}
+                      </div>
                     </td>
-                    <td style={directoryTdStyle}>
-                      {log.user_id ? `${log.user_id.slice(0, 8)}…` : '—'}
+                    <td style={{ ...directoryTdStyle, whiteSpace: 'normal' }}>
+                      {log.user_name || log.user_email ? (
+                        <>
+                          <div style={{ fontWeight: 600 }}>{log.user_name || log.user_email}</div>
+                          {log.user_name && log.user_email ? (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text)' }}>{log.user_email}</div>
+                          ) : null}
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                   </tr>
                 ))}

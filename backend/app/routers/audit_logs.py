@@ -7,36 +7,40 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AuditLog, User
 from app.schemas import AuditLogCreate, AuditLogRead, AuditLogUpdate
+from app.services.audit_display import enrich_audit_log, enrich_audit_logs
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
 
 @router.get("", response_model=list[AuditLogRead])
-def list_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)) -> list[AuditLog]:
-    return db.query(AuditLog).order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
+def list_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)) -> list[dict]:
+    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
+    return enrich_audit_logs(db, rows)
 
 
 @router.post("", response_model=AuditLogRead, status_code=status.HTTP_201_CREATED)
-def create_audit_log(payload: AuditLogCreate, db: Session = Depends(get_db)) -> AuditLog:
+def create_audit_log(payload: AuditLogCreate, db: Session = Depends(get_db)) -> dict:
     if payload.user_id is not None and db.get(User, payload.user_id) is None:
         raise HTTPException(status_code=400, detail="user_id not found")
     log = AuditLog(**payload.model_dump())
     db.add(log)
     db.commit()
     db.refresh(log)
-    return log
+    user = db.get(User, log.user_id) if log.user_id else None
+    return enrich_audit_log(log, user)
 
 
 @router.get("/{log_id}", response_model=AuditLogRead)
-def get_audit_log(log_id: int, db: Session = Depends(get_db)) -> AuditLog:
+def get_audit_log(log_id: int, db: Session = Depends(get_db)) -> dict:
     log = db.get(AuditLog, log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Audit log not found")
-    return log
+    user = db.get(User, log.user_id) if log.user_id else None
+    return enrich_audit_log(log, user)
 
 
 @router.patch("/{log_id}", response_model=AuditLogRead)
-def update_audit_log(log_id: int, payload: AuditLogUpdate, db: Session = Depends(get_db)) -> AuditLog:
+def update_audit_log(log_id: int, payload: AuditLogUpdate, db: Session = Depends(get_db)) -> dict:
     log = db.get(AuditLog, log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Audit log not found")
@@ -47,7 +51,8 @@ def update_audit_log(log_id: int, payload: AuditLogUpdate, db: Session = Depends
         setattr(log, key, value)
     db.commit()
     db.refresh(log)
-    return log
+    user = db.get(User, log.user_id) if log.user_id else None
+    return enrich_audit_log(log, user)
 
 
 @router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)

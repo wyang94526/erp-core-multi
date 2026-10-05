@@ -222,9 +222,14 @@ function aggregateDashboardData(
     .map((log) => ({
       id: log.id,
       table_name: log.table_name,
+      table_label: log.table_label,
       record_id: String(log.record_id),
+      record_label: log.record_label,
       action: log.action,
+      action_label: log.action_label,
       user_id: log.user_id,
+      user_name: log.user_name,
+      user_email: log.user_email,
       changed_at: log.changed_at,
     }))
 

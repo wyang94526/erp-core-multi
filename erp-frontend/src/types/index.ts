@@ -1567,11 +1567,16 @@ export interface StockMovement {
 export interface AuditLog {
   id: number;
   table_name: string;
+  table_label?: string | null;
   record_id: string;
+  record_label?: string | null;
   action: string;
+  action_label?: string | null;
   old_data?: Record<string, unknown> | null;
   new_data?: Record<string, unknown> | null;
   user_id: string | null;
+  user_name?: string | null;
+  user_email?: string | null;
   changed_at: string;
 }
 
