@@ -56,6 +56,7 @@ export function ItemFulfillmentList() {
   const [skip, setSkip] = useState(0)
   const [selected, setSelected] = useState<ItemFulfillment | null>(null)
   const [lineQtyDraft, setLineQtyDraft] = useState<Record<number, number>>({})
+  const [shippingDateDraft, setShippingDateDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const { values } = useListFilterParams(FILTERS)
 
@@ -119,7 +120,8 @@ export function ItemFulfillmentList() {
 
   useEffect(() => {
     setLineQtyDraft({})
-  }, [selected?.id])
+    setShippingDateDraft(localIsoDate(selected?.shipped_date))
+  }, [selected?.id, selected?.shipped_date])
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -193,7 +195,10 @@ export function ItemFulfillmentList() {
     }
     setBusy(true)
     try {
-      const updated = await fulfillmentService.updateStatus(ful.id, { status })
+      const updated = await fulfillmentService.updateStatus(ful.id, {
+        status,
+        shipped_date: shippingDateDraft || null,
+      })
       await queryClient.invalidateQueries({ queryKey: ['fulfillments'] })
       setSelected(updated)
     } catch (err) {
@@ -207,7 +212,7 @@ export function ItemFulfillmentList() {
     <div style={containerStyle}>
       <PageHeader
         title="Item Fulfillments"
-        subtitle="Ship approved sales order lines and update inventory on shipment"
+        subtitle="Ship approved sales order lines. Inventory and AR post on the shipping date."
       />
 
       <ListFilterBar
@@ -335,6 +340,25 @@ export function ItemFulfillmentList() {
               Status: <strong>{selected.status}</strong>
               {selected.tracking_number ? ` · Tracking ${selected.tracking_number}` : ''}
             </p>
+            {selected.status === 'SHIPPED' ? (
+              <p style={{ fontSize: 13, color: 'var(--text)' }}>
+                Shipping Date:{' '}
+                <strong>{selected.shipped_date ? selected.shipped_date.slice(0, 10) : '—'}</strong>
+              </p>
+            ) : (
+              <label style={{ display: 'block', marginTop: 8, fontSize: 13, fontWeight: 700, color: 'var(--text-h)' }}>
+                Shipping Date
+                <input
+                  type="date"
+                  value={shippingDateDraft}
+                  onChange={(event) => setShippingDateDraft(event.target.value)}
+                  style={dateInputStyle}
+                />
+                <span style={{ display: 'block', marginTop: 4, fontWeight: 400, fontSize: 12, color: 'var(--text)' }}>
+                  Inventory deduction and AR post on this date.
+                </span>
+              </label>
+            )}
 
             <table style={{ ...tableStyle, marginTop: 16 }}>
               <thead>
@@ -587,6 +611,16 @@ const qtyInputStyle: React.CSSProperties = {
   fontSize: 13,
   textAlign: 'right',
 }
+const dateInputStyle: React.CSSProperties = {
+  display: 'block',
+  marginTop: 6,
+  width: 180,
+  padding: '8px 10px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontFamily: 'inherit',
+  fontSize: 14,
+}
 const warningBannerStyle: React.CSSProperties = {
   marginTop: 16,
   padding: '10px 12px',
@@ -612,6 +646,16 @@ const drawerStyle: React.CSSProperties = {
   padding: 24,
   overflowY: 'auto',
   boxShadow: 'var(--shadow)',
+}
+
+function localIsoDate(value?: string | null): string {
+  if (value && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  const d = new Date()
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 export default ItemFulfillmentList

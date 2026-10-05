@@ -225,6 +225,7 @@ def issue_stock(
     notes: str | None = None,
     warehouse_id: str | None = None,
     bin_id: str | None = None,
+    movement_date: date | None = None,
 ) -> InventoryStockItemRead:
     """Deduct on-hand quantity and write an Issue stock movement."""
     if quantity <= 0:
@@ -256,7 +257,7 @@ def issue_stock(
         bin_id=stock.bin_id,
         reference=reference,
         notes=notes or f"Stock issue for {reference}",
-        movement_date=date.today(),
+        movement_date=movement_date or date.today(),
     )
     db.add(movement)
     sync_item_on_hand(db, item_id)

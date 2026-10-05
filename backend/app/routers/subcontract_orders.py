@@ -75,6 +75,7 @@ from app.services.subcontract import (
     list_eligible_sales_orders,
     remaining_qty_for_so_line,
     sales_order_subcontract_availability,
+    sco_missing_kit_warning,
     so_is_eligible,
 )
 
@@ -371,23 +372,21 @@ def preview_components(
                 }
             )
 
-        try:
+        exploded = []
+        if header is None:
+            can_create = False
+            warnings.append(sco_missing_kit_warning(raw.item_id))
+        else:
             exploded = explode_assembly_components(
                 db,
                 raw.item_id,
                 raw.quantity_ordered,
-                bom_header_id=header.bom_header_id if header else raw.bom_header_id,
+                bom_header_id=header.bom_header_id,
+                require_bom=True,
             )
-        except HTTPException as exc:
-            can_create = False
-            warnings.append(
-                {
-                    "code": "NO_ACTIVE_BOM",
-                    "item_id": raw.item_id,
-                    "message": exc.detail,
-                }
-            )
-            exploded = []
+            if not exploded:
+                can_create = False
+                warnings.append(sco_missing_kit_warning(raw.item_id))
 
         charge_input = [c.model_dump() for c in raw.charges] if raw.charges else default_cost_sheet()
         sheet = compute_charge_sheet(charge_input, raw.quantity_ordered)
@@ -501,9 +500,8 @@ def create_subcontract_order(
         if not bom_lines:
             raise HTTPException(
                 status_code=400,
-                detail=f"Item {raw.item_id} has no Material Bill of Materials / subcontract kit",
+                detail=f"No Material BOM / subcontract kit defined for '{raw.item_id}'",
             )
-
         exploded_qty = {
             line.component_item_id: required_quantity(
                 line.quantity_per,
@@ -675,7 +673,11 @@ def calculate_components(
 
     for line in source_lines:
         exploded = explode_assembly_components(
-            db, line.item_id, line.quantity_ordered, bom_header_id=line.bom_header_id
+            db,
+            line.item_id,
+            line.quantity_ordered,
+            bom_header_id=line.bom_header_id,
+            require_bom=False,
         )
         issued_by_component = {
             c.component_item_id: Decimal(str(c.quantity_issued or 0)) for c in (line.components or [])
@@ -907,6 +909,8 @@ def issue_materials(
 
     if sco.status in _CLOSED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Cannot issue materials on a {sco.status.lower()} order")
+    if not payload.lines:
+        raise HTTPException(status_code=400, detail="Add at least one component quantity to issue")
 
     issue_date = payload.issue_date or date.today()
     issue_id = next_document_number(db, DOC_MATERIAL_ISSUE, issue_date, payload.issue_id)
@@ -918,6 +922,11 @@ def issue_materials(
         .filter(SubcontractOrderComponent.sco_number == sco_number)
         .all()
     )
+    if not components:
+        raise HTTPException(
+            status_code=400,
+            detail="This subcontract order has no material kit to issue. Add a Material BOM before issuing.",
+        )
 
     issue = MaterialIssue(issue_id=issue_id, sco_number=sco_number, notes=payload.notes)
     if payload.issue_date is not None:

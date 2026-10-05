@@ -9,6 +9,9 @@ type ApprovalActionModalProps = {
   busy?: boolean
   onConfirm: (comments: string) => void
   onClose: () => void
+  rejectTitle?: string
+  rejectHint?: string
+  rejectConfirmLabel?: string
 }
 
 export default function ApprovalActionModal({
@@ -17,12 +20,17 @@ export default function ApprovalActionModal({
   busy,
   onConfirm,
   onClose,
+  rejectTitle,
+  rejectHint,
+  rejectConfirmLabel,
 }: ApprovalActionModalProps) {
   if (!open) return null
 
   const required = mode === 'reject'
-  const title = mode === 'approve' ? 'Approve document' : 'Reject document'
-  const confirmLabel = mode === 'approve' ? 'Confirm Approve' : 'Confirm Reject'
+  const title =
+    mode === 'approve' ? 'Approve document' : rejectTitle || 'Reject document'
+  const confirmLabel =
+    mode === 'approve' ? 'Confirm Approve' : rejectConfirmLabel || 'Confirm Reject'
 
   return (
     <div style={overlayStyle} role="dialog" aria-modal="true" aria-labelledby="approval-modal-title">
@@ -41,7 +49,7 @@ export default function ApprovalActionModal({
         </h3>
         <p style={hintStyle}>
           {required
-            ? 'A rejection reason is required.'
+            ? rejectHint || 'A rejection reason is required.'
             : 'Optional notes for the approval record.'}
         </p>
         <textarea

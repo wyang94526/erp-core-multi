@@ -27,7 +27,7 @@ def list_ar_invoices(
 
 @router.get("/{invoice_id}", response_model=ARInvoiceRead)
 def get_ar_invoice(invoice_id: str, db: Session = Depends(get_db)) -> ARInvoice:
-    invoice = db.get(ARInvoice, invoice_id)
+    invoice = finance.resolve_ar_invoice(db, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="AR Invoice not found")
     return invoice
@@ -40,7 +40,7 @@ def get_ar_invoice_detail(invoice_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{invoice_id}/credit-memo", response_model=ARInvoiceDetailRead)
 def create_ar_credit_memo(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = db.get(ARInvoice, invoice_id)
+    invoice = finance.resolve_ar_invoice(db, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="AR Invoice not found")
     result = finance.create_ar_credit_memo(db, invoice)
@@ -59,7 +59,7 @@ def pay_ar_invoice(
     (Check Deposit), and posts a balanced Journal Entry
     (Debit: Cash, Credit: Accounts Receivable).
     """
-    invoice = db.get(ARInvoice, invoice_id)
+    invoice = finance.resolve_ar_invoice(db, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="AR Invoice not found")
 

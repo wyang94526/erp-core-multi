@@ -19,6 +19,7 @@ import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { defaultCostSheet } from '../utils/scoCostSheet'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
 import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
+import { SCO_KIT_MUST_BE_ISSUED_MESSAGE, scoHasUnissuedKitComponents } from '../utils/scoKitIssue'
 import {
   scoCanReceiveFinishedGoods,
   scoCanShowCloseRemaining,
@@ -750,6 +751,8 @@ export function SubcontractOrderDetail() {
         documentId={sco.sco_number}
         approvalStatus={sco.approval_status}
         currentApprovalStep={sco.current_approval_step}
+        actionDisabled={scoHasUnissuedKitComponents(sco.components)}
+        actionDisabledReason={SCO_KIT_MUST_BE_ISSUED_MESSAGE}
         onStatusChange={() => {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
@@ -1053,7 +1056,10 @@ export function SubcontractOrderDetail() {
 
           if (lines.length === 0) {
             return (
-              <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>No components found.</p>
+              <p style={{ color: 'var(--text)', fontStyle: 'italic' }}>
+                No material kit. A Material BOM is required so components can be issued before
+                approval and receipt.
+              </p>
             )
           }
 
@@ -1121,7 +1127,7 @@ export function SubcontractOrderDetail() {
       <div style={cardStyle}>
         <div style={tableHeaderContainerStyle}>
           <h3 style={sectionHeadingStyleNoBorder}>Material Issues</h3>
-          {isCancellable && canOperateKit && (
+          {isCancellable && canOperateKit && (sco.components || []).length > 0 && (
             <button
               type="button"
               onClick={() => (showIssueForm ? closeIssueForm() : openIssueForm())}

@@ -209,6 +209,7 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "model": SubcontractOrder,
         "id_attr": "sco_number",
         "amount_fn": _sco_amount,
+        # Kit must be fully issued before submit / approve.
         "on_approve": None,
         "legacy": "subcontract-orders",
     },
@@ -418,6 +419,10 @@ def submit_document(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot submit from approval status {current}",
         )
+    if canonical == "SUBCONTRACT_ORDER":
+        from app.services.subcontract import assert_sco_kit_fully_issued
+
+        assert_sco_kit_fully_issued(doc)
 
     amount_fn: Callable[[Any], Decimal] = MODULE_CONFIG[canonical]["amount_fn"]
     amount = amount_fn(doc)
@@ -490,6 +495,10 @@ def approve_document(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot approve from approval status {current}",
         )
+    if canonical == "SUBCONTRACT_ORDER":
+        from app.services.subcontract import assert_sco_kit_fully_issued
+
+        assert_sco_kit_fully_issued(doc)
 
     amount_fn: Callable[[Any], Decimal] = MODULE_CONFIG[canonical]["amount_fn"]
     amount = amount_fn(doc)
@@ -606,7 +615,8 @@ def reject_document(
             detail=f"Not authorized for step '{step.step_name}'",
         )
 
-    doc.approval_status = "REJECTED"
+    # Journals return to Draft so the requester can edit and resubmit.
+    doc.approval_status = "DRAFT" if canonical == "JOURNAL_ENTRY" else "REJECTED"
     doc.current_approval_step = None
     _record_audit(
         db,
@@ -624,7 +634,7 @@ def reject_document(
         document_id,
         doc,
         workflow_id=wf.id if wf else None,
-        message="Rejected",
+        message="Returned to draft" if canonical == "JOURNAL_ENTRY" else "Rejected",
     )
 
 

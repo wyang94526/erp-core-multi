@@ -111,7 +111,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'sco-create',
         title: 'Create the Subcontract Order',
         navPath: 'Manufacturing ▸ Subcontract Orders',
-        body: 'Choose the subcontractor (vendor type subcontractor or both) and the assembly item. If you link a sales order, only approved sales orders are available. Pin the active BOM version and quantity so the component kit matches what the processor needs.',
+        body: 'Choose the subcontractor (vendor type subcontractor or both) and the assembly item. If you link a sales order, only approved sales orders are available. A Material BOM is required — pin the active version so the kit matches what the processor needs.',
         links: [
           { label: 'Go to Subcontract Orders', to: '/subcontract-orders' },
           { label: 'New Subcontract Order', to: '/subcontract-orders/new' },
@@ -119,19 +119,19 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         ],
       },
       {
-        id: 'sco-approve',
-        title: 'Approve the Subcontract Order',
+        id: 'sco-issue',
+        title: 'Issue the Component Kit',
         navPath: 'Manufacturing ▸ Subcontract Orders (detail)',
-        body: 'Submit and approve the SCO while it is still Planned / Draft. Approval is available immediately after save. Issue Materials stays locked until the SCO is approved. After approval, use Create Revision to change vendor charges or finished-good quantity on the same UP23 number; the approved snapshot is frozen and issue/receive stay locked until re-approval.',
+        body: 'Issue materials from the Draft SCO before approval. When the kit is fully issued, status moves to materials issued. Use the SCO PDF as the pack-out list sent with the kit.',
         links: [
           { label: 'Open Subcontract Orders', to: '/subcontract-orders' },
         ],
       },
       {
-        id: 'sco-issue',
-        title: 'Issue the Component Kit',
+        id: 'sco-approve',
+        title: 'Approve the Subcontract Order',
         navPath: 'Manufacturing ▸ Subcontract Orders (detail)',
-        body: 'After the SCO is approved, issue materials to the vendor when the kit is picked. Status moves to materials issued. Use the SCO PDF as the pack-out list sent with the kit.',
+        body: 'Submit and approve only after every kit line is issued. After approval, receive finished goods. Use Create Revision to change vendor charges or finished-good quantity on the same UP23 number; the approved snapshot is frozen and issue/receive stay locked until re-approval.',
         links: [
           { label: 'Open Subcontract Orders', to: '/subcontract-orders' },
         ],

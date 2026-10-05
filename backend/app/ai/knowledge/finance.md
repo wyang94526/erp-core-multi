@@ -3,7 +3,7 @@
 Finance documents are live records. Use tools, not this file, for counts.
 
 ## Accounts receivable
-- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.). Numbers are `USS5-{YY}{MM}{XXXX}` from the issue date.
+- **Sales invoices** — customer invoicing from fulfillments (`DRAFT`, `POSTED`, etc.). Numbers are `US55-{YY}{MM}{XXXX}` from the issue date.
 - **AR invoices** — collections / aging (`Unpaid`, `Partial`, `Paid`) plus approval_status
 
 Ask: "How many unpaid AR invoices?" · "show me unpaid invoices" · "show me invoice status" · "show me invoice status for the period 09/2026" · "show me invoices due in October 2026" · "show me invoices billed in October 2026" · "show me invoices billed in October 2026 for vendor Accelerate Global Solution" · "show me purchase orders in October 2026 for vendor Accelerate Global Solution" · "List sales invoices" · "current closing period"

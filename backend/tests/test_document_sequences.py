@@ -40,6 +40,8 @@ from app.services.document_sequences import (
     parse_document_date,
     peek_document_number,
     plan_document_renames,
+    invoice_id_candidates,
+    remap_legacy_invoice_id,
     remap_legacy_sales_order_id,
 )
 
@@ -49,7 +51,7 @@ class DocumentSequenceFormatTests(unittest.TestCase):
         self.assertEqual(format_document_number("PU61-", date(2026, 9, 14), 1), "PU61-26090001")
         self.assertEqual(format_document_number("PU62-", date(2026, 9, 1), 2), "PU62-26090002")
         self.assertEqual(format_document_number("UP23-", date(2026, 12, 31), 99), "UP23-26120099")
-        self.assertEqual(format_document_number("USS5-", date(2027, 1, 5), 12), "USS5-27010012")
+        self.assertEqual(format_document_number("US55-", date(2027, 1, 5), 12), "US55-27010012")
         self.assertEqual(format_document_number("US51-", date(2026, 8, 1), 1), "US51-26080001")
         self.assertEqual(format_document_number("PU67-", date(2026, 8, 1), 1), "PU67-26080001")
         self.assertEqual(format_document_number("UM31-", date(2026, 8, 1), 1), "UM31-26080001")
@@ -85,8 +87,8 @@ class DocumentSequencePersistenceTests(unittest.TestCase):
         self.assertEqual(generate_document_number(self.db, DOC_SALES_ORDER, october), "PU61-26100001")
         self.assertEqual(generate_document_number(self.db, DOC_PURCHASE_ORDER, september), "PU62-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_SUBCONTRACT_ORDER, september), "UP23-26090001")
-        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, september), "USS5-26090001")
-        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, "2026-09-20"), "USS5-26090002")
+        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, september), "US55-26090001")
+        self.assertEqual(generate_document_number(self.db, DOC_INVOICE, "2026-09-20"), "US55-26090002")
         self.assertEqual(generate_document_number(self.db, DOC_FULFILLMENT, september), "US51-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_GOODS_RECEIPT, september), "PU67-26090001")
         self.assertEqual(generate_document_number(self.db, DOC_MATERIAL_ISSUE, september), "UM31-26090001")
@@ -142,6 +144,19 @@ class DocumentRenamePlanTests(unittest.TestCase):
         self.assertEqual(remap_legacy_sales_order_id("PUB61-26090004"), "PU61-26090004")
         self.assertEqual(remap_legacy_sales_order_id("PU61-26090004"), "PU61-26090004")
         self.assertEqual(remap_legacy_sales_order_id("SO-20260901-001"), "SO-20260901-001")
+
+    def test_legacy_uss5_prefix_keeps_year_month_and_sequence(self):
+        self.assertEqual(remap_legacy_invoice_id("USS5-26090004"), "US55-26090004")
+        self.assertEqual(remap_legacy_invoice_id("US55-26090004"), "US55-26090004")
+        self.assertEqual(remap_legacy_invoice_id("INV-20260901-001"), "INV-20260901-001")
+        self.assertEqual(
+            invoice_id_candidates("USS5-26090004"),
+            ["US55-26090004", "USS5-26090004"],
+        )
+        self.assertEqual(
+            invoice_id_candidates("US55-26090004"),
+            ["US55-26090004", "USS5-26090004"],
+        )
 
 
 if __name__ == "__main__":

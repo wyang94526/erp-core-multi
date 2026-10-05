@@ -1728,6 +1728,7 @@ class SupplierInvoice(Base):
     reference_po_number = Column(String(50), nullable=True)
     vendor_invoice_number = Column(String(100), nullable=True)
     invoice_date = Column(Date, nullable=False)
+    posting_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
     payment_term_id = Column(UUID(as_uuid=True), ForeignKey("payment_terms.id"), nullable=True)
     payment_terms = Column(String(50), nullable=True)

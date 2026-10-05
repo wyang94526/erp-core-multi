@@ -4,19 +4,21 @@
  */
 
 import type { SubcontractOrder } from '../types'
+import { scoHasUnissuedKitComponents } from './scoKitIssue'
 
 export const SCO_RECEIVE_REQUIRES_APPROVAL_MESSAGE =
   'Finished goods cannot be received until the Subcontract Order receives full management approval.'
+
+export const SCO_RECEIVE_REQUIRES_KIT_MESSAGE =
+  'Finished goods cannot be received until all required kit components have been issued to the subcontractor.'
 
 export function scoCanReceiveFinishedGoods(sco: {
   status?: string | null
   approval_status?: string | null
   remaining_closed?: boolean | null
+  components?: Array<{ quantity_required?: number | string | null; quantity_issued?: number | string | null }> | null
 }): boolean {
-  if (sco.remaining_closed) return false
-  const status = (sco.status || '').toUpperCase()
-  if (status === 'COMPLETED' || status === 'CANCELLED') return false
-  return (sco.approval_status || 'DRAFT').toUpperCase() === 'APPROVED'
+  return scoReceiveBlockedReason(sco) == null
 }
 
 export function scoReceivedQty(sco: Pick<SubcontractOrder, 'quantity_ordered' | 'lines' | 'finished_goods_receipts'>): number {
@@ -74,6 +76,7 @@ export function scoReceiveBlockedReason(sco: {
   status?: string | null
   approval_status?: string | null
   remaining_closed?: boolean | null
+  components?: Array<{ quantity_required?: number | string | null; quantity_issued?: number | string | null }> | null
 }): string | null {
   if (sco.remaining_closed) {
     return 'Remaining quantity was cancelled. Finished goods cannot be received.'
@@ -81,6 +84,9 @@ export function scoReceiveBlockedReason(sco: {
   const status = (sco.status || '').toUpperCase()
   if (status === 'COMPLETED' || status === 'CANCELLED') {
     return 'This subcontract order is closed. Finished goods cannot be received.'
+  }
+  if (scoHasUnissuedKitComponents(sco.components)) {
+    return SCO_RECEIVE_REQUIRES_KIT_MESSAGE
   }
   if ((sco.approval_status || 'DRAFT').toUpperCase() !== 'APPROVED') {
     return SCO_RECEIVE_REQUIRES_APPROVAL_MESSAGE

@@ -58,6 +58,23 @@ _EDITABLE_APPROVAL = frozenset({"DRAFT", "REJECTED"})
 _LOCKED_STATUS = frozenset({"SHIPPED", "INVOICED", "FULFILLED", "PARTIALLY_FULFILLED"})
 
 
+def resolve_fulfillment_ship_date(
+    shipped_date: date | None = None,
+    stored: date | None = None,
+) -> date:
+    """Use the entered shipping date; fall back to a stored value, then today."""
+    return shipped_date or stored or date.today()
+
+
+def resolve_sales_invoice_issue_date(
+    issue_date: date | None = None,
+    fulfillment=None,
+) -> date:
+    """AR invoice date follows the fulfillment shipping date when not entered."""
+    shipped = getattr(fulfillment, "shipped_date", None) if fulfillment is not None else None
+    return issue_date or shipped or date.today()
+
+
 def _normalize_so_flag(value: str | None) -> str:
     return (value or "").strip().upper().replace(" ", "_").replace("-", "_")
 
@@ -628,6 +645,7 @@ def create_fulfillment(
     carrier: str | None = None,
     tracking_number: str | None = None,
     status: str = "DRAFT",
+    shipped_date: date | None = None,
 ) -> dict:
     order = (
         db.query(SalesOrder)
@@ -650,11 +668,13 @@ def create_fulfillment(
     sco_caps = subcontract_receipt_caps(db, sales_order_id)
     pending: dict[int, int] = {}
 
+    ship_on = resolve_fulfillment_ship_date(shipped_date)
     fulfillment = ItemFulfillment(
-        fulfillment_number=generate_document_number(db, DOC_FULFILLMENT),
+        fulfillment_number=generate_document_number(db, DOC_FULFILLMENT, ship_on),
         sales_order_id=order.sales_order_id,
         customer_id=order.customer_id,
         status="DRAFT",
+        shipped_date=ship_on,
         carrier=carrier,
         tracking_number=tracking_number,
     )
@@ -702,7 +722,7 @@ def create_fulfillment(
             db,
             fulfillment.id,
             status=status,
-            shipped_date=date.today() if status == "SHIPPED" else None,
+            shipped_date=ship_on,
             carrier=carrier,
             tracking_number=tracking_number,
         )
@@ -736,10 +756,13 @@ def update_fulfillment_status(
         fulfillment.carrier = carrier
     if tracking_number is not None:
         fulfillment.tracking_number = tracking_number
+    if shipped_date is not None and previous != "SHIPPED":
+        fulfillment.shipped_date = shipped_date
 
     if status == "SHIPPED" and previous != "SHIPPED":
+        ship_on = resolve_fulfillment_ship_date(shipped_date, fulfillment.shipped_date)
         assert_transaction_date_open(
-            db, shipped_date or date.today(), document="item fulfillment"
+            db, ship_on, document="item fulfillment"
         )
         for line in fulfillment.lines:
             if skip_inventory_movement(catalog_item(db, line.item_id)):
@@ -752,8 +775,9 @@ def update_fulfillment_status(
                 quantity=int(line.quantity_fulfilled),
                 reference=fulfillment.fulfillment_number,
                 notes=f"Fulfillment shipment for SO {fulfillment.sales_order_id}",
+                movement_date=ship_on,
             )
-        fulfillment.shipped_date = shipped_date or date.today()
+        fulfillment.shipped_date = ship_on
         order = (
             db.query(SalesOrder)
             .options(joinedload(SalesOrder.items))
@@ -903,7 +927,7 @@ def create_sales_invoice(
         if fulfillment.status != "SHIPPED":
             raise HTTPException(status_code=400, detail="Fulfillment must be SHIPPED before invoicing")
 
-    issue = issue_date or date.today()
+    issue = resolve_sales_invoice_issue_date(issue_date, fulfillment)
     assert_transaction_date_open(db, issue, document="sales invoice")
     due, term = apply_due_date(
         db,
@@ -1079,6 +1103,7 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
         "reference": invoice.invoice_number,
         "source_document_type": SOURCE_SALES_INVOICE,
         "source_record_id": invoice.invoice_number,
+        "posting_date": invoice.issue_date,
     }
     if tax > 0:
         finance._post_balanced_journal_entry(
@@ -1111,7 +1136,7 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
         )
 
     # Mirror into AR invoices for payment tracking using the Sales Invoice number
-    # (USS5-YYMMXXXX) so Accounts Receivable shows the same document id.
+    # (US55-YYMMXXXX) so Accounts Receivable shows the same document id.
     ar = db.get(ARInvoice, invoice.invoice_number)
     if ar is None and invoice.ar_invoice_id:
         ar = db.get(ARInvoice, invoice.ar_invoice_id)

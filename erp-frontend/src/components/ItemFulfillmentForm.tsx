@@ -37,6 +37,7 @@ export function ItemFulfillmentForm() {
   const queryClient = useQueryClient()
   const [carrier, setCarrier] = useState('')
   const [tracking, setTracking] = useState('')
+  const [shippingDate, setShippingDate] = useState(localIsoDate())
   const [shipNow, setShipNow] = useState(false)
   const [lineQty, setLineQty] = useState<Record<number, number>>({})
 
@@ -128,6 +129,7 @@ export function ItemFulfillmentForm() {
         carrier: carrier || null,
         tracking_number: tracking || null,
         status: shipNow ? 'SHIPPED' : 'DRAFT',
+        shipped_date: shippingDate || null,
         lines,
       })
     },
@@ -252,6 +254,18 @@ export function ItemFulfillmentForm() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 20 }}>
             <label style={labelStyle}>
+              Shipping Date
+              <input
+                type="date"
+                value={shippingDate}
+                onChange={(e) => setShippingDate(e.target.value)}
+                style={{ ...inputStyle, width: '100%', textAlign: 'left' }}
+              />
+              <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text)' }}>
+                Inventory deduction and AR post on this date.
+              </span>
+            </label>
+            <label style={labelStyle}>
               Carrier
               <input
                 value={carrier}
@@ -273,7 +287,7 @@ export function ItemFulfillmentForm() {
 
           <label style={{ ...labelStyle, marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={shipNow} onChange={(e) => setShipNow(e.target.checked)} />
-            Ship immediately (deduct inventory and write stock movements)
+            Ship immediately (deduct inventory on the shipping date)
           </label>
 
           {overFulfillBanner ? (
@@ -410,6 +424,16 @@ const inlineErrorStyle: React.CSSProperties = {
   fontWeight: 600,
   textAlign: 'left',
   maxWidth: 260,
+}
+
+function localIsoDate(value?: string | null): string {
+  if (value && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  const d = new Date()
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 export default ItemFulfillmentForm

@@ -1102,6 +1102,7 @@ export interface APBillDetail extends APBill {
   vendor_invoice_number?: string | null;
   display_status?: 'Paid' | 'Overdue' | 'Partial' | 'Open' | string;
   issue_date?: string | null;
+  posting_date?: string | null;
   payment_date?: string | null;
   payment_terms?: string | null
   payment_term_id?: string | null;
@@ -1170,6 +1171,7 @@ export interface SupplierInvoice {
   reference_po_number?: string | null;
   vendor_invoice_number?: string | null;
   invoice_date: string;
+  posting_date?: string | null;
   due_date: string;
   payment_term_id?: string | null;
   payment_terms?: string | null;

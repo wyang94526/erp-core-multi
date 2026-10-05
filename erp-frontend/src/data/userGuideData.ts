@@ -228,12 +228,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Enter Customer Revision Date when the customer last updated their PO (this is not the internal order date).',
       'Add item lines by searching the internal part number. Customer P/N fills from the item master and can be overridden.',
       'Save as Draft, then Submit for approval if your workflow requires it.',
-      'After approval, open the order and use Fulfill to ship, then Invoice to create a customer sales invoice. If remaining quantity was cancelled, the invoice uses shipped quantity only (voiding a draft releases that amount so you can recreate it). If a linked subcontract is only partially received, fulfill the received quantity now and ship the remainder after the next finished-goods receipt. A sales order cannot be billed past its remaining billable total.',
+      'After approval, open the order and use Fulfill to ship. Enter Shipping Date (defaults to today; change it for late-month or prior-month shipments). Inventory deduction and the later AR invoice post on that shipping date. Then Invoice to create a customer sales invoice. If remaining quantity was cancelled, the invoice uses shipped quantity only (voiding a draft releases that amount so you can recreate it). If a linked subcontract is only partially received, fulfill the received quantity now and ship the remainder after the next finished-goods receipt. A sales order cannot be billed past its remaining billable total.',
       'To change an approved order that is not yet shipped, fulfilled, or fully billed, click Create Revision. The PU61 number stays the same. The approved snapshot is frozen, then you edit and re-submit for approval. Revision history and field-level change logs appear on the detail page after re-approval.',
     ],
     callouts: [
       { kind: 'required', text: 'Customer, at least one ship-to, and at least one order line are required before submit.' },
-      { kind: 'important', text: 'Fulfillment and invoicing are separate steps. Shipping does not automatically create the AR invoice.' },
+      { kind: 'important', text: 'Fulfillment and invoicing are separate steps. Shipping does not automatically create the AR invoice. Enter Shipping Date on Fulfill Items — inventory deduction and AR journals post on that date, not today.' },
       { kind: 'important', text: 'Subcontracted sales orders cannot ship more than finished-goods received. Partial receipts create a partial fulfillment; remaining quantity waits for the next receipt.' },
       { kind: 'important', text: 'After a partial shipment, use Cancel remaining to close leftover quantity. The sales order is then fulfilled for what shipped and cannot ship more. The detail page shows shipped / fulfilled quantity and cancelled quantity.' },
       { kind: 'important', text: 'Create Revision is blocked once the sales order is shipped, fulfilled, invoiced, or fully billed. Use a credit memo or a new sales order instead of overwriting billed quantities.' },
@@ -428,7 +428,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Creating Subcontract / Outside-Processing Orders',
     routeMatch: ['/subcontract-orders'],
     summary:
-      'Subcontract orders (SCOs) send an assembly to an outside processor. The order pins a BOM version, issues the component kit, and receives finished goods.',
+      'Subcontract orders (SCOs) send an assembly to an outside processor. The order pins a Material BOM, issues the component kit, then is approved, then receives finished goods.',
     screenshots: [
       { src: '/guide-screenshots/sco-form.jpg', caption: 'New subcontract order header' },
       { src: '/guide-screenshots/sco-detail.jpg', caption: 'SCO detail with issue / receive actions' },
@@ -436,16 +436,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'Go to Manufacturing → Subcontract Orders → New. The SCO number (UP23-YYMMXXXX) is assigned on save from the order date.',
       'Choose the subcontractor (vendor type subcontractor or both) and the assembly item.',
-      'Select the BOM version when prompted (active version is the default). Quantity and dates drive the kit.',
+      'The item must have an active Material BOM. The active version is the default and quantity drives the kit.',
       'Save the SCO. Open the detail page to review required components.',
-      'Submit and approve the SCO while it is still Planned / Draft. Issue Materials stays locked until approval.',
-      'After approval, issue materials to the vendor when the kit is picked. Print the shipping document from that issue and send it with the kit.',
+      'Issue all kit components to the subcontractor while the SCO is still Draft.',
+      'After the kit is fully issued, submit and approve the SCO. Then receive finished goods. Print the shipping document from an issue when the kit is sent.',
       'When finished goods return, record a receipt (Receipt ID + quantity). A short shipment is a partial receipt; remaining quantity can be received later. GRNI is posted for the value received. The parent sales order can then fulfill only the quantity received so far.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you. If the processor will not return the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change vendor charges or finished-good quantity after approval, open the SCO and click Create Revision. Edit the sheet, then submit for approval again. The SCO number stays the same. Linked purchase orders stay on the same SCO.',
     ],
     callouts: [
-      { kind: 'required', text: 'Assembly item must be flagged as a subcontract assembly (or outside processed) with a BOM.' },
+      { kind: 'required', text: 'Issue the full material kit first. The subcontract order can be approved only after issue, and finished goods can be received only after approval.' },
       { kind: 'required', text: 'A linked Sales Order must already be approved. Draft sales orders cannot be selected or saved on the SCO.' },
       { kind: 'important', text: 'Status moves with materials issued and goods received. Do not invoice before a finished-goods receipt if you match to GRNI.' },
       { kind: 'important', text: 'After approval, use Create Revision to change vendor charges or quantity. Do not cancel and recreate the SCO if a Material PO is already linked.' },
@@ -677,7 +677,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'From an approved, shipped sales order, choose Invoice (or Finance → Sales Invoices).',
       'Confirm bill-to, lines, tax, and dates, then save / post per your workflow.',
-      'Open Finance → Sales Invoices and click an Invoice # (USS5-YYMMXXXX) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
+      'Open Finance → Sales Invoices and click an Invoice # (US55-YYMMXXXX) to open the invoice detail page: header, line items, payment history, PDF, and credit memo when eligible.',
       'The same Invoice ID on AR Aging & Collections also opens that detail page.',
       'Dashboard finance KPIs (outstanding AR, overdue invoices) deep-link here with filters applied.',
     ],
@@ -728,8 +728,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Receive goods on the PO or SCO first (GRNI) for PO-matched bills.',
       'Go to Finance → Supplier Invoices / Bills. Use Create Bill from an approved PO/SCO, or Create Non-PO Invoice for freight, customs duty, rent, utilities, or salaries.',
       'For Non-PO invoices, choose Expense (GL distribution) or Landed Cost (optional goods-receipt allocation). No purchase order is required.',
-      'Select the vendor / source document. The Supplier Invoice Number (UX13-YYMMXXXX) is assigned on save from the invoice date. PO-matched lines default to unbilled received quantities at order prices.',
-      'Save as draft or submit for approval. A Non-PO draft, returned, or pending bill can be opened and edited from the list or bill page. After Submit, the reviewer can Return it or Edit the voucher before approving. PO-matched posting typically debits GRNI and credits AP. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
+      'Select the vendor / source document. Bill # (UX13-YYMMXXXX) is the internal GTT number assigned on save from the Posting Date (defaults to today). Enter Invoice Date as the vendor invoice date — late invoices can keep the original invoice date even if that month is already closed. Enter the Supplier Invoice Number from the vendor invoice separately — it appears on the bill View after save and approval. PO-matched lines default to unbilled received quantities at order prices.',
+      'Save as draft or submit for approval. A Non-PO draft, returned, or pending bill can be opened and edited from the list or bill page. After Submit, the reviewer can Return it or Edit the voucher before approving. PO-matched posting typically debits GRNI and credits AP on the invoice Posting Date. Expense invoices debit the chosen GL accounts; landed cost allocated to a receipt debits Inventory.',
       'Open Finance → Supplier Invoices and click a Bill # (UX13-YYMMXXXX) to open the bill detail page: header, line items, payment history, PDF, and Pay when eligible. Pay can be recorded more than once — enter each amount and payment date until the outstanding balance is zero.',
       'The same Bill ID on AP Aging & Payments also opens that detail page.',
       'Cash & Treasury → Cash Management for bank-side movement. Bank Account, Type (for example ACH - Ref #99381), and Payee/Payer support daily reconciliation. Receive Payment / Make Payment asks for bank account, payment method, instrument/reference number, and payment date (Operating is the default bank). Add or edit company banks under Cash & Treasury → Bank Accounts. Open a bank with View to see the detail page, or Edit to change the mapped G/L account. Click a Transaction ID for bank and instrument detail, or a Reference ID to open the related invoice or bill.',
@@ -822,7 +822,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     steps: [
       'Go to Finance & Accounting → General Ledger & Setup → Manual Journal Entry (or open General Ledger and create a journal).',
       'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
-      'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted).',
+      'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted). Use View on a submitted journal to read the lines; use Return to Draft to send it back for editing, then Submit again.',
       'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. Export CSV downloads the journals (and their posting lines) that match the current filters. System-generated journals show a System chip and link back to the source document and posting rule.',
       'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads YEC_CLOSE (P&L → 3350) and YEC_NI_CLEAR (reverse 3353 / 3354); month-end parks NI with MEC_PARK_NI; bank transfers use each bank’s G/L.',
     ],
@@ -831,6 +831,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { kind: 'important', text: 'Draft journals do not affect trial balance, P&L, or financial reports. Approve them first.' },
     ],
     faqs: [
+      {
+        question: 'Can I edit a journal after it was submitted or returned?',
+        answer:
+          'Yes. Open View on a pending journal to read it, then Return to Draft (with a reason). The journal becomes Draft so you can Edit the lines and Submit again. Auto-generated journals stay read-only; return those to Draft or reverse them from the source document.',
+      },
       {
         question: 'Should I change a posting rule when a journal is auto-generated?',
         answer:

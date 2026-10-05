@@ -11,8 +11,7 @@ export function scoCanIssueMaterials(sco: {
   approval_status?: string | null
 }): boolean {
   const status = (sco.status || '').toUpperCase()
-  if (status === 'COMPLETED' || status === 'CANCELLED') return false
-  return (sco.approval_status || 'DRAFT').toUpperCase() === 'APPROVED'
+  return status !== 'COMPLETED' && status !== 'CANCELLED'
 }
 
 export function scoIssueBlockedReason(sco: {
@@ -22,9 +21,6 @@ export function scoIssueBlockedReason(sco: {
   const status = (sco.status || '').toUpperCase()
   if (status === 'COMPLETED' || status === 'CANCELLED') {
     return 'This subcontract order is closed. Materials cannot be issued.'
-  }
-  if ((sco.approval_status || 'DRAFT').toUpperCase() !== 'APPROVED') {
-    return SCO_ISSUE_REQUIRES_APPROVAL_MESSAGE
   }
   return null
 }

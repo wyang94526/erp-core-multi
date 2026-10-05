@@ -75,7 +75,7 @@ class ReceiptBasedSupplierInvoiceTests(TestCase):
         self.assertEqual(payload["billing_status"], "PARTIALLY_BILLED")
         self.assertEqual(payload["lines"][0]["receipt_unit_cost"], Decimal("10.0000"))
 
-    def test_grni_clear_uses_receipt_posting_date(self):
+    def test_grni_clear_uses_invoice_posting_date(self):
         receipt = SimpleNamespace(
             id=9,
             receipt_number="PU67-26090011",
@@ -90,6 +90,7 @@ class ReceiptBasedSupplierInvoiceTests(TestCase):
         invoice = SimpleNamespace(
             invoice_number="UX13-26100001",
             invoice_date=date(2026, 10, 1),
+            posting_date=date(2026, 10, 5),
             source_type="PURCHASE_ORDER",
             source_order_id="PU62-26090001",
             subtotal=Decimal("25.00"),
@@ -107,7 +108,7 @@ class ReceiptBasedSupplierInvoiceTests(TestCase):
         with patch("app.services.p2p.catalog_item", return_value=None):
             groups = _grni_clear_groups(db, invoice)
         self.assertEqual(len(groups), 1)
-        self.assertEqual(groups[0]["posting_date"], date(2026, 9, 30))
+        self.assertEqual(groups[0]["posting_date"], date(2026, 10, 5))
         self.assertEqual(groups[0]["clear_amount"], Decimal("25.00"))
         self.assertEqual(groups[0]["receipt_number"], "PU67-26090011")
 

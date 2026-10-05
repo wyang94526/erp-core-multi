@@ -569,6 +569,7 @@ export const fulfillmentService = {
     carrier?: string | null;
     tracking_number?: string | null;
     status?: string;
+    shipped_date?: string | null;
     lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>;
   }): Promise<ItemFulfillment> {
     return apiClient.post<ItemFulfillment>('/api/v1/fulfillments', data);
@@ -676,6 +677,7 @@ export const vendorInvoiceService = {
     vendor_id?: string | null;
     vendor_invoice_number?: string | null;
     invoice_date?: string | null;
+    posting_date?: string | null;
     due_date?: string | null;
     payment_term_id?: string | null;
     payment_terms?: string | null;
@@ -712,6 +714,7 @@ export const vendorInvoiceService = {
       vendor_id?: string | null;
       vendor_invoice_number?: string | null;
       invoice_date?: string | null;
+      posting_date?: string | null;
       due_date?: string | null;
       payment_term_id?: string | null;
       payment_terms?: string | null;
@@ -780,9 +783,9 @@ export const vendorInvoiceService = {
     return apiClient.get<Department[]>('/api/v1/vendor-invoices/departments');
   },
 
-  nextNumber(invoiceDate?: string | null) {
+  nextNumber(numberDate?: string | null) {
     return apiClient.get<{ invoice_number: string }>('/api/v1/vendor-invoices/next-number', {
-      params: invoiceDate ? { invoice_date: invoiceDate } : {},
+      params: numberDate ? { posting_date: numberDate } : {},
     });
   },
 };

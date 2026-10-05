@@ -39,6 +39,7 @@ def create_fulfillment(payload: ItemFulfillmentCreate, db: Session = Depends(get
         carrier=payload.carrier,
         tracking_number=payload.tracking_number,
         status=payload.status,
+        shipped_date=payload.shipped_date,
     )
     db.commit()
     return result

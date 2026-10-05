@@ -1,6 +1,7 @@
 # @author: Wendy Yang
 # @date: 2026-09-19
 
+from datetime import date
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from app.schemas import SupplierInvoiceCreate
 from app.services.p2p import (
     _assert_invoice_editable,
+    _resolve_posting_date,
     reject_supplier_invoice,
     rescind_supplier_invoice,
     submit_supplier_invoice,
@@ -133,6 +135,31 @@ def test_schema_accepts_optional_reference_po_number():
     assert payload.reference_po_number == "PU62-26090001"
     assert payload.source_type == "NON_PO"
     assert payload.source_order_id is None
+
+
+def test_schema_accepts_posting_date_separate_from_invoice_date():
+    payload = SupplierInvoiceCreate(
+        invoice_type="EXPENSE",
+        vendor_id="V-100",
+        invoice_date=date(2026, 7, 15),
+        posting_date=date(2026, 10, 5),
+        currency="USD",
+        distributions=[
+            {
+                "gl_account_id": uuid4(),
+                "amount": "150.00",
+                "description": "Warehouse rent",
+            }
+        ],
+    )
+    assert payload.invoice_date == date(2026, 7, 15)
+    assert payload.posting_date == date(2026, 10, 5)
+
+
+def test_resolve_posting_date_prefers_explicit_then_fallback():
+    assert _resolve_posting_date(date(2026, 10, 5), date(2026, 7, 1)) == date(2026, 10, 5)
+    assert _resolve_posting_date(None, date(2026, 7, 1)) == date(2026, 7, 1)
+    assert _resolve_posting_date(None, None) == date.today()
 
 
 def test_schema_allows_non_po_without_po_id():

@@ -28,6 +28,7 @@ import { headerButtonStyle } from '../utils/documentPageStyles'
 import AccountLookup from './AccountLookup'
 import GoodsReceiptLookup from './GoodsReceiptLookup'
 import { PageHeader } from './PageHeader'
+import { usePeriodStatus } from '../hooks/useFinancePeriodSettings'
 
 type InvoiceCategory = 'PO' | 'NON_PO'
 type NonPoType = 'EXPENSE' | 'LANDED_COST'
@@ -57,26 +58,45 @@ type DistRow = {
   goods_receipt_number: string
 }
 
-function SupplierInvoiceNumberField({
+function InternalBillNumberField({
   value,
   loading,
-  hint,
 }: {
   value: string
   loading?: boolean
-  hint?: string
 }) {
   return (
     <label style={{ ...labelStyle, marginTop: 16 }}>
-      Supplier Invoice Number
+      Bill #
       <input
         value={loading && !value ? 'Assigning…' : value}
         readOnly
         disabled
         style={{ ...inputStyle, ...disabledInputStyle }}
-        title="Assigned automatically as UX13-YYMMXXXX from the invoice date"
+        title="Internal bill ID assigned automatically as UX13-YYMMXXXX from the posting date"
       />
-      {hint ? <span style={fieldHintStyle}>{hint}</span> : null}
+      <span style={fieldHintStyle}>Internal GTT bill ID (UX13-). Numbered from Posting Date. This is not the vendor&apos;s invoice number.</span>
+    </label>
+  )
+}
+
+function VendorInvoiceNumberField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <label style={{ ...labelStyle, marginTop: 16 }}>
+      Supplier Invoice Number
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Number printed on the vendor invoice"
+        style={inputStyle}
+      />
+      <span style={fieldHintStyle}>The invoice number from the supplier. Shown on the bill after save and approval.</span>
     </label>
   )
 }
@@ -160,6 +180,7 @@ export function SupplierInvoiceForm() {
   const [vendorId, setVendorId] = useState('')
   const [vendorInvoiceNumber, setVendorInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10))
+  const [postingDate, setPostingDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState('')
   const [dueDateDirty, setDueDateDirty] = useState(false)
   const [paymentTermId, setPaymentTermId] = useState('')
@@ -205,6 +226,7 @@ export function SupplierInvoiceForm() {
     setVendorId(invoice.vendor_id || '')
     setVendorInvoiceNumber(invoice.vendor_invoice_number || '')
     setInvoiceDate((invoice.invoice_date || '').slice(0, 10))
+    setPostingDate((invoice.posting_date || invoice.invoice_date || '').slice(0, 10))
     setDueDate((invoice.due_date || '').slice(0, 10))
     setDueDateDirty(true)
     setPaymentTermId(invoice.payment_term_id || '')
@@ -355,9 +377,11 @@ export function SupplierInvoiceForm() {
     enabled: isNonPo,
   })
 
+  const numberDate = postingDate
+  const periodStatus = usePeriodStatus(postingDate)
   const nextNumberQuery = useQuery({
-    queryKey: ['supplierInvoiceNextNumber', invoiceDate],
-    queryFn: () => vendorInvoiceService.nextNumber(invoiceDate),
+    queryKey: ['supplierInvoiceNextNumber', numberDate],
+    queryFn: () => vendorInvoiceService.nextNumber(numberDate),
     enabled: !isEdit,
   })
   const supplierInvoiceNumber = isEdit
@@ -474,8 +498,9 @@ export function SupplierInvoiceForm() {
         source_type: resolvedType,
         source_order_id: sourceOrderId || selectedReceipts[0].source_order_id,
         receipt_ids: selectedReceipts.map((row) => row.id),
-        vendor_invoice_number: null,
+        vendor_invoice_number: vendorInvoiceNumber.trim() || null,
         invoice_date: invoiceDate || null,
+        posting_date: postingDate || null,
         due_date: dueDate || null,
         payment_term_id: paymentTermId || null,
         freight_amount:
@@ -524,8 +549,9 @@ export function SupplierInvoiceForm() {
         source_type: 'NON_PO' as const,
         reference_po_number: referencePoNumber.trim() || null,
         vendor_id: vendorId,
-        vendor_invoice_number: isEdit ? vendorInvoiceNumber || null : null,
+        vendor_invoice_number: vendorInvoiceNumber.trim() || null,
         invoice_date: invoiceDate || null,
+        posting_date: postingDate || null,
         due_date: dueDate || null,
         payment_term_id: paymentTermId || null,
         tax_amount: taxAmount ? Number(taxAmount) : 0,
@@ -776,14 +802,13 @@ export function SupplierInvoiceForm() {
               </select>
             </label>
 
-            <SupplierInvoiceNumberField
+            <InternalBillNumberField
               value={supplierInvoiceNumber}
               loading={!isEdit && nextNumberQuery.isLoading}
-              hint={
-                isEdit
-                  ? undefined
-                  : 'Assigned on save with prefix UX13- from the invoice date.'
-              }
+            />
+            <VendorInvoiceNumberField
+              value={vendorInvoiceNumber}
+              onChange={setVendorInvoiceNumber}
             />
 
             <label style={{ ...labelStyle, marginTop: 16 }}>
@@ -816,18 +841,36 @@ export function SupplierInvoiceForm() {
                 />
               </label>
               <label style={labelStyle}>
-                Due date
+                Posting date
                 <input
                   type="date"
-                  value={dueDate}
-                  onChange={(e) => {
-                    setDueDateDirty(true)
-                    setDueDate(e.target.value)
-                  }}
+                  value={postingDate}
+                  onChange={(e) => setPostingDate(e.target.value)}
                   style={inputStyle}
                 />
+                <span style={fieldHintStyle}>
+                  UX13- and the GL journal use this date. Defaults to today. Invoice date stays the vendor&apos;s invoice date.
+                </span>
               </label>
             </div>
+            {periodStatus.message ? (
+              <p style={{ color: periodStatus.blocked ? '#c62828' : '#9a6b00', fontSize: 13, marginTop: 8 }}>
+                {periodStatus.message}
+              </p>
+            ) : null}
+
+            <label style={{ ...labelStyle, marginTop: 16 }}>
+              Due date
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => {
+                  setDueDateDirty(true)
+                  setDueDate(e.target.value)
+                }}
+                style={inputStyle}
+              />
+            </label>
 
             <div style={twoColStyle}>
               <label style={labelStyle}>
@@ -1031,28 +1074,47 @@ export function SupplierInvoiceForm() {
           <>
             <p style={{ fontSize: 13, color: 'var(--text)' }}>
               Lines default to unbilled received quantities at receipt unit cost. Approval posts Debit
-              GRNI / Credit Accounts Payable on each receipt&apos;s posting date.
+              GRNI / Credit Accounts Payable on the invoice Posting Date. UX13- and the GL journal
+              are numbered from Posting Date, not Invoice Date.
             </p>
 
-            <SupplierInvoiceNumberField
+            <InternalBillNumberField
               value={supplierInvoiceNumber}
               loading={!isEdit && nextNumberQuery.isLoading}
-              hint={
-                isEdit
-                  ? undefined
-                  : 'Assigned on save with prefix UX13- from the invoice date.'
-              }
+            />
+            <VendorInvoiceNumberField
+              value={vendorInvoiceNumber}
+              onChange={setVendorInvoiceNumber}
             />
 
-            <label style={{ ...labelStyle, marginTop: 16 }}>
-              Invoice date
-              <input
-                type="date"
-                value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
-                style={inputStyle}
-              />
-            </label>
+            <div style={twoColStyle}>
+              <label style={labelStyle}>
+                Invoice date
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  style={inputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                Posting date
+                <input
+                  type="date"
+                  value={postingDate}
+                  onChange={(e) => setPostingDate(e.target.value)}
+                  style={inputStyle}
+                />
+                <span style={fieldHintStyle}>
+                  UX13- and the GL journal use this date. Defaults to today. Invoice date stays the vendor&apos;s invoice date.
+                </span>
+              </label>
+            </div>
+            {periodStatus.message ? (
+              <p style={{ color: periodStatus.blocked ? '#c62828' : '#9a6b00', fontSize: 13, marginTop: 8 }}>
+                {periodStatus.message}
+              </p>
+            ) : null}
 
             <label style={{ ...labelStyle, marginTop: 16 }}>
               Payment terms
@@ -1123,7 +1185,11 @@ export function SupplierInvoiceForm() {
             <button
               type="button"
               style={primaryButtonStyle}
-              disabled={mutation.isPending || (isEdit && (editQuery.isLoading || editQuery.isError))}
+              disabled={
+                mutation.isPending ||
+                periodStatus.blocked ||
+                (isEdit && (editQuery.isLoading || editQuery.isError))
+              }
               onClick={() => mutation.mutate()}
             >
               {mutation.isPending

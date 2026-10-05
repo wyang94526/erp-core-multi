@@ -52,7 +52,11 @@ from app.models import (
     SupplierInvoiceDistribution,
     SupplierInvoiceLine,
 )
-from app.services.document_sequences import DOC_JOURNAL, generate_document_number
+from app.services.document_sequences import (
+    DOC_JOURNAL,
+    generate_document_number,
+    invoice_id_candidates,
+)
 from app.services.financial_reports import signed_balance
 from app.services.payment_terms import due_days_for, due_days_from_string
 from app.services.journal_source import (
@@ -1155,18 +1159,27 @@ def _transaction_date_kwargs(payment_date: date | datetime | None) -> dict:
     return {"transaction_date": resolved} if resolved is not None else {}
 
 
+def resolve_ar_invoice(db: Session, invoice_id: str) -> ARInvoice | None:
+    for candidate in invoice_id_candidates(invoice_id):
+        invoice = db.get(ARInvoice, candidate)
+        if invoice is not None:
+            return invoice
+    return None
+
+
 def resolve_cash_entity_name(db: Session, *, txn_type: str, reference_id: str) -> str | None:
-    ref = (reference_id or "").strip()
-    if not ref:
+    refs = invoice_id_candidates(reference_id)
+    if not refs:
         return None
     if "deposit" in (txn_type or "").lower():
-        invoice = db.get(ARInvoice, ref)
-        if invoice:
-            customer = db.get(Customer, invoice.customer_id)
-            return customer.company_name if customer else invoice.customer_id
+        for ref in refs:
+            invoice = db.get(ARInvoice, ref)
+            if invoice:
+                customer = db.get(Customer, invoice.customer_id)
+                return customer.company_name if customer else invoice.customer_id
         sales = (
             db.query(SalesInvoice)
-            .filter(SalesInvoice.invoice_number == ref)
+            .filter(SalesInvoice.invoice_number.in_(refs))
             .order_by(SalesInvoice.id.desc())
             .first()
         )
@@ -1174,13 +1187,16 @@ def resolve_cash_entity_name(db: Session, *, txn_type: str, reference_id: str) -
             customer = db.get(Customer, sales.customer_id)
             return customer.company_name if customer else sales.customer_id
         return None
-    bill = db.get(APBill, ref)
+    bill = db.get(APBill, (reference_id or "").strip())
     if bill:
         vendor = db.get(Supplier, bill.vendor_id)
         return vendor.company_name if vendor else bill.vendor_id
     supplier_invoice = (
         db.query(SupplierInvoice)
-        .filter((SupplierInvoice.invoice_number == ref) | (SupplierInvoice.ap_bill_id == ref))
+        .filter(
+            (SupplierInvoice.invoice_number == (reference_id or "").strip())
+            | (SupplierInvoice.ap_bill_id == (reference_id or "").strip())
+        )
         .order_by(SupplierInvoice.id.desc())
         .first()
     )
@@ -1503,14 +1519,17 @@ def _sales_invoice_for_ar(db: Session, invoice: ARInvoice) -> SalesInvoice | Non
 
 
 def get_invoice_detail(db: Session, invoice_id: str) -> dict:
-    invoice = db.get(ARInvoice, invoice_id)
+    candidates = invoice_id_candidates(invoice_id)
+    invoice = resolve_ar_invoice(db, invoice_id)
+    if invoice is None and not candidates:
+        raise HTTPException(status_code=404, detail="Invoice not found")
     if invoice is None:
         sales = (
             db.query(SalesInvoice)
             .options(selectinload(SalesInvoice.lines))
             .filter(
-                (SalesInvoice.invoice_number == invoice_id)
-                | (SalesInvoice.ar_invoice_id == invoice_id)
+                SalesInvoice.invoice_number.in_(candidates)
+                | SalesInvoice.ar_invoice_id.in_(candidates)
             )
             .order_by(SalesInvoice.id.desc())
             .first()
@@ -2016,6 +2035,7 @@ def serialize_supplier_invoice_detail(db: Session, supplier_invoice: SupplierInv
         "vendor_email": vendor.contact_email if vendor else None,
         "vendor_invoice_number": supplier_invoice.vendor_invoice_number,
         "issue_date": supplier_invoice.invoice_date,
+        "posting_date": getattr(supplier_invoice, "posting_date", None) or supplier_invoice.invoice_date,
         "payment_date": None,
         "payment_terms": (
             getattr(supplier_invoice, "payment_terms", None)
@@ -2051,9 +2071,11 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
     source_type = bill.source_type
     source_order_id = bill.source_order_id or bill.purchase_order_id
     vendor_invoice_number = None
+    posting_date = issue_date
 
     if supplier_invoice:
         issue_date = supplier_invoice.invoice_date or issue_date
+        posting_date = getattr(supplier_invoice, "posting_date", None) or issue_date
         currency = supplier_invoice.currency or currency
         subtotal = _money(supplier_invoice.subtotal)
         tax_amount = _money(supplier_invoice.tax_amount)
@@ -2173,6 +2195,7 @@ def serialize_ap_bill_detail(db: Session, bill: APBill) -> dict:
         "vendor_email": vendor.contact_email if vendor else None,
         "vendor_invoice_number": vendor_invoice_number,
         "issue_date": issue_date,
+        "posting_date": posting_date,
         "payment_date": payment_date,
         "payment_terms": payment_terms,
         "currency": currency,

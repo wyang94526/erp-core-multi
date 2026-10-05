@@ -510,6 +510,14 @@ export function BillDetail() {
         <div style={metaGridStyle}>
           <div style={metaColumnStyle}>
             <div style={metaRowStyle}>
+              <div style={labelStyle}>Bill #</div>
+              <div>{detail.bill_id}</div>
+            </div>
+            <div style={metaRowStyle}>
+              <div style={labelStyle}>Supplier Invoice Number</div>
+              <div>{detail.vendor_invoice_number || '—'}</div>
+            </div>
+            <div style={metaRowStyle}>
               <div style={labelStyle}>Vendor</div>
               <div>
                 {detail.vendor_id}
@@ -551,8 +559,12 @@ export function BillDetail() {
               )}
             </div>
             <div style={metaRowStyle}>
-              <div style={labelStyle}>Issue Date</div>
+              <div style={labelStyle}>Invoice Date</div>
               <div>{formatDate(detail.issue_date)}</div>
+            </div>
+            <div style={metaRowStyle}>
+              <div style={labelStyle}>Posting Date</div>
+              <div>{formatDate(detail.posting_date || detail.issue_date)}</div>
             </div>
           </div>
           <div style={metaColumnStyle}>

@@ -415,6 +415,7 @@ def resync_sco_bom_quantities(db: Session, sco: SubcontractOrder) -> None:
             line.item_id,
             qty,
             bom_header_id=line.bom_header_id,
+            require_bom=False,
         )
         by_item = {row["component_item_id"]: row for row in exploded}
         for component in line.components or []:

@@ -32,7 +32,7 @@ DOCUMENT_PREFIXES: Final[dict[str, str]] = {
     DOC_SALES_ORDER: "PU61-",
     DOC_PURCHASE_ORDER: "PU62-",
     DOC_SUBCONTRACT_ORDER: "UP23-",
-    DOC_INVOICE: "USS5-",
+    DOC_INVOICE: "US55-",
     DOC_FULFILLMENT: "US51-",
     DOC_GOODS_RECEIPT: "PU67-",
     DOC_MATERIAL_ISSUE: "UM31-",
@@ -42,6 +42,7 @@ DOCUMENT_PREFIXES: Final[dict[str, str]] = {
 }
 
 LEGACY_SALES_ORDER_PREFIX: Final = "PUB61-"
+LEGACY_INVOICE_PREFIX: Final = "USS5-"
 
 
 def remap_legacy_sales_order_id(doc_id: str) -> str:
@@ -50,6 +51,30 @@ def remap_legacy_sales_order_id(doc_id: str) -> str:
     if identifier.startswith(LEGACY_SALES_ORDER_PREFIX):
         return DOCUMENT_PREFIXES[DOC_SALES_ORDER] + identifier[len(LEGACY_SALES_ORDER_PREFIX) :]
     return identifier
+
+
+def remap_legacy_invoice_id(doc_id: str) -> str:
+    """Correct the mistyped USS5- sales-invoice prefix without changing YYMMXXXX."""
+    identifier = str(doc_id or "").strip()
+    if identifier.startswith(LEGACY_INVOICE_PREFIX):
+        return DOCUMENT_PREFIXES[DOC_INVOICE] + identifier[len(LEGACY_INVOICE_PREFIX) :]
+    return identifier
+
+
+def invoice_id_candidates(doc_id: str) -> list[str]:
+    """Return US55- first, then the original and USS5- form so old links still resolve."""
+    requested = str(doc_id or "").strip()
+    if not requested:
+        return []
+    prefix = DOCUMENT_PREFIXES[DOC_INVOICE]
+    values = [remap_legacy_invoice_id(requested)]
+    if requested not in values:
+        values.append(requested)
+    if requested.startswith(prefix):
+        legacy = LEGACY_INVOICE_PREFIX + requested[len(prefix) :]
+        if legacy not in values:
+            values.append(legacy)
+    return values
 
 
 def parse_document_date(document_date: date | datetime | str | None) -> date:

@@ -519,7 +519,9 @@ export function SubcontractOrderForm() {
                 </table>
               ) : (
                 <p style={{ color: 'var(--text)' }}>
-                  {previewQuery.isFetching ? 'Calculating kit…' : 'No Material BOM exploded yet.'}
+                  {previewQuery.isFetching
+                    ? 'Calculating kit…'
+                    : 'No material kit. A Material BOM is required so components can be issued before approval and receipt.'}
                 </p>
               )}
             </div>
@@ -561,9 +563,7 @@ export function SubcontractOrderForm() {
             <>
               {stockWarnings.length > 0 && (
                 <div style={warningAlertStyle}>
-                  {stockWarnings.length} component{stockWarnings.length === 1 ? '' : 's'} are
-                  short of available stock. You can still create the subcontract order; materials
-                  are issued later.
+                  {`${stockWarnings.length} component${stockWarnings.length === 1 ? '' : 's'} are short of available stock. You can still create the subcontract order; issue the kit before approval.`}
                 </div>
               )}
               {blockingWarnings.length > 0 && (

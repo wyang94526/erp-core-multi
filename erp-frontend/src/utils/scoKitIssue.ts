@@ -22,5 +22,6 @@ export function kitLineRemaining(line: KitQtyLine): number {
 }
 
 export function scoHasUnissuedKitComponents(lines: KitQtyLine[] | null | undefined): boolean {
-  return (lines || []).some((line) => kitLineRemaining(line) > 1e-9)
+  if (!lines || lines.length === 0) return true
+  return lines.some((line) => kitLineRemaining(line) > 1e-9)
 }

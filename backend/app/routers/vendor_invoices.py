@@ -77,10 +77,11 @@ def list_departments(db: Session = Depends(get_db)):
 
 @router.get("/next-number")
 def preview_supplier_invoice_number(
+    posting_date: date | None = Query(default=None),
     invoice_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
-    return {"invoice_number": peek_document_number(db, DOC_BILL, invoice_date)}
+    return {"invoice_number": peek_document_number(db, DOC_BILL, posting_date or invoice_date)}
 
 
 @router.get("/{invoice_id}", response_model=SupplierInvoiceRead)
@@ -100,6 +101,7 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         vendor_id=payload.vendor_id,
         vendor_invoice_number=payload.vendor_invoice_number,
         invoice_date=payload.invoice_date,
+        posting_date=payload.posting_date,
         due_date=payload.due_date,
         tax_amount=payload.tax_amount,
         freight_amount=payload.freight_amount,
@@ -128,6 +130,7 @@ def update_vendor_invoice(
         vendor_id=payload.vendor_id,
         vendor_invoice_number=payload.vendor_invoice_number,
         invoice_date=payload.invoice_date,
+        posting_date=payload.posting_date,
         due_date=payload.due_date,
         tax_amount=payload.tax_amount,
         freight_amount=payload.freight_amount,

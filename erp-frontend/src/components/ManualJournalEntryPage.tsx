@@ -23,6 +23,7 @@ import {
   sourceDocumentPath,
 } from '../utils/journalEntries'
 import AccountLookup from './AccountLookup'
+import ApprovalPanel from './ApprovalPanel'
 
 function todayISO() {
   const now = new Date()
@@ -76,6 +77,7 @@ export function ManualJournalEntryPage() {
   const isEdit = Boolean(id)
   const canCreate = hasPermission('journal:create')
   const canSubmit = hasPermission('journal:submit')
+  const canView = hasPermission('journal:view') || canCreate
 
   const [postingDate, setPostingDate] = useState(todayISO)
   const periodStatus = usePeriodStatus(postingDate, 'adjustment')
@@ -124,10 +126,6 @@ export function ManualJournalEntryPage() {
     }
     const entry = entryQuery.data
     if (!entry || loadedId === `${entry.id}:${entryQuery.dataUpdatedAt}`) return
-    if (!isJournalEditable(entry) && !isSystemJournal(entry)) {
-      setError('Only draft or rejected journals can be edited.')
-      return
-    }
     setPostingDate(dateOnly(entry.posting_date || entry.created_at))
     setPeriod(entry.period || periodFromDate(dateOnly(entry.posting_date || entry.created_at)))
     setPeriodDirty(Boolean(entry.period))
@@ -243,7 +241,10 @@ export function ManualJournalEntryPage() {
   }
 
   const loadedEntry = entryQuery.data
-  const readOnly = Boolean(loadedEntry && isSystemJournal(loadedEntry))
+  const approvalStatus = (loadedEntry?.approval_status || 'DRAFT').toUpperCase()
+  const readOnly = Boolean(
+    loadedEntry && (isSystemJournal(loadedEntry) || !isJournalEditable(loadedEntry)),
+  )
 
   if (isEdit && entryQuery.isLoading) {
     return (
@@ -254,7 +255,7 @@ export function ManualJournalEntryPage() {
     )
   }
 
-  if (!canCreate && !readOnly) {
+  if (!isEdit && !canCreate) {
     return (
       <div style={pageStyle}>
         <h1 style={titleStyle}>Manual Journal Entry</h1>
@@ -263,12 +264,21 @@ export function ManualJournalEntryPage() {
     )
   }
 
-  if (isEdit && (entryQuery.isError || (loadedEntry && !isJournalEditable(loadedEntry) && !readOnly))) {
+  if (isEdit && !canView) {
     return (
       <div style={pageStyle}>
-        <h1 style={titleStyle}>Edit Journal Entry</h1>
+        <h1 style={titleStyle}>Journal Entry</h1>
+        <p style={hintStyle}>You need journal:view permission to open this journal.</p>
+      </div>
+    )
+  }
+
+  if (isEdit && entryQuery.isError) {
+    return (
+      <div style={pageStyle}>
+        <h1 style={titleStyle}>Journal Entry</h1>
         <p style={errorStyle}>
-          {error || (entryQuery.error instanceof Error ? entryQuery.error.message : 'This journal cannot be edited.')}
+          {entryQuery.error instanceof Error ? entryQuery.error.message : 'Journal entry not found.'}
         </p>
         <button type="button" style={cancelBtn} onClick={goBack}>
           {backLabel}
@@ -299,9 +309,13 @@ export function ManualJournalEntryPage() {
                     : 'Manual Journal Entry'}
             </h1>
             <p style={hintStyle}>
-              {readOnly
-                ? 'This journal was generated automatically. Reverse it from the source document instead of editing the lines.'
-                : 'Manual double-entry journal mapped to the chart of accounts. Debits must equal credits.'}
+              {loadedEntry && isSystemJournal(loadedEntry)
+                ? 'This journal was generated automatically. Return it to Draft from approval, or reverse it from the source document, instead of rewriting the lines.'
+                : readOnly && approvalStatus === 'PENDING_APPROVAL'
+                  ? 'This journal is awaiting approval. Use Return to Draft to send it back so it can be edited and submitted again.'
+                  : readOnly && approvalStatus === 'APPROVED'
+                    ? 'This journal is approved and posted. Create a reversing journal if a correction is needed.'
+                    : 'Manual double-entry journal mapped to the chart of accounts. Debits must equal credits. Rejected journals return to Draft for editing.'}
             </p>
           </div>
         </div>
@@ -359,16 +373,16 @@ export function ManualJournalEntryPage() {
           </label>
         </div>
 
-        {readOnly && loadedEntry && (
+        {readOnly && loadedEntry && (isSystemJournal(loadedEntry) || sourceHref || (ruleHref && ruleLabel)) && (
           <div style={sourceActionsStyle}>
             {sourceHref ? (
               <Link to={sourceHref} style={sourceLinkStyle}>
                 View Source Document — {sourceDocumentLabel(loadedEntry.source_document_type)}
                 {loadedEntry.source_record_id ? ` ${loadedEntry.source_record_id}` : ''}
               </Link>
-            ) : (
+            ) : isSystemJournal(loadedEntry) ? (
               <span style={hintStyle}>No source document link is available.</span>
-            )}
+            ) : null}
             {ruleHref && ruleLabel && (
               <Link to={ruleHref} style={sourceLinkStyle} title={postingRule?.name || loadedEntry.posting_rule_name || ruleLabel}>
                 View Posting Rule {ruleLabel}
@@ -500,6 +514,19 @@ export function ManualJournalEntryPage() {
           )}
         </div>
       </form>
+      {isEdit && loadedEntry && (
+        <ApprovalPanel
+          module="journal-entries"
+          documentId={loadedEntry.id}
+          approvalStatus={loadedEntry.approval_status}
+          currentApprovalStep={loadedEntry.current_approval_step}
+          onStatusChange={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['journalEntry', loadedEntry.id] })
+            await queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
+            setLoadedId(null)
+          }}
+        />
+      )}
     </div>
   )
 }

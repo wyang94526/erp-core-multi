@@ -87,6 +87,13 @@ from app.services.remaining_close import (
 
 PO_MATCHED_SOURCES = {"PURCHASE_ORDER", "SUBCONTRACT_ORDER"}
 INVOICE_TYPES = {"PO_MATCHED", "LANDED_COST", "EXPENSE"}
+
+
+def _resolve_posting_date(*candidates: date | None) -> date:
+    for value in candidates:
+        if value is not None:
+            return value
+    return date.today()
 NON_PO_TYPES = {"LANDED_COST", "EXPENSE"}
 EDITABLE_INVOICE_STATUSES = frozenset({"DRAFT", "REJECTED", "PENDING_APPROVAL"})
 RECALLABLE_APPROVAL_STATUSES = frozenset({"APPROVED", "PENDING_APPROVAL", "SUBMITTED"})
@@ -1276,6 +1283,7 @@ def serialize_supplier_invoice(row: SupplierInvoice) -> dict:
         "reference_po_number": getattr(row, "reference_po_number", None),
         "vendor_invoice_number": row.vendor_invoice_number,
         "invoice_date": row.invoice_date,
+        "posting_date": getattr(row, "posting_date", None) or row.invoice_date,
         "due_date": row.due_date,
         "payment_term_id": getattr(row, "payment_term_id", None),
         "payment_terms": getattr(row, "payment_terms", None),
@@ -2259,6 +2267,7 @@ def create_supplier_invoice(
     invoice_type: str | None = None,
     vendor_invoice_number: str | None = None,
     invoice_date: date | None = None,
+    posting_date: date | None = None,
     due_date: date | None = None,
     tax_amount: Decimal | None = None,
     freight_amount: Decimal | None = None,
@@ -2278,9 +2287,8 @@ def create_supplier_invoice(
         lines=lines,
         receipt_ids=receipt_ids,
     )
-    assert_transaction_date_open(
-        db, invoice_date or date.today(), document="supplier invoice"
-    )
+    posted = _resolve_posting_date(posting_date)
+    assert_transaction_date_open(db, posted, document="supplier invoice")
     if resolved_type in NON_PO_TYPES:
         return _create_non_po_invoice(
             db,
@@ -2291,6 +2299,7 @@ def create_supplier_invoice(
             vendor_id=vendor_id or "",
             vendor_invoice_number=vendor_invoice_number,
             invoice_date=invoice_date,
+            posting_date=posted,
             due_date=due_date,
             tax_amount=tax_amount,
             freight_amount=freight_amount,
@@ -2419,13 +2428,14 @@ def create_supplier_invoice(
         fallback=fallback,
     )
     invoice = SupplierInvoice(
-        invoice_number=generate_document_number(db, DOC_BILL, issue),
+        invoice_number=generate_document_number(db, DOC_BILL, posted),
         vendor_id=vendor_id,
         invoice_type="PO_MATCHED",
         source_type=source_type,
         source_order_id=source_order_id,
         vendor_invoice_number=vendor_invoice_number,
         invoice_date=issue,
+        posting_date=posted,
         due_date=due,
         status="DRAFT",
         tax_amount=_d(tax),
@@ -2472,6 +2482,7 @@ def _create_non_po_invoice(
     vendor_id: str,
     vendor_invoice_number: str | None,
     invoice_date: date | None,
+    posting_date: date | None,
     due_date: date | None,
     tax_amount: Decimal | None,
     freight_amount: Decimal | None,
@@ -2501,6 +2512,7 @@ def _create_non_po_invoice(
             reference_po = source_order_id
 
     issue = invoice_date or date.today()
+    posted = _resolve_posting_date(posting_date)
     tax = _d(tax_amount)
     freight = _d(freight_amount)
     built_dist, built_lines = _build_non_po_distributions(
@@ -2530,7 +2542,7 @@ def _create_non_po_invoice(
         fallback=vendor,
     )
     invoice = SupplierInvoice(
-        invoice_number=generate_document_number(db, DOC_BILL, issue),
+        invoice_number=generate_document_number(db, DOC_BILL, posted),
         vendor_id=vendor_id,
         invoice_type=invoice_type,
         source_type=source_type,
@@ -2538,6 +2550,7 @@ def _create_non_po_invoice(
         reference_po_number=reference_po,
         vendor_invoice_number=vendor_invoice_number,
         invoice_date=issue,
+        posting_date=posted,
         due_date=due,
         status="DRAFT",
         tax_amount=tax,
@@ -2653,6 +2666,7 @@ def update_supplier_invoice(
     vendor_id: str | None = None,
     vendor_invoice_number: str | None = None,
     invoice_date: date | None = None,
+    posting_date: date | None = None,
     due_date: date | None = None,
     tax_amount: Decimal | None = None,
     freight_amount: Decimal | None = None,
@@ -2664,10 +2678,10 @@ def update_supplier_invoice(
 ) -> dict:
     invoice = _load_invoice(db, invoice_id)
     _assert_invoice_editable(invoice)
+    posted = _resolve_posting_date(posting_date, getattr(invoice, "posting_date", None))
     assert_dates_open(
         db,
-        invoice.invoice_date,
-        invoice_date,
+        posted,
         document="supplier invoice",
     )
     resolved_type, source_type, source_order_id = validate_supplier_invoice_payload(
@@ -2739,6 +2753,7 @@ def update_supplier_invoice(
     invoice.reference_po_number = reference_po
     invoice.vendor_invoice_number = vendor_invoice_number
     invoice.invoice_date = issue
+    invoice.posting_date = posted
     invoice.due_date = due
     invoice.tax_amount = tax
     invoice.freight_amount = freight
@@ -3028,6 +3043,7 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
         "source_document_type": SOURCE_SUPPLIER_INVOICE,
         "source_record_id": invoice.invoice_number,
     }
+    posted = _resolve_posting_date(getattr(invoice, "posting_date", None), invoice.invoice_date)
     for dist in dists:
         debit_account = dist.gl_account or db.get(ChartOfAccount, dist.gl_account_id)
         if debit_account is None:
@@ -3048,6 +3064,7 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
             credit_account=ap_account,
             amount=_d(dist.amount),
             reference=receipt_number or invoice.invoice_number,
+            posting_date=posted,
             posting_rule_id=rule_id(landed_rule),
             **invoice_source,
         )
@@ -3062,6 +3079,7 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
             credit_account=ap_account,
             amount=extra.quantize(Decimal("0.01")),
             reference=invoice.invoice_number,
+            posting_date=posted,
             posting_rule_id=rule_id(tax_rule),
             **invoice_source,
         )
@@ -3115,7 +3133,7 @@ def _grni_clear_groups(db: Session, invoice: SupplierInvoice) -> list[dict]:
         return [
             {
                 "receipt": None,
-                "posting_date": invoice.invoice_date,
+                "posting_date": getattr(invoice, "posting_date", None) or invoice.invoice_date,
                 "clear_amount": min(accrued, invoice_goods),
                 "variance": stock_goods - stock_clear,
                 "non_stock": max(non_stock - max(accrued - stock_clear, Decimal("0")), Decimal("0")),
@@ -3129,7 +3147,8 @@ def _grni_clear_groups(db: Session, invoice: SupplierInvoice) -> list[dict]:
         result.append(
             {
                 "receipt": receipt,
-                "posting_date": receipt.receipt_date if receipt is not None else invoice.invoice_date,
+                "posting_date": getattr(invoice, "posting_date", None)
+                or (receipt.receipt_date if receipt is not None else invoice.invoice_date),
                 "clear_amount": bucket["stock_clear"],
                 "variance": bucket["stock_billed"] - bucket["stock_clear"],
                 "non_stock": bucket["non_stock"],
@@ -3163,9 +3182,10 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
     }
     tax = _d(invoice.tax_amount)
     freight = _d(invoice.freight_amount)
+    posted = _resolve_posting_date(getattr(invoice, "posting_date", None), invoice.invoice_date)
     posted_any = False
     for group in _grni_clear_groups(db, invoice):
-        posting_date = group["posting_date"]
+        posting_date = posted
         clear_amount = _d(group["clear_amount"])
         variance = _d(group["variance"])
         non_stock = _d(group["non_stock"])
@@ -3226,7 +3246,7 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             debit_account=tax_exp,
             credit_account=ap_account,
             amount=(tax + freight).quantize(Decimal("0.01")),
-            posting_date=invoice.invoice_date,
+            posting_date=posted,
             posting_rule_id=rule_id(tax_rule),
             **invoice_source,
         )
@@ -3238,7 +3258,7 @@ def _post_po_matched_approval(db: Session, invoice: SupplierInvoice, ap_account,
             debit_account=ppv_account,
             credit_account=ap_account,
             amount=total,
-            posting_date=invoice.invoice_date,
+            posting_date=posted,
             posting_rule_id=rule_id(ppv_rule),
             **invoice_source,
         )

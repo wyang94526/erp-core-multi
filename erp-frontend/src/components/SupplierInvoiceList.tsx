@@ -190,14 +190,15 @@ export function SupplierInvoiceList() {
 
       <ListFilterBar
         fields={FILTERS}
-        searchPlaceholder="Search bill, order, vendor…"
+        searchPlaceholder="Search bill, supplier invoice, order, vendor…"
         exportCount={filtered.length}
         onExport={() =>
           downloadCsv(
             csvFilename('supplier-invoices'),
-            ['Bill #', 'Source', 'Order', 'Vendor', 'Bill Date', 'Due', 'Total', 'Outstanding', 'Status'],
+            ['Bill #', 'Supplier Invoice Number', 'Source', 'Order', 'Vendor', 'Bill Date', 'Due', 'Total', 'Outstanding', 'Status'],
             filtered.map((inv) => [
               inv.invoice_number,
+              inv.vendor_invoice_number,
               inv.source_type,
               inv.source_order_id,
               inv.vendor_name || inv.vendor_id,
@@ -230,6 +231,7 @@ export function SupplierInvoiceList() {
               <thead>
                 <tr style={theadRowStyle}>
                   <SortableTh label="Bill #" columnKey="invoice_number" sortConfig={sortConfig} onRequestSort={requestSort} />
+                  <SortableTh label="Supplier Invoice #" columnKey="vendor_invoice_number" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <SortableTh label="Source" columnKey="source_type" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <SortableTh label="Order" columnKey="source_order_id" sortConfig={sortConfig} onRequestSort={requestSort} />
                   <SortableTh label="Vendor" columnKey="vendor_name" sortConfig={sortConfig} onRequestSort={requestSort} />
@@ -259,6 +261,7 @@ export function SupplierInvoiceList() {
                           {inv.invoice_number}
                         </Link>
                       </td>
+                      <td style={tdStyle}>{inv.vendor_invoice_number || '—'}</td>
                       <td style={tdStyle}>
                         <span style={tagStyle}>{sourceTag(inv)}</span>
                       </td>

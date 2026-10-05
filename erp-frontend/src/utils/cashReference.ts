@@ -6,8 +6,13 @@
 import type { CSSProperties } from 'react'
 import type { CashTransaction } from '../types'
 
+export function remapLegacyInvoiceId(invoiceId: string): string {
+  const id = (invoiceId || '').trim()
+  return id.toUpperCase().startsWith('USS5-') ? `US55-${id.slice(5)}` : id
+}
+
 export function invoiceDetailHref(invoiceId: string): string {
-  return `/sales-invoices/${encodeURIComponent((invoiceId || '').trim())}`
+  return `/sales-invoices/${encodeURIComponent(remapLegacyInvoiceId(invoiceId))}`
 }
 
 export function billDetailHref(billId: string): string {
@@ -54,7 +59,12 @@ export function cashReferenceHref(
   if (!id) return null
   const upper = id.toUpperCase()
   const type = (tx.type || '').toLowerCase()
-  if (upper.startsWith('INV-') || upper.startsWith('PU65-') || upper.startsWith('USS5-')) {
+  if (
+    upper.startsWith('INV-') ||
+    upper.startsWith('PU65-') ||
+    upper.startsWith('USS5-') ||
+    upper.startsWith('US55-')
+  ) {
     return invoiceDetailHref(id)
   }
   if (upper.startsWith('ARINV-')) {

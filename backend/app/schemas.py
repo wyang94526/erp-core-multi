@@ -2260,6 +2260,7 @@ class APBillDetailRead(APBillRead):
     vendor_invoice_number: str | None = None
     display_status: str = "Open"
     issue_date: date | None = None
+    posting_date: date | None = None
     payment_date: date | None = None
     payment_terms: str | None = None
     currency: str = "USD"
@@ -2846,6 +2847,7 @@ class ItemFulfillmentCreate(BaseModel):
     carrier: str | None = Field(default=None, max_length=100)
     tracking_number: str | None = Field(default=None, max_length=100)
     status: str = Field(default='DRAFT', max_length=20)
+    shipped_date: date | None = None
     lines: list[ItemFulfillmentLineCreate] = Field(min_length=1)
 
 
@@ -3085,6 +3087,7 @@ class SupplierInvoiceUpdate(BaseModel):
     vendor_id: str | None = Field(default=None, max_length=50)
     vendor_invoice_number: str | None = Field(default=None, max_length=100)
     invoice_date: date | None = None
+    posting_date: date | None = None
     due_date: date | None = None
     payment_term_id: UUID | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
@@ -3114,6 +3117,7 @@ class SupplierInvoiceCreate(BaseModel):
     vendor_id: str | None = Field(default=None, max_length=50)
     vendor_invoice_number: str | None = Field(default=None, max_length=100)
     invoice_date: date | None = None
+    posting_date: date | None = None
     due_date: date | None = None
     payment_term_id: UUID | None = None
     payment_terms: str | None = Field(default=None, max_length=50)
@@ -3163,6 +3167,7 @@ class SupplierInvoiceRead(BaseModel):
     reference_po_number: str | None = None
     vendor_invoice_number: str | None = None
     invoice_date: date
+    posting_date: date | None = None
     due_date: date
     payment_term_id: UUID | None = None
     payment_terms: str | None = None

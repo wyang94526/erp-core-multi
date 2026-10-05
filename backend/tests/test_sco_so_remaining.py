@@ -8,8 +8,12 @@ from fastapi import HTTPException
 
 from app.services.subcontract import (
     PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL,
+    SCO_NO_MATERIAL_KIT_DETAIL,
     assert_linked_sales_order_approved,
     fully_fulfilled_sco_message,
+    sco_missing_kit_warning,
+    sco_preview_warning_blocks_create,
+    so_lines_open_for_sco,
     subcontract_create_gate,
 )
 
@@ -55,7 +59,7 @@ class ScoSoRemainingGateTests(TestCase):
         self.assertTrue(can_create)
         self.assertIsNone(message)
 
-    def test_blocks_when_remaining_qty_has_no_bom(self):
+    def test_blocks_remaining_qty_when_no_selectable_kit_lines(self):
         can_create, message = subcontract_create_gate(
             sales_order_id="PU61-26070002",
             status="APPROVED",
@@ -64,7 +68,25 @@ class ScoSoRemainingGateTests(TestCase):
             approval_status="APPROVED",
         )
         self.assertFalse(can_create)
-        self.assertIn("no Material BOM", message or "")
+        self.assertEqual(message, SCO_NO_MATERIAL_KIT_DETAIL)
+
+    def test_open_so_lines_require_material_bom(self):
+        lines = so_lines_open_for_sco(
+            [
+                {"item_id": "NRE", "quantity_remaining": 2, "has_active_bom": False},
+                {"item_id": "KIT", "quantity_remaining": 3, "has_active_bom": True},
+                {"item_id": "DONE", "quantity_remaining": 0, "has_active_bom": True},
+            ]
+        )
+        self.assertEqual([row["item_id"] for row in lines], ["KIT"])
+
+    def test_missing_kit_preview_warnings_block_create(self):
+        warning = sco_missing_kit_warning("NRE")
+        self.assertEqual(warning["code"], "NO_MATERIAL_KIT")
+        self.assertTrue(sco_preview_warning_blocks_create("NO_MATERIAL_KIT"))
+        self.assertTrue(sco_preview_warning_blocks_create("BOM_NOT_FOUND"))
+        self.assertFalse(sco_preview_warning_blocks_create("INSUFFICIENT_STOCK"))
+        self.assertTrue(sco_preview_warning_blocks_create("OBSOLETE_BOM"))
 
     def test_gate_uses_sales_order_namespace_status(self):
         order = SimpleNamespace(status="FULFILLED")

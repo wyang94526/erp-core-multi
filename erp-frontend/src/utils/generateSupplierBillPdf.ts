@@ -83,8 +83,10 @@ export function generateSupplierBillPdf(input: SupplierBillPdfInput): void {
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
-  doc.text(`Issue Date: ${formatDate(detail.issue_date)}`, marginX, y)
+  doc.text(`Invoice Date: ${formatDate(detail.issue_date)}`, marginX, y)
   doc.text(`Status: ${detail.display_status || detail.status || '—'}`, pageWidth / 2, y)
+  y += 14
+  doc.text(`Posting Date: ${formatDate(detail.posting_date || detail.issue_date)}`, marginX, y)
   y += 14
   doc.text(`Source Order: ${sourceOrder}`, marginX, y)
   doc.text(`Due Date: ${formatDate(detail.due_date)}`, pageWidth / 2, y)

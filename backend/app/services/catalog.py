@@ -106,6 +106,8 @@ def explode_assembly_components(
     assembly_id: str,
     quantity_ordered: int,
     bom_header_id: int | None = None,
+    *,
+    require_bom: bool = True,
 ) -> list[dict]:
     """Return calculated component requirements for an assembly qty."""
     assembly = db.get(Item, assembly_id)
@@ -114,10 +116,12 @@ def explode_assembly_components(
 
     lines = material_bom_lines(db, assembly_id, bom_header_id=bom_header_id)
     if not lines:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No Material BOM / subcontract kit defined for '{assembly_id}'",
-        )
+        if require_bom:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No Material BOM / subcontract kit defined for '{assembly_id}'",
+            )
+        return []
 
     result: list[dict] = []
     for line in lines:

@@ -6,12 +6,16 @@ from unittest import TestCase
 
 from fastapi import HTTPException
 
+from datetime import date
+
 from app.services.o2c import (
     assert_fulfillment_can_be_deleted,
     assert_fulfillment_qty_within_ordered,
     assert_fulfillment_qty_within_sco_received,
     over_fulfillment_detail,
     over_sco_receipt_detail,
+    resolve_fulfillment_ship_date,
+    resolve_sales_invoice_issue_date,
 )
 
 
@@ -106,3 +110,30 @@ class FulfillmentQtyValidationTests(TestCase):
                 already=2,
                 qty=2,
             )
+
+
+class FulfillmentShippingDateTests(TestCase):
+    def test_uses_entered_shipping_date(self):
+        self.assertEqual(
+            resolve_fulfillment_ship_date(date(2026, 9, 30)),
+            date(2026, 9, 30),
+        )
+
+    def test_falls_back_to_stored_then_today(self):
+        self.assertEqual(
+            resolve_fulfillment_ship_date(None, date(2026, 8, 15)),
+            date(2026, 8, 15),
+        )
+        self.assertEqual(resolve_fulfillment_ship_date(), date.today())
+
+    def test_sales_invoice_issue_date_follows_shipping_date(self):
+        fulfillment = SimpleNamespace(shipped_date=date(2026, 9, 30))
+        self.assertEqual(
+            resolve_sales_invoice_issue_date(None, fulfillment),
+            date(2026, 9, 30),
+        )
+        self.assertEqual(
+            resolve_sales_invoice_issue_date(date(2026, 10, 1), fulfillment),
+            date(2026, 10, 1),
+        )
+        self.assertEqual(resolve_sales_invoice_issue_date(), date.today())

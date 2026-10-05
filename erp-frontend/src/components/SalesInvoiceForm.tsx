@@ -22,7 +22,7 @@ export function SalesInvoiceForm() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [fulfillmentId, setFulfillmentId] = useState<string>(fulfillmentParam || '')
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
+  const [issueDate, setIssueDate] = useState(localIsoDate())
   const [approveAfter, setApproveAfter] = useState(true)
 
   const { data: order, isLoading, isError, error } = useQuery({
@@ -48,6 +48,13 @@ export function SalesInvoiceForm() {
     if (fulfillmentParam || fulfillmentId || shippedForOrder.length !== 1) return
     setFulfillmentId(String(shippedForOrder[0].id))
   }, [fulfillmentId, fulfillmentParam, shippedForOrder])
+
+  useEffect(() => {
+    const selected = shippedForOrder.find((row) => String(row.id) === fulfillmentId)
+    if (selected?.shipped_date) {
+      setIssueDate(selected.shipped_date.slice(0, 10))
+    }
+  }, [fulfillmentId, shippedForOrder])
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -162,6 +169,9 @@ export function SalesInvoiceForm() {
               onChange={(e) => setIssueDate(e.target.value)}
               style={{ ...inputStyle, width: '100%', textAlign: 'left' }}
             />
+            <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text)' }}>
+              Defaults to the fulfillment shipping date. AR journals post on this date.
+            </span>
           </label>
 
           <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 12 }}>
@@ -279,6 +289,16 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 'bold',
   fontFamily: 'inherit',
+}
+
+function localIsoDate(value?: string | null): string {
+  if (value && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  const d = new Date()
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 export default SalesInvoiceForm

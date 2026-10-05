@@ -52,19 +52,12 @@ def test_amend_allowed_only_when_approved_and_open():
     assert closed.value.status_code == 400
 
 
-def test_fulfillment_requires_approval_including_during_amendment():
-    from app.services.subcontract import SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
-
+def test_fulfillment_allows_issue_before_approval():
     assert not previously_approved(SimpleNamespace(amendment_number=0, revision_number=0))
     draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0, status="PLANNED")
-    with pytest.raises(HTTPException) as blocked:
-        assert_sco_fulfillment_allowed(draft, "issuing materials")
-    assert blocked.value.status_code == 400
-    assert blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
+    assert_sco_fulfillment_allowed(draft, "issuing materials")
     amending = SimpleNamespace(approval_status="DRAFT", amendment_number=1, status="PLANNED")
-    with pytest.raises(HTTPException) as amending_blocked:
-        assert_sco_fulfillment_allowed(amending, "issuing materials")
-    assert amending_blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
+    assert_sco_fulfillment_allowed(amending, "issuing materials")
     assert_sco_fulfillment_allowed(
         SimpleNamespace(approval_status="APPROVED", amendment_number=0, status="PLANNED"),
         "issuing materials",
@@ -77,7 +70,7 @@ def test_fulfillment_requires_approval_including_during_amendment():
     assert closed.value.status_code == 400
 
 
-def test_kit_must_be_fully_issued_before_approval():
+def test_empty_kit_is_not_fully_issued():
     open_kit = SimpleNamespace(
         components=[
             SimpleNamespace(quantity_required=Decimal("10"), quantity_issued=Decimal("4")),
@@ -98,4 +91,4 @@ def test_kit_must_be_fully_issued_before_approval():
     )
     assert sco_kit_is_fully_issued(complete)
     assert_sco_kit_fully_issued(complete)
-    assert sco_kit_is_fully_issued(SimpleNamespace(components=[]))
+    assert sco_kit_is_fully_issued(SimpleNamespace(components=[])) is False

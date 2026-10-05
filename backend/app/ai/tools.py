@@ -592,7 +592,7 @@ def propose_draft_subcontract_order(
 
     Provide either:
     - template_sco_number: clone an existing SCO (optional quantity_multiplier, e.g. 2 for "x 2"), or
-    - supplier_id + item_id + quantity_ordered (assembly must have a Material BOM / subcontract kit).
+    - supplier_id + item_id + quantity_ordered (a Material BOM kit is required; issue materials, then approve, then receive).
 
     When cloning, supplier/item/unit_price come from the template; quantity_ordered is multiplied.
     Component kit lines are rebuilt from BOM on create (scaled to the new quantity).
@@ -642,17 +642,6 @@ def propose_draft_subcontract_order(
     product = ctx.db.get(Item, assembly_id)
     if not product:
         return _json({"error": f"Item '{assembly_id}' not found"})
-
-    from app.services.catalog import material_bom_lines
-
-    bom_lines = material_bom_lines(ctx.db, assembly_id)
-    if not bom_lines:
-        return _json(
-            {
-                "error": f"Item '{assembly_id}' has no Material BOM / subcontract kit; "
-                "cannot create a subcontract order"
-            }
-        )
 
     payload = {
         "supplier_id": vendor_id,
@@ -889,11 +878,12 @@ def propose_orders_from_sales_order(
     """Propose a subcontract order (and optional material PO) from a sales order.
 
     Use for "create corresponding subcontract order and purchase order for PU61-…".
-    Links SCO lines to remaining SO qty with a Material BOM. The material PO is
+    Links SCO lines to remaining SO qty that have a Material BOM. Issue the kit,
+    then approve, then receive. The material PO is
     created after the SCO so kit lines get sco_component_id. Does not write until
     the user confirms. Parent SO must be approved.
     """
-    from app.services.subcontract import sales_order_subcontract_availability
+    from app.services.subcontract import sales_order_subcontract_availability, so_lines_open_for_sco
 
     ctx = get_ai_context()
     so_id = sales_order_id.strip().upper()
@@ -913,11 +903,7 @@ def propose_orders_from_sales_order(
     except Exception as exc:
         return _json({"error": str(exc.detail) if getattr(exc, "detail", None) else str(exc)})
 
-    selectable = [
-        row
-        for row in (avail.get("lines") or [])
-        if int(row.get("quantity_remaining") or 0) > 0 and row.get("has_active_bom")
-    ]
+    selectable = so_lines_open_for_sco(avail.get("lines"))
     existing = (
         ctx.db.query(SubcontractOrder.sco_number)
         .filter(

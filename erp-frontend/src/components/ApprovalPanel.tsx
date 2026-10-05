@@ -94,6 +94,7 @@ export function ApprovalPanel({
   const canRecall =
     module === 'purchase-orders' && isRecallablePurchaseOrder(documentStatus, status)
   const recallEnabled = canRecall && allowRecall
+  const returnToDraft = module === 'journal-entries'
 
   const runSubmit = async () => {
     if (actionDisabled) {
@@ -240,7 +241,7 @@ export function ApprovalPanel({
                 style={{ ...btnStyle, backgroundColor: '#c62828' }}
                 onClick={() => setModal('reject')}
               >
-                Reject
+                {returnToDraft ? 'Return to Draft' : 'Reject'}
               </button>
             </>
           )}
@@ -311,6 +312,13 @@ export function ApprovalPanel({
         busy={busy}
         onClose={() => setModal(null)}
         onConfirm={runModalAction}
+        rejectTitle={returnToDraft ? 'Return journal to Draft' : undefined}
+        rejectHint={
+          returnToDraft
+            ? 'A reason is required. The journal returns to Draft so it can be edited and submitted again.'
+            : undefined
+        }
+        rejectConfirmLabel={returnToDraft ? 'Return to Draft' : undefined}
       />
     </div>
   )
