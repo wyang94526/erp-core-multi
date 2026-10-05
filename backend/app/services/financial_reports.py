@@ -18,7 +18,7 @@ from typing import Any, Iterable
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import Date, cast, func
+from sqlalchemy import Date, cast, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -36,6 +36,15 @@ from app.models import (
 
 ZERO = Decimal("0.00")
 MONEY = Decimal("0.01")
+PNL_CLOSE_SOURCES = ("MONTH_END_CLOSE", "YEAR_END_CLOSE")
+
+
+def pnl_operating_journal_filter():
+    """Keep operating journals only. Close entries zero revenue/expense after month-end."""
+    return or_(
+        JournalEntry.source_document_type.is_(None),
+        ~JournalEntry.source_document_type.in_(PNL_CLOSE_SOURCES),
+    )
 
 DEBIT_NORMAL = {"asset", "expense"}
 CREDIT_NORMAL = {"liability", "equity", "revenue"}
@@ -389,6 +398,7 @@ def _account_balances(
     date_from: date | None = None,
     date_to: date | None = None,
     currency: str = "USD",
+    exclude_close_journals: bool = False,
 ) -> list[AccountBalance]:
     debit_sum = func.coalesce(func.sum(LedgerPosting.debit), 0)
     credit_sum = func.coalesce(func.sum(LedgerPosting.credit), 0)
@@ -406,6 +416,8 @@ def _account_balances(
         .filter(_posted_status_filter())
         .filter(_currency_filter(currency))
     )
+    if exclude_close_journals:
+        query = query.filter(pnl_operating_journal_filter())
     if as_of is not None:
         query = query.filter(_entry_date() <= as_of)
     if date_from is not None:
@@ -520,7 +532,11 @@ def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     date_from: date = filters["_from"]
     date_to: date = filters["_to"]
     balances = _account_balances(
-        db, date_from=date_from, date_to=date_to, currency=filters["_currency"]
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        currency=filters["_currency"],
+        exclude_close_journals=True,
     )
     revenue_accts = _section_accounts(balances, "Revenue")
     expense_accts = _section_accounts(balances, "Expense")
@@ -555,7 +571,10 @@ def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             "operating_expenses": num(opex_total),
             "net_income": num(net),
         },
-        "notes": ["Activity is taken from posted journal entries in the selected date range."],
+        "notes": [
+            "Activity is taken from posted journal entries in the selected date range.",
+            "Month-end and year-end close journals are excluded so revenue and expense stay the operating totals.",
+        ],
     }
 
 

@@ -389,7 +389,13 @@ def preview_year_end_close(
     except HTTPException as exc:
         blockers.append(str(exc.detail))
 
-    balances = _account_balances(db, date_from=start, date_to=end, currency=currency)
+    balances = _account_balances(
+        db,
+        date_from=start,
+        date_to=end,
+        currency=currency,
+        exclude_close_journals=True,
+    )
     pnl = [
         item
         for item in balances

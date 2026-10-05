@@ -140,6 +140,33 @@ class FinancialReportFormatTests(unittest.TestCase):
         self.assertNotIn("```", markdown)
         self.assertIn("[Open the full report](/financial-reports/income-statement?period=2026-06)", markdown)
 
+    def test_revenue_answer_explains_dashboard_sales_orders(self):
+        markdown = format_financial_report_answer(
+            {
+                "title": "Income Statement (Profit & Loss)",
+                "subtitle": "2026-09-01 to 2026-09-30",
+                "report_type": "income-statement",
+                "sales_order_compare": {
+                    "period_label": "Sep 2026",
+                    "period_count": 6,
+                    "period_total": "985428.00",
+                    "all_total": "1144368.00",
+                },
+                "columns": [
+                    {"key": "label", "label": "Account", "align": "left", "format": "text"},
+                    {"key": "amount", "label": "Amount", "align": "right", "format": "number"},
+                ],
+                "rows": [
+                    {"cells": {"label": "Sales Revenue", "amount": 635760}, "emphasis": "normal"},
+                    {"cells": {"label": "Net Income", "amount": 64033.31}, "emphasis": "net"},
+                ],
+                "filters": {"period": "2026-09"},
+            }
+        )
+        self.assertIn("all sales orders (**$1,144,368.00**)", markdown)
+        self.assertIn("Sales orders in Sep 2026: **$985,428.00** (6 order(s))", markdown)
+        self.assertIn("month-end close excluded", markdown)
+
     def test_empty_month_points_at_posted_months(self):
         markdown = format_financial_report_answer(
             {

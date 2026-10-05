@@ -170,7 +170,13 @@ def _drafts_in_period(db: Session, period: str) -> list[JournalEntry]:
 def _period_pnl_totals(db: Session, start: date, end: date, currency: str) -> tuple:
     pnl = [
         item
-        for item in _account_balances(db, date_from=start, date_to=end, currency=currency)
+        for item in _account_balances(
+            db,
+            date_from=start,
+            date_to=end,
+            currency=currency,
+            exclude_close_journals=True,
+        )
         if (item.account_type or "").strip().lower() in {"revenue", "expense"}
     ]
     revenue_total = ZERO

@@ -974,6 +974,12 @@ def get_erp_counts(entity: str = "", status: str = "", question: str = "") -> st
     return format_count_answer(_json(result))
 
 
+def _operating_pnl_filter():
+    from app.services.financial_reports import pnl_operating_journal_filter
+
+    return pnl_operating_journal_filter()
+
+
 def _gl_totals_by_month(db, user: User, kind_key: str, year_filter: int, grain: str = "month") -> str:
     """Posted G/L Revenue or Expense totals grouped by journal period."""
     from app.services.financial_reports import signed_balance
@@ -1002,6 +1008,7 @@ def _gl_totals_by_month(db, user: User, kind_key: str, year_filter: int, grain: 
         .filter(func.lower(func.coalesce(JournalEntry.posting_status, "Posted")) == "posted")
         .filter(func.lower(ChartOfAccount.account_type) == account_type)
         .filter(JournalEntry.period.isnot(None))
+        .filter(_operating_pnl_filter())
     )
     if year_filter:
         query = query.filter(JournalEntry.period.like(f"{year_filter:04d}-%"))
@@ -2122,6 +2129,7 @@ def posted_pnl_months(db) -> list[dict[str, Any]]:
         .filter(func.lower(func.coalesce(JournalEntry.posting_status, "Posted")) == "posted")
         .filter(func.lower(ChartOfAccount.account_type).in_(["revenue", "expense"]))
         .filter(JournalEntry.period.isnot(None))
+        .filter(_operating_pnl_filter())
         .group_by(JournalEntry.period, ChartOfAccount.account_type)
         .order_by(JournalEntry.period)
         .all()
@@ -2243,6 +2251,16 @@ def format_financial_report_answer(raw: str | dict[str, Any]) -> str:
         lines.append("")
         for note in notes:
             lines.append(f"_{note}_")
+    compare = data.get("sales_order_compare") or {}
+    if compare:
+        lines.append("")
+        period_label = str(compare.get("period_label") or "this period")
+        lines.append(
+            f"Dashboard **Total Revenue** is all sales orders (**{_money(compare.get('all_total'))}**), "
+            f"not this P&L. Sales orders in {period_label}: **{_money(compare.get('period_total'))}** "
+            f"({compare.get('period_count') or 0} order(s)). "
+            "This statement is posted G/L revenue (month-end close excluded)."
+        )
     other_periods = data.get("other_periods") or []
     if other_periods:
         lines.append("")
@@ -2320,13 +2338,48 @@ def get_financial_report(report_type: str = "", period: str = "", question: str 
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
         return f"Could not generate that report: {detail}"
-    if report_id == "income-statement" and _income_statement_is_empty(payload):
-        requested = str((payload.get("filters") or {}).get("period") or "")
-        payload["empty_period"] = True
-        payload["other_periods"] = [
-            row for row in posted_pnl_months(ctx.db) if row.get("period") != requested
-        ]
+    if report_id == "income-statement":
+        payload["sales_order_compare"] = _sales_order_revenue_compare(
+            ctx.db, payload.get("filters") or {}
+        )
+        if _income_statement_is_empty(payload):
+            requested = str((payload.get("filters") or {}).get("period") or "")
+            payload["empty_period"] = True
+            payload["other_periods"] = [
+                row for row in posted_pnl_months(ctx.db) if row.get("period") != requested
+            ]
     return format_financial_report_answer(payload)
+
+
+def _sales_order_revenue_compare(db, filters: dict[str, Any]) -> dict[str, Any]:
+    """Dashboard Total Revenue is all sales orders; this is the same month's SO total."""
+    raw_from = str(filters.get("date_from") or "")
+    raw_to = str(filters.get("date_to") or "")
+    try:
+        start = date.fromisoformat(raw_from)
+        end = date.fromisoformat(raw_to)
+    except ValueError:
+        return {}
+    period_count, period_total = (
+        db.query(
+            func.count(SalesOrder.sales_order_id),
+            func.coalesce(func.sum(SalesOrder.total_amount), 0),
+        )
+        .filter(SalesOrder.order_date >= start, SalesOrder.order_date <= end)
+        .one()
+    )
+    all_total = db.query(func.coalesce(func.sum(SalesOrder.total_amount), 0)).scalar()
+    period = str(filters.get("period") or "")
+    if re.match(r"^\d{4}-(0[1-9]|1[0-2])$", period):
+        label = date(int(period[:4]), int(period[5:7]), 1).strftime("%b %Y")
+    else:
+        label = f"{start.isoformat()} to {end.isoformat()}"
+    return {
+        "period_label": label,
+        "period_count": int(period_count or 0),
+        "period_total": str(period_total or 0),
+        "all_total": str(all_total or 0),
+    }
 
 
 @tool

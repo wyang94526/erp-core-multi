@@ -8,6 +8,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 
 from app.services.financial_reports import (
+    PNL_CLOSE_SOURCES,
     REPORT_CATALOG,
     REPORT_IDS,
     aging_bucket,
@@ -15,6 +16,7 @@ from app.services.financial_reports import (
     is_cash_account,
     is_fixed_asset_account,
     period_bounds,
+    pnl_operating_journal_filter,
     resolve_filters,
     signed_balance,
 )
@@ -61,6 +63,11 @@ class FinancialReportHelperTests(unittest.TestCase):
         self.assertEqual(resolved["currency"], "USD")
         with self.assertRaises(HTTPException):
             resolve_filters(date_from=date(2026, 3, 1), date_to=date(2026, 1, 1))
+
+    def test_pnl_excludes_month_end_close_sources(self):
+        self.assertEqual(PNL_CLOSE_SOURCES, ("MONTH_END_CLOSE", "YEAR_END_CLOSE"))
+        clause = pnl_operating_journal_filter()
+        self.assertIsNotNone(clause)
 
     def test_account_classification(self):
         self.assertTrue(is_cash_account("1000", "Cash", "Asset"))

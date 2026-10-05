@@ -35,6 +35,6 @@ Ask: "Posting rule for Month End Close" for the live MEC_PARK_NI debit/credit ac
 
 Ask live numbers with `get_financial_report`, not this file:
 - "Show me the Income Statement for the month June 2026"
-- "Show me the revenue for September 2027"
+- "Show me the revenue for September 2027" (posted G/L, month-end close excluded; dashboard Total Revenue is all sales orders)
 - "Balance sheet as of June 2026"
 - "Trial balance for 2026-06"
