@@ -235,6 +235,51 @@ function parseChartSpec(raw: string): AiMonthTrendSpec | null {
 
 function extractTrendFromMarkdown(content: string): AiMonthTrendSpec | null {
   const lines = content.split('\n').map((line) => line.trim())
+  const compareHeaderIndex = lines.findIndex((line) => {
+    if (!line.startsWith('|')) return false
+    const cells = parseTableRow(line).map((cell) => cell.toLowerCase())
+    return (
+      cells.includes('month') &&
+      cells.includes('sales') &&
+      (cells.includes('purchasing') || cells.includes('purchases'))
+    )
+  })
+  if (compareHeaderIndex >= 0) {
+    const header = parseTableRow(lines[compareHeaderIndex]).map((cell) => cell.toLowerCase())
+    const monthIdx = header.indexOf('month')
+    const salesIdx = header.indexOf('sales')
+    const purchasingIdx = header.findIndex((cell) => cell === 'purchasing' || cell === 'purchases')
+    let start = compareHeaderIndex + 1
+    if (lines[start] && isSeparatorRow(lines[start])) start += 1
+    const points: AiMonthTrendPoint[] = []
+    for (let i = start; i < lines.length; i++) {
+      if (!lines[i].startsWith('|')) break
+      const cells = parseTableRow(lines[i])
+      const label = (cells[monthIdx] || '').replace(/\*/g, '').trim()
+      if (!label || /^total$/i.test(label)) continue
+      points.push({
+        label,
+        orders: 0,
+        amount: parseMoney(cells[salesIdx] || '0'),
+        series: 'Sales',
+      })
+      points.push({
+        label,
+        orders: 0,
+        amount: parseMoney(cells[purchasingIdx] || '0'),
+        series: 'Purchasing',
+      })
+    }
+    if (points.length > 0) {
+      return {
+        type: 'month_trend',
+        compare: true,
+        countLabel: 'Orders',
+        amountLabel: 'Amount',
+        points,
+      }
+    }
+  }
   const headerIndex = lines.findIndex((line) => {
     if (!line.startsWith('|')) return false
     const cells = parseTableRow(line).map((cell) => cell.toLowerCase())

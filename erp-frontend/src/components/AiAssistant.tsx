@@ -3,7 +3,7 @@
  * @date: 2026-09-19
  */
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react'
 import { FileDown, Loader2 } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { aiService, type AiPendingAction } from '../api/services'
@@ -67,6 +67,36 @@ type AiAssistantProps = {
   onClose: () => void
 }
 
+const DRAWER_WIDTH_KEY = 'erp-ai-drawer-width'
+const DEFAULT_DRAWER_WIDTH = 420
+const MIN_DRAWER_WIDTH = 360
+const SNAP_WIDE_WIDTH = 960
+
+function clampDrawerWidth(width: number): number {
+  const max = Math.max(MIN_DRAWER_WIDTH, window.innerWidth - 48)
+  return Math.min(max, Math.max(MIN_DRAWER_WIDTH, Math.round(width)))
+}
+
+function readStoredDrawerWidth(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(DRAWER_WIDTH_KEY))
+    if (Number.isFinite(stored) && stored >= MIN_DRAWER_WIDTH) {
+      return clampDrawerWidth(stored)
+    }
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return DEFAULT_DRAWER_WIDTH
+}
+
+function persistDrawerWidth(width: number) {
+  try {
+    window.localStorage.setItem(DRAWER_WIDTH_KEY, String(width))
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export default function AiAssistant({ open, onClose }: AiAssistantProps) {
   const location = useLocation()
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -84,13 +114,59 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
   const [pending, setPending] = useState<AiPendingAction | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [exporting, setExporting] = useState<'pdf' | 'md' | string | null>(null)
+  const [width, setWidth] = useState(DEFAULT_DRAWER_WIDTH)
+  const [dragging, setDragging] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef({ startX: 0, startWidth: DEFAULT_DRAWER_WIDTH })
+  const widthRef = useRef(width)
+  widthRef.current = width
   const turns = useMemo(() => pairAiChatTurns(messages), [messages])
   const canExport = turns.length > 0 && !loading
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, open, loading])
+
+  useEffect(() => {
+    if (!open) return
+    setWidth(readStoredDrawerWidth())
+  }, [open])
+
+  useEffect(() => {
+    if (!dragging) return
+    const previousCursor = document.body.style.cursor
+    const previousSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (event: globalThis.PointerEvent) => {
+      const next = clampDrawerWidth(
+        dragRef.current.startWidth + (dragRef.current.startX - event.clientX),
+      )
+      widthRef.current = next
+      setWidth(next)
+    }
+    const onUp = () => {
+      persistDrawerWidth(widthRef.current)
+      setDragging(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousSelect
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [dragging])
+
+  useEffect(() => {
+    if (!open) return
+    const onResize = () => setWidth((current) => clampDrawerWidth(current))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [open])
 
   const send = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -160,12 +236,63 @@ export default function AiAssistant({ open, onClose }: AiAssistantProps) {
     }
   }
 
+  const startResize = (event: PointerEvent<HTMLButtonElement>) => {
+    if (window.innerWidth <= 640) return
+    event.preventDefault()
+    dragRef.current = { startX: event.clientX, startWidth: widthRef.current }
+    setDragging(true)
+  }
+
+  const snapResize = () => {
+    const wide = clampDrawerWidth(Math.min(SNAP_WIDE_WIDTH, window.innerWidth * 0.7))
+    const next = widthRef.current >= wide - 24 ? DEFAULT_DRAWER_WIDTH : wide
+    const clamped = clampDrawerWidth(next)
+    widthRef.current = clamped
+    setWidth(clamped)
+    persistDrawerWidth(clamped)
+  }
+
+  const nudgeWidth = (delta: number) => {
+    const next = clampDrawerWidth(widthRef.current + delta)
+    widthRef.current = next
+    setWidth(next)
+    persistDrawerWidth(next)
+  }
+
   if (!open) return null
 
   return (
     <>
-      <div className="ai-drawer-backdrop" onClick={onClose} aria-hidden />
-      <aside className="ai-drawer" aria-label="AI Assistant">
+      <div
+        className="ai-drawer-backdrop"
+        onClick={dragging ? undefined : onClose}
+        aria-hidden
+      />
+      <aside
+        className={`ai-drawer${dragging ? ' ai-drawer-dragging' : ''}`}
+        aria-label="AI Assistant"
+        style={{ width }}
+      >
+        <button
+          type="button"
+          className="ai-drawer-resizer"
+          aria-label="Resize AI Assistant"
+          title="Drag to resize. Double-click to snap wide or compact."
+          onPointerDown={startResize}
+          onDoubleClick={snapResize}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') {
+              event.preventDefault()
+              nudgeWidth(24)
+            } else if (event.key === 'ArrowRight') {
+              event.preventDefault()
+              nudgeWidth(-24)
+            } else if (event.key === 'Home') {
+              event.preventDefault()
+              snapResize()
+            }
+          }}
+        />
         <header className="ai-drawer-header">
           <div>
             <div className="ai-drawer-title">AI Assistant</div>

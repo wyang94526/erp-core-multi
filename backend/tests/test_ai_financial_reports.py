@@ -8,6 +8,7 @@ from app.ai.agent import (
     _is_financial_report_question,
     _is_howto_question,
     _is_period_question,
+    _is_transaction_list_question,
     _run_heuristic,
 )
 from app.ai.lookups import (
@@ -293,6 +294,29 @@ class MonthlyTotalsIntentTests(unittest.TestCase):
         self.assertFalse(_is_financial_report_question(question))
         self.assertEqual(infer_period_kind(question), "sales_orders")
 
+    def test_purchasing_vs_sales_by_month_is_compare(self):
+        for question in (
+            "show me purchasing vs sales by month",
+            "sales vs purchases by month",
+            "compare purchasing and sales by month",
+            "PO vs SO by month",
+        ):
+            self.assertTrue(_is_period_question(question), question)
+            self.assertFalse(_is_financial_report_question(question), question)
+            self.assertEqual(infer_period_kind(question), "sales_vs_purchases", question)
+        self.assertEqual(infer_period_kind("purchases by month for 2026"), "purchase_orders")
+        self.assertEqual(
+            infer_period_kind("what are the sales by month for the year 2026"),
+            "sales_orders",
+        )
+
+    def test_purchasing_vs_sales_named_month_is_not_a_po_list(self):
+        question = "show me purchasing vs sales in September 2026"
+        self.assertTrue(_is_period_question(question))
+        self.assertFalse(_is_transaction_list_question(question))
+        self.assertFalse(_is_financial_report_question(question))
+        self.assertEqual(infer_period_kind(question), "sales_vs_purchases")
+
     def test_profit_by_month_is_gl_profit_not_out_of_scope(self):
         question = "show the profit by month for 2026"
         self.assertTrue(_is_period_question(question))
@@ -420,6 +444,34 @@ class MonthlyTotalsIntentTests(unittest.TestCase):
         self.assertIsNone(pending)
 
     @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_purchasing_vs_sales(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Purchasing vs sales by month\n\n"
+            "| Month | Sales orders | Sales | Purchase orders | Purchasing |\n"
+        )
+        reply, pending = _run_heuristic("show me purchasing vs sales by month", None)
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "sales_vs_purchases")
+        self.assertIn("Purchasing vs sales by month", reply)
+        self.assertIn("Sales", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_orders_by_month")
+    def test_heuristic_routes_purchasing_vs_sales_named_month(self, mock_tool):
+        mock_tool.invoke.return_value = (
+            "## Purchasing vs sales — Sep 2026\n\n"
+            "| Month | Sales orders | Sales | Purchase orders | Purchasing |\n"
+        )
+        reply, pending = _run_heuristic(
+            "show me purchasing vs sales in September 2026", None
+        )
+        mock_tool.invoke.assert_called_once()
+        self.assertEqual(mock_tool.invoke.call_args[0][0]["kind"], "sales_vs_purchases")
+        self.assertIn("Purchasing vs sales", reply)
+        self.assertIn("Sales", reply)
+        self.assertIsNone(pending)
+
+    @patch("app.ai.lookups.get_orders_by_month")
     def test_heuristic_routes_profit_by_month(self, mock_tool):
         mock_tool.invoke.return_value = (
             "## Profit by month (2026)\n\n| Month | Revenue | Expenses | Net Income |\n"
@@ -496,6 +548,48 @@ class ProfitByMonthFormatTests(unittest.TestCase):
         self.assertIn("| Quarter | Journals | Amount |", markdown)
         self.assertIn("| Q3 2026 | 4 | $635,760.00 |", markdown)
         self.assertNotIn("Income Statement", markdown)
+
+    def test_purchasing_vs_sales_table_has_both_sides(self):
+        markdown = format_period_answer(
+            """
+            {
+              "kind": "sales_vs_purchases",
+              "title": "Purchasing vs sales by month",
+              "count_label": "Orders",
+              "months": [
+                {
+                  "month": "2026-06",
+                  "label": "Jun 2026",
+                  "sales_count": 2,
+                  "sales_amount": "1000.00",
+                  "purchase_count": 1,
+                  "purchase_amount": "400.00"
+                },
+                {
+                  "month": "2026-09",
+                  "label": "Sep 2026",
+                  "sales_count": 3,
+                  "sales_amount": "2500.00",
+                  "purchase_count": 5,
+                  "purchase_amount": "800.00"
+                }
+              ],
+              "note": "Sales is sales-order totals by order date."
+            }
+            """
+        )
+        self.assertIn("## Purchasing vs sales by month", markdown)
+        self.assertIn(
+            "| Month | Sales orders | Sales | Purchase orders | Purchasing |",
+            markdown,
+        )
+        self.assertIn("| Jun 2026 | 2 | $1,000.00 | 1 | $400.00 |", markdown)
+        self.assertIn("| Total | 5 | $3,500.00 | 6 | $1,200.00 |", markdown)
+        self.assertIn("5 sales orders totaling $3,500.00", markdown)
+        self.assertIn("6 purchase orders totaling $1,200.00", markdown)
+        self.assertIn('"compare":true', markdown)
+        self.assertIn('"series":"Sales"', markdown)
+        self.assertIn('"series":"Purchasing"', markdown)
 
     def test_material_issues_week_table_uses_qty(self):
         markdown = format_period_answer(

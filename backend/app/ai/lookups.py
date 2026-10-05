@@ -811,6 +811,74 @@ def format_period_answer(raw: str) -> str:
             lines.append("")
             lines.append(str(data["note"]))
         return "\n".join(lines)
+    is_compare = str(data.get("kind") or "") == "sales_vs_purchases"
+    if is_compare:
+        chart_rows = months if grain in {"quarter", "week"} else _fill_month_gaps(months)
+        for row in chart_rows:
+            label = row.get("label") or row.get("month")
+            chart_points.append(
+                {
+                    "label": label,
+                    "orders": int(row.get("sales_count") or 0),
+                    "amount": float(Decimal(str(row.get("sales_amount") or 0))),
+                    "series": "Sales",
+                }
+            )
+            chart_points.append(
+                {
+                    "label": label,
+                    "orders": int(row.get("purchase_count") or 0),
+                    "amount": float(Decimal(str(row.get("purchase_amount") or 0))),
+                    "series": "Purchasing",
+                }
+            )
+        chart = {
+            "type": "month_trend",
+            "title": title,
+            "compare": True,
+            "countLabel": count_label,
+            "amountLabel": amount_heading,
+            "seriesLabel": None,
+            "points": chart_points,
+        }
+        lines.append("```ai-chart")
+        lines.append(json.dumps(chart, separators=(",", ":")))
+        lines.append("```")
+        lines.append("")
+        lines.append(
+            f"| {period_label} | Sales orders | Sales | Purchase orders | Purchasing |"
+        )
+        lines.append("| :--- | ---: | ---: | ---: | ---: |")
+        total_sales_count = 0
+        total_purchase_count = 0
+        total_sales_amount = Decimal("0.00")
+        total_purchase_amount = Decimal("0.00")
+        for row in months:
+            sales_count = int(row.get("sales_count") or 0)
+            purchase_count = int(row.get("purchase_count") or 0)
+            sales_amount = Decimal(str(row.get("sales_amount") or 0))
+            purchase_amount = Decimal(str(row.get("purchase_amount") or 0))
+            total_sales_count += sales_count
+            total_purchase_count += purchase_count
+            total_sales_amount += sales_amount
+            total_purchase_amount += purchase_amount
+            lines.append(
+                f"| {row.get('label') or row.get('month')} | {sales_count} | "
+                f"{_money(sales_amount)} | {purchase_count} | {_money(purchase_amount)} |"
+            )
+        lines.append(
+            f"| Total | {total_sales_count} | {_money(total_sales_amount)} | "
+            f"{total_purchase_count} | {_money(total_purchase_amount)} |"
+        )
+        lines.append("")
+        lines.append(
+            f"{total_sales_count} sales orders totaling {_money(total_sales_amount)}. "
+            f"{total_purchase_count} purchase orders totaling {_money(total_purchase_amount)}."
+        )
+        if data.get("note"):
+            lines.append("")
+            lines.append(str(data["note"]))
+        return "\n".join(lines)
     if has_party:
         for row in months:
             chart_points.append(
@@ -898,6 +966,8 @@ def format_period_answer(raw: str) -> str:
 
 def infer_period_kind(question: str) -> str:
     text = _normalize_question(question)
+    if is_sales_vs_purchase_wording(text):
+        return "sales_vs_purchases"
     if is_material_issue_wording(text):
         return "material_issues"
     if is_ap_wording(text):
@@ -1239,6 +1309,156 @@ def _material_issues_by_period(db, user: User, year_filter: int, grain: str) -> 
     )
 
 
+def _order_month_buckets(db, date_col, amount_col, year_filter: int) -> dict[str, dict[str, Any]]:
+    """Count + amount grouped by calendar month for one order table."""
+    year_expr = func.extract("year", date_col)
+    month_expr = func.extract("month", date_col)
+    query = db.query(
+        year_expr,
+        month_expr,
+        func.count(),
+        func.coalesce(func.sum(amount_col), 0),
+    ).filter(date_col.isnot(None))
+    if year_filter:
+        query = query.filter(year_expr == year_filter)
+    buckets: dict[str, dict[str, Any]] = {}
+    for year_val, month_val, count, amount in query.group_by(year_expr, month_expr).all():
+        year = int(year_val or 0)
+        month = int(month_val or 0)
+        if year <= 0 or month < 1 or month > 12:
+            continue
+        key = f"{year:04d}-{month:02d}"
+        buckets[key] = {
+            "count": int(count or 0),
+            "amount": Decimal(str(amount or 0)),
+        }
+    return buckets
+
+
+def _sales_vs_purchases_by_period(
+    db, user: User, year_filter: int, grain: str = "month", question: str = ""
+) -> str:
+    """Dashboard-style sales-order vs purchase-order totals by period."""
+    sales_denied = _require_any(user, "sales_order:view")
+    purchase_denied = _require_any(user, "po:view")
+    if sales_denied and purchase_denied:
+        return sales_denied
+
+    bounds = period_date_bounds(question) if question.strip() else {}
+    named_month = str(bounds.get("period") or "").strip()
+    if re.match(r"^\d{4}-(0[1-9]|1[0-2])$", named_month):
+        year_filter = year_filter or int(named_month[:4])
+
+    grain_label = {"quarter": "quarter", "week": "week"}.get(grain, "month")
+    title = f"Purchasing vs sales by {grain_label}"
+    sales_buckets = (
+        {}
+        if sales_denied
+        else _order_month_buckets(db, SalesOrder.order_date, SalesOrder.total_amount, year_filter)
+    )
+    purchase_buckets = (
+        {}
+        if purchase_denied
+        else _order_month_buckets(
+            db, PurchaseOrder.order_date, PurchaseOrder.grand_total, year_filter
+        )
+    )
+    if named_month:
+        keys = [named_month]
+        title = f"Purchasing vs sales — {bounds.get('period_label') or named_month}"
+    else:
+        keys = sorted(set(sales_buckets) | set(purchase_buckets))
+    months: list[dict[str, Any]] = []
+    sales_count = 0
+    purchase_count = 0
+    sales_amount = Decimal("0.00")
+    purchase_amount = Decimal("0.00")
+    for key in keys:
+        year, month = int(key[:4]), int(key[5:7])
+        sales = sales_buckets.get(key) or {"count": 0, "amount": Decimal("0.00")}
+        purchases = purchase_buckets.get(key) or {"count": 0, "amount": Decimal("0.00")}
+        sales_count += int(sales["count"])
+        purchase_count += int(purchases["count"])
+        sales_amount += Decimal(str(sales["amount"]))
+        purchase_amount += Decimal(str(purchases["amount"]))
+        months.append(
+            {
+                "month": key,
+                "label": date(year, month, 1).strftime("%b %Y"),
+                "sales_count": int(sales["count"]),
+                "sales_amount": str(Decimal(str(sales["amount"])).quantize(Decimal("0.01"))),
+                "purchase_count": int(purchases["count"]),
+                "purchase_amount": str(Decimal(str(purchases["amount"])).quantize(Decimal("0.01"))),
+                "order_count": int(sales["count"]) + int(purchases["count"]),
+                "total_amount": str(
+                    (Decimal(str(sales["amount"])) + Decimal(str(purchases["amount"]))).quantize(
+                        Decimal("0.01")
+                    )
+                ),
+            }
+        )
+    if grain == "quarter":
+        title = title.replace("by month", "by quarter")
+        months = _apply_period_grain(months, grain, year_filter, compare=True)
+    elif grain == "week":
+        title = title.replace("by month", "by week")
+    elif months and not named_month:
+        months = _fill_month_gaps(months)
+        for row in months:
+            row["sales_count"] = int(row.get("sales_count") or 0)
+            row["purchase_count"] = int(row.get("purchase_count") or 0)
+            row["sales_amount"] = str(
+                Decimal(str(row.get("sales_amount") or 0)).quantize(Decimal("0.01"))
+            )
+            row["purchase_amount"] = str(
+                Decimal(str(row.get("purchase_amount") or 0)).quantize(Decimal("0.01"))
+            )
+    if year_filter and not named_month:
+        title = f"{title} ({year_filter})"
+    notes = [
+        "Sales is sales-order totals by order date. Purchasing is purchase-order totals by order date (same as the dashboard chart)."
+    ]
+    if sales_denied:
+        notes.append("Sales orders were omitted (missing sales_order:view).")
+    if purchase_denied:
+        notes.append("Purchase orders were omitted (missing po:view).")
+    markdown = format_period_answer(
+        _json(
+            {
+                "kind": "sales_vs_purchases",
+                "title": title,
+                "count_label": "Orders",
+                "grain": grain if grain in {"week", "quarter"} else "month",
+                "year": year_filter or None,
+                "sales_count": sales_count,
+                "sales_amount": str(sales_amount.quantize(Decimal("0.01"))),
+                "purchase_count": purchase_count,
+                "purchase_amount": str(purchase_amount.quantize(Decimal("0.01"))),
+                "order_count": sales_count + purchase_count,
+                "total_amount": str((sales_amount + purchase_amount).quantize(Decimal("0.01"))),
+                "months": months,
+                "note": " ".join(notes),
+            }
+        )
+    )
+    if named_month and question.strip():
+        parts = [markdown]
+        if not sales_denied:
+            parts.append(
+                get_transactions.invoke(
+                    {"kind": "sales_orders", "limit": 40, "question": question}
+                )
+            )
+        if not purchase_denied:
+            parts.append(
+                get_transactions.invoke(
+                    {"kind": "purchase_orders", "limit": 40, "question": question}
+                )
+            )
+        return "\n\n".join(parts)
+    return markdown
+
+
 @tool
 def get_orders_by_month(
     kind: str = "sales_orders",
@@ -1255,11 +1475,13 @@ def get_orders_by_month(
     or get_sales_orders for by-month questions — those only list recent rows.
 
     Use for "revenue by month" / "compare revenue by quarter" (kind=gl_revenue, posted G/L),
-    "profit by month" (kind=gl_profit, posted net income), and "sales by month"
-    (kind=sales_orders). Never use search_erp_knowledge for those.
+    "profit by month" (kind=gl_profit, posted net income), "sales by month"
+    (kind=sales_orders), and "purchasing vs sales by month" (kind=sales_vs_purchases).
+    Never use search_erp_knowledge for those.
 
-    kind: sales_orders | purchase_orders | subcontract_orders | ap_bills | ar_invoices |
-    sales_invoices | supplier_invoices | cash | gl_revenue | gl_expense | gl_profit
+    kind: sales_orders | purchase_orders | sales_vs_purchases | subcontract_orders |
+    ap_bills | ar_invoices | sales_invoices | supplier_invoices | cash | gl_revenue |
+    gl_expense | gl_profit
     group_by: optional vendor | customer (also inferred from question, e.g. "by vendor").
     year: optional 4-digit year filter (0 = all years).
     Pass question= the user's wording so the kind and grouping can be inferred.
@@ -1314,6 +1536,10 @@ def get_orders_by_month(
         "bottom_line": "gl_profit",
         "pnl": "gl_profit",
         "gl_profit": "gl_profit",
+        "sales_vs_purchases": "sales_vs_purchases",
+        "purchasing_vs_sales": "sales_vs_purchases",
+        "purchases_vs_sales": "sales_vs_purchases",
+        "sales_vs_purchasing": "sales_vs_purchases",
     }
     kind_key = aliases.get(kind_key, kind_key)
 
@@ -1331,6 +1557,10 @@ def get_orders_by_month(
         return _gl_profit_by_month(ctx.db, ctx.user, year_filter, grain)
     if kind_key == "material_issues":
         return _material_issues_by_period(ctx.db, ctx.user, year_filter, grain)
+    if kind_key == "sales_vs_purchases":
+        return _sales_vs_purchases_by_period(
+            ctx.db, ctx.user, year_filter, grain, question
+        )
 
     join_supplier_invoice = False
     count_col = None
@@ -1781,7 +2011,9 @@ def _quarter_key(period: str) -> tuple[str, str] | None:
     return f"{year:04d}-Q{qtr}", f"Q{qtr} {year}"
 
 
-def _empty_quarter_row(year: int, qtr: int, *, pnl: bool = False) -> dict[str, Any]:
+def _empty_quarter_row(
+    year: int, qtr: int, *, pnl: bool = False, compare: bool = False
+) -> dict[str, Any]:
     key, label = f"{year:04d}-Q{qtr}", f"Q{qtr} {year}"
     row: dict[str, Any] = {
         "month": key,
@@ -1793,6 +2025,11 @@ def _empty_quarter_row(year: int, qtr: int, *, pnl: bool = False) -> dict[str, A
         row["revenue"] = "0.00"
         row["expense"] = "0.00"
         row["net_income"] = "0.00"
+    if compare:
+        row["sales_count"] = 0
+        row["sales_amount"] = "0.00"
+        row["purchase_count"] = 0
+        row["purchase_amount"] = "0.00"
     return row
 
 
@@ -1814,7 +2051,12 @@ def _roll_up_to_quarters(months: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "revenue": Decimal("0.00"),
                 "expense": Decimal("0.00"),
                 "net_income": Decimal("0.00"),
+                "sales_count": 0,
+                "sales_amount": Decimal("0.00"),
+                "purchase_count": 0,
+                "purchase_amount": Decimal("0.00"),
                 "has_pnl": False,
+                "has_compare": False,
             }
             buckets[key] = bucket
             order.append(key)
@@ -1825,6 +2067,12 @@ def _roll_up_to_quarters(months: list[dict[str, Any]]) -> list[dict[str, Any]]:
             bucket["revenue"] += Decimal(str(row.get("revenue") or 0))
             bucket["expense"] += Decimal(str(row.get("expense") or 0))
             bucket["net_income"] += Decimal(str(row.get("net_income") or row.get("total_amount") or 0))
+        if row.get("sales_amount") is not None or row.get("purchase_amount") is not None:
+            bucket["has_compare"] = True
+            bucket["sales_count"] += int(row.get("sales_count") or 0)
+            bucket["sales_amount"] += Decimal(str(row.get("sales_amount") or 0))
+            bucket["purchase_count"] += int(row.get("purchase_count") or 0)
+            bucket["purchase_amount"] += Decimal(str(row.get("purchase_amount") or 0))
     out: list[dict[str, Any]] = []
     for key in order:
         bucket = buckets[key]
@@ -1838,6 +2086,11 @@ def _roll_up_to_quarters(months: list[dict[str, Any]]) -> list[dict[str, Any]]:
             item["revenue"] = str(bucket["revenue"].quantize(Decimal("0.01")))
             item["expense"] = str(bucket["expense"].quantize(Decimal("0.01")))
             item["net_income"] = str(bucket["net_income"].quantize(Decimal("0.01")))
+        if bucket["has_compare"]:
+            item["sales_count"] = bucket["sales_count"]
+            item["sales_amount"] = str(bucket["sales_amount"].quantize(Decimal("0.01")))
+            item["purchase_count"] = bucket["purchase_count"]
+            item["purchase_amount"] = str(bucket["purchase_amount"].quantize(Decimal("0.01")))
         out.append(item)
     return out
 
@@ -1848,6 +2101,7 @@ def _apply_period_grain(
     year_filter: int = 0,
     *,
     pnl: bool = False,
+    compare: bool = False,
 ) -> list[dict[str, Any]]:
     if grain != "quarter":
         return months
@@ -1856,7 +2110,10 @@ def _apply_period_grain(
         return rolled
     by_key = {row["month"]: row for row in rolled}
     return [
-        by_key.get(f"{year_filter:04d}-Q{qtr}", _empty_quarter_row(year_filter, qtr, pnl=pnl))
+        by_key.get(
+            f"{year_filter:04d}-Q{qtr}",
+            _empty_quarter_row(year_filter, qtr, pnl=pnl, compare=compare),
+        )
         for qtr in range(1, 5)
     ]
 
@@ -1963,11 +2220,28 @@ def is_purchase_wording(question: str) -> bool:
     )
 
 
+def is_sales_vs_purchase_wording(question: str) -> bool:
+    """True for dashboard-style purchasing vs sales comparisons."""
+    text = _normalize_question(question)
+    if is_supplier_invoice_wording(text) or is_sales_invoice_wording(text):
+        return False
+    has_purchase = is_purchase_wording(text) or bool(re.search(r"\b(pos?)\b", text))
+    has_sales = bool(re.search(r"\b(sales?|selling|sos?)\b", text))
+    if not (has_purchase and has_sales):
+        return False
+    if re.search(r"\b(vs\.?|versus|v\.s\.|compared to|compared with|against)\b", text):
+        return True
+    if re.search(r"\bcompare\b", text):
+        return True
+    return bool(re.search(r"\b(and|&)\b", text) and is_monthly_group_question(text))
+
+
 def is_period_entity_wording(question: str) -> bool:
     """True when a by-month question names a known ERP total or document type."""
     text = _normalize_question(question)
     return (
-        is_profit_wording(text)
+        is_sales_vs_purchase_wording(text)
+        or is_profit_wording(text)
         or is_expense_wording(text)
         or is_revenue_wording(text)
         or is_purchase_wording(text)
@@ -3037,6 +3311,8 @@ def is_transaction_document_wording(question: str) -> bool:
 
 def is_transaction_list_wording(question: str) -> bool:
     """True for document lists (period/party/due/billed), not by-month totals or how-tos."""
+    if is_sales_vs_purchase_wording(question):
+        return False
     if is_monthly_group_question(question):
         return False
     if is_unbilled_receipt_wording(question) or is_received_qty_by_po_wording(question):

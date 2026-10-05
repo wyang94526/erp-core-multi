@@ -26,6 +26,7 @@ export type AiMonthTrendPoint = {
 export type AiMonthTrendSpec = {
   type?: string
   title?: string
+  compare?: boolean
   countLabel?: string
   amountLabel?: string
   seriesLabel?: string
@@ -81,8 +82,9 @@ export default function AiMonthTrendChart({ spec }: AiMonthTrendChartProps) {
   const countLabel = spec.countLabel || 'Orders'
   const amountLabel = spec.amountLabel || 'Amount'
   const { rows: seriesRows, keys: seriesKeys } = pivotSeries(points)
-  const stacked = seriesKeys.length > 0
-  const chartData = stacked ? seriesRows : points
+  const compare = Boolean(spec.compare) && seriesKeys.length > 0
+  const stacked = seriesKeys.length > 0 && !compare
+  const chartData = stacked || compare ? seriesRows : points
   const angled = chartData.length > 5
 
   return (
@@ -99,7 +101,7 @@ export default function AiMonthTrendChart({ spec }: AiMonthTrendChartProps) {
               textAnchor={angled ? 'end' : 'middle'}
               height={angled ? 46 : 28}
             />
-            {stacked ? (
+            {stacked || compare ? (
               <YAxis
                 tick={{ fill: 'var(--text)', fontSize: 10 }}
                 width={42}
@@ -125,7 +127,7 @@ export default function AiMonthTrendChart({ spec }: AiMonthTrendChartProps) {
             <Tooltip
               formatter={(value, name) => {
                 const numeric = Number(Array.isArray(value) ? value[0] : value) || 0
-                if (stacked || String(name) === amountLabel || String(name) === 'amount') {
+                if (stacked || compare || String(name) === amountLabel || String(name) === 'amount') {
                   return [formatCurrencyPrecise(numeric), String(name)]
                 }
                 return [numeric, countLabel]
@@ -138,7 +140,20 @@ export default function AiMonthTrendChart({ spec }: AiMonthTrendChartProps) {
               }}
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            {stacked ? (
+            {compare ? (
+              seriesKeys.map((key, index) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={key}
+                  stroke={SERIES_COLORS[index % SERIES_COLORS.length]}
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              ))
+            ) : stacked ? (
               seriesKeys.map((key, index) => (
                 <Bar
                   key={key}

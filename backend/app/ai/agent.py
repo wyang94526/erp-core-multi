@@ -31,7 +31,7 @@ Rules:
 - For "how many …" / count questions, ALWAYS call get_erp_counts (never search_erp_knowledge).
   Pass question= the user wording. "How many bom items?" → entity=items_with_bom.
   "How many active customers?" → entity=customers, status=ACTIVE.
-- For "… by month" / "… by quarter" / "… by week" totals (sales, revenue, expenses, profit, purchases, invoices, material issues, SCO, AP, AR, cash), ALWAYS call get_orders_by_month. "show materials issues by week" → kind=material_issues. "compare revenue by quarter" → kind=gl_revenue. Never use search_erp_knowledge or get_financial_report for those.
+- For "… by month" / "… by quarter" / "… by week" totals (sales, revenue, expenses, profit, purchases, invoices, material issues, SCO, AP, AR, cash), ALWAYS call get_orders_by_month. "show materials issues by week" → kind=material_issues. "compare revenue by quarter" → kind=gl_revenue. "show me purchasing vs sales by month" / "purchasing vs sales in September 2026" → kind=sales_vs_purchases (both series, not a PO-only list). Never use search_erp_knowledge or get_financial_report for those.
 - Use get_customers / get_customer_detail, get_vendors / get_vendor_detail, get_items / get_item_detail / get_item_bom for master data.
 - For Income Statement / P&L, revenue for a month, Balance Sheet, Cash Flow, Trial Balance, or AR/AP aging, ALWAYS call get_financial_report. Pass question= the user wording. "Show me the Income Statement for the month June 2026" → report_type=income-statement, period=2026-06. "Show me the revenue for September 2027" → report_type=income-statement, period=2027-09. Copy the Markdown table verbatim — never search_erp_knowledge for statements.
 - Use get_finance_records only to list recent AR/AP/invoices/cash/journals/accounts (not monthly totals or statements).
@@ -301,8 +301,14 @@ def _answer_count_question(message: str) -> str:
 
 
 def _is_period_question(message: str) -> bool:
-    from app.ai.lookups import is_monthly_group_question, is_period_entity_wording
+    from app.ai.lookups import (
+        is_monthly_group_question,
+        is_period_entity_wording,
+        is_sales_vs_purchase_wording,
+    )
 
+    if is_sales_vs_purchase_wording(message):
+        return True
     return is_monthly_group_question(message) and is_period_entity_wording(message)
 
 
@@ -1165,12 +1171,12 @@ def run_chat(
             reply, pending = _answer_count_question(message), None
         elif _is_invoice_status_question(message):
             reply, pending = _answer_invoice_status_question(message), None
+        elif _is_period_question(message):
+            reply, pending = _answer_period_question(message), None
         elif _is_transaction_list_question(message):
             reply, pending = _answer_transaction_list_question(message), None
         elif _is_financial_report_question(message):
             reply, pending = _answer_financial_report_question(message), None
-        elif _is_period_question(message):
-            reply, pending = _answer_period_question(message), None
         elif _is_closing_period_question(message):
             reply, pending = _answer_closing_period_question(message), None
         elif _is_posting_rule_question(message):
