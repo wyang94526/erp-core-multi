@@ -436,6 +436,8 @@ export default function DataImportPreview() {
   )
 }
 
+const WINDOWS_IMPORT_PATH = 'C:\\erp\\erp-project\\imports'
+
 function formatHostPath(path: string): string {
   if (/^[A-Za-z]:[\\/]/.test(path)) return path.replace(/\//g, '\\')
   return path
@@ -448,32 +450,12 @@ function ImportFolderHint({
   dataDir?: string | null
   hostDir?: string | null
 }) {
-  const host = hostDir?.trim() ? formatHostPath(hostDir.trim()) : ''
-  if (host) {
-    return (
-      <>
-        On the Windows server, copy CSVs into <code>{host}</code>
-        {dataDir && dataDir !== host ? (
-          <>
-            {' '}
-            (container folder <code>{dataDir}</code>)
-          </>
-        ) : null}
-        . You can also upload here — no laptop path is required.
-      </>
-    )
-  }
+  const host = hostDir?.trim() ? formatHostPath(hostDir.trim()) : WINDOWS_IMPORT_PATH
+  const container = dataDir?.trim() || '/data/imports'
   return (
     <>
-      Files are stored in the server import folder
-      {dataDir ? (
-        <>
-          : <code>{dataDir}</code>
-        </>
-      ) : (
-        '.'
-      )}{' '}
-      This works on OCI — no laptop path is required.
+      Windows server: copy CSVs into <code>{host}</code>. OCI / container:{' '}
+      <code>{container}</code>. You can also upload here — no laptop path is required.
     </>
   )
 }
@@ -639,7 +621,15 @@ function PreviewBody({
 
       <p style={muted}>
         Source folder:{' '}
-        <code>{data.data_dir_host ? formatHostPath(data.data_dir_host) : data.data_dir}</code>
+        <code>
+          {data.data_dir_host ? formatHostPath(data.data_dir_host) : WINDOWS_IMPORT_PATH}
+        </code>
+        {data.data_dir ? (
+          <>
+            {' '}
+            · container <code>{data.data_dir}</code>
+          </>
+        ) : null}
         {data.source_files.customers ? ` · ${data.source_files.customers}` : ''}
       </p>
 
