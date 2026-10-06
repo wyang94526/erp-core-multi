@@ -4,7 +4,8 @@
 """TIPTOP CSV import folder: inspect, upload, preview, and upsert.
 
 Files live in GTT_DATA_DIR (default backend/data/imports locally, /data/imports in Docker/OCI).
-Admins upload the master CSVs (or a zip) from the ERP UI so OCI does not need a laptop path.
+Windows bind-mounts C:\\erp\\erp-project\\imports and sets GTT_IMPORT_HOST_PATH for the UI.
+Admins upload the master CSVs (or a zip) from the ERP UI so no laptop path is required.
 Apply uses the same load_gtt_master_data loader as the CLI, including BOM lines.
 """
 
@@ -71,6 +72,11 @@ def import_root() -> Path:
     return root.resolve()
 
 
+def import_host_path() -> str | None:
+    raw = (get_settings().gtt_import_host_path or "").strip()
+    return raw or None
+
+
 def classify_filename(name: str) -> str | None:
     stem = Path(name).name
     lower = stem.lower().replace(" ", "")
@@ -105,6 +111,7 @@ def inspect_sources(data_dir: Path | None = None) -> dict[str, Any]:
                 missing.append(key)
     return {
         "data_dir": str(root),
+        "data_dir_host": import_host_path(),
         "files": files,
         "source_files": {key: (info["name"] if info else "") for key, info in files.items()},
         "missing": missing,

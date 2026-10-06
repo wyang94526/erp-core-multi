@@ -436,6 +436,48 @@ export default function DataImportPreview() {
   )
 }
 
+function formatHostPath(path: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(path)) return path.replace(/\//g, '\\')
+  return path
+}
+
+function ImportFolderHint({
+  dataDir,
+  hostDir,
+}: {
+  dataDir?: string | null
+  hostDir?: string | null
+}) {
+  const host = hostDir?.trim() ? formatHostPath(hostDir.trim()) : ''
+  if (host) {
+    return (
+      <>
+        On the Windows server, copy CSVs into <code>{host}</code>
+        {dataDir && dataDir !== host ? (
+          <>
+            {' '}
+            (container folder <code>{dataDir}</code>)
+          </>
+        ) : null}
+        . You can also upload here — no laptop path is required.
+      </>
+    )
+  }
+  return (
+    <>
+      Files are stored in the server import folder
+      {dataDir ? (
+        <>
+          : <code>{dataDir}</code>
+        </>
+      ) : (
+        '.'
+      )}{' '}
+      This works on OCI — no laptop path is required.
+    </>
+  )
+}
+
 const FILE_LABELS: Record<string, string> = {
   customers: 'Customers (客戶)',
   suppliers: 'Suppliers (供應商)',
@@ -475,15 +517,7 @@ function UploadPanel({
   return (
     <div style={uploadBox}>
       <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text)' }}>
-        Files are stored in the server import folder
-        {data?.data_dir ? (
-          <>
-            : <code>{data.data_dir}</code>
-          </>
-        ) : (
-          '.'
-        )}{' '}
-        This works on OCI — no laptop path is required.
+        <ImportFolderHint dataDir={data?.data_dir} hostDir={data?.data_dir_host} />
       </p>
       <ul style={fileList}>
         {FILE_KEYS.map((key) => {
@@ -604,7 +638,8 @@ function PreviewBody({
       </div>
 
       <p style={muted}>
-        Source folder: <code>{data.data_dir}</code>
+        Source folder:{' '}
+        <code>{data.data_dir_host ? formatHostPath(data.data_dir_host) : data.data_dir}</code>
         {data.source_files.customers ? ` · ${data.source_files.customers}` : ''}
       </p>
 
@@ -999,7 +1034,8 @@ function ApplyResultBanner({ result }: { result: DataImportApplyResult }) {
             ? 'Trial balance load complete.'
             : 'Database upsert complete.'}
       </strong>{' '}
-      Folder <code>{result.data_dir}</code>
+      Folder{' '}
+      <code>{result.data_dir_host ? formatHostPath(result.data_dir_host) : result.data_dir}</code>
       {result.trial_balance_period ? (
         <>
           {' '}

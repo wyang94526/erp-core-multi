@@ -33,10 +33,11 @@ services:
       AI_CHROMA_PATH: /data/chroma
       ATTACHMENTS_PATH: /data/attachments
       GTT_DATA_DIR: /data/imports
+      GTT_IMPORT_HOST_PATH: ${GTT_IMPORT_HOST_PATH:-C:/erp/erp-project/imports}
     volumes:
       - chroma_data:/data/chroma
       - attachments_data:/data/attachments
-      - imports_data:/data/imports
+      - ${GTT_IMPORTS_BIND:-./imports}:/data/imports
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,4 +58,3 @@ volumes:
   postgres_data:
   chroma_data:
   attachments_data:
-  imports_data:

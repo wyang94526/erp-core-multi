@@ -1941,6 +1941,7 @@ export type DataImportPreview = {
   dry_run: boolean
   ready: boolean
   data_dir: string
+  data_dir_host?: string | null
   missing: string[]
   files: Record<string, DataImportFileInfo>
   source_files: Record<string, string>
@@ -1973,6 +1974,7 @@ export type DataImportApplyResult = {
   upsert: boolean
   truncated?: boolean
   data_dir: string
+  data_dir_host?: string | null
   ready: boolean
   stats: Record<string, number>
   counts: {

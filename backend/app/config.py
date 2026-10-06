@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     attachments_max_bytes: int = 15 * 1024 * 1024
     # Relative paths resolve from the repo root; Docker sets /data/imports.
     gtt_data_dir: str = "backend/data/imports"
+    # Windows Explorer path shown on CSV Import. Empty on OCI/local (container path only).
+    gtt_import_host_path: str = ""
 
     def attachments_root(self) -> Path:
         path = Path(self.attachments_path)

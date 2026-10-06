@@ -1071,7 +1071,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     steps: [
       'Open Administration → CSV Import.',
-      'Upload the TIPTOP CSVs (or a zip) onto this server. OCI uses the server import folder, not a laptop path.',
+      'Upload the TIPTOP CSVs (or a zip) onto this server. Windows: C:\\erp\\erp-project\\imports. OCI: /data/imports. No laptop path is required.',
       'Choose the Customers, Suppliers, Items, BOM, Chart of Accounts, or Trial Balance tab and review mapped columns.',
       'Fix source-file issues called out in warnings.',
       'Click Incremental upsert to insert new IDs and update existing masters (customers, vendors, items, BOM, accounts) without deleting orders.',

@@ -6,9 +6,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+from unittest.mock import patch
+
 from fastapi import HTTPException
 
-from app.services.gtt_import import classify_filename, preview_gtt_import, require_ending_period
+from app.services.gtt_import import (
+    classify_filename,
+    inspect_sources,
+    preview_gtt_import,
+    require_ending_period,
+)
 from app.services.trial_balance_import import map_row, parse_number, period_from_filename
 
 
@@ -119,3 +126,10 @@ class TrialBalanceImportTests(TestCase):
             self.assertEqual(result["counts"]["trial_balance"], 1)
             self.assertEqual(result["trial_balance"][0]["account_code"], "1103")
             self.assertEqual(result["trial_balance"][0]["ending_debit"], "100")
+
+    def test_inspect_includes_windows_host_path(self):
+        with TemporaryDirectory() as tmp:
+            with patch("app.services.gtt_import.get_settings") as mock_settings:
+                mock_settings.return_value.gtt_import_host_path = r"C:\erp\erp-project\imports"
+                status = inspect_sources(Path(tmp))
+        self.assertEqual(status["data_dir_host"], r"C:\erp\erp-project\imports")
