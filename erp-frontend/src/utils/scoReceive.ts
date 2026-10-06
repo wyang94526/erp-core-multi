@@ -123,11 +123,11 @@ export function scoReceiveBlockedReason(sco: {
   if (status === 'COMPLETED' || status === 'CANCELLED') {
     return 'This subcontract order is closed. Finished goods cannot be received.'
   }
-  if (scoHasUnissuedKitComponents(sco.components)) {
-    return SCO_RECEIVE_REQUIRES_KIT_MESSAGE
-  }
   if ((sco.approval_status || 'DRAFT').toUpperCase() !== 'APPROVED') {
     return SCO_RECEIVE_REQUIRES_APPROVAL_MESSAGE
+  }
+  if (scoHasUnissuedKitComponents(sco.components)) {
+    return SCO_RECEIVE_REQUIRES_KIT_MESSAGE
   }
   return null
 }

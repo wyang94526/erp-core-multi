@@ -20,13 +20,17 @@ from app.services.o2c import (
 from app.services.p2p import _resolve_posting_date, non_po_debit_account
 from app.services.remaining_close import (
     assert_can_close_remaining,
+    assert_qty_within_issuable,
     assert_qty_within_remaining,
+    over_issue_detail,
     over_receive_detail,
 )
 from app.services.subcontract import (
     SCO_KIT_MUST_BE_ISSUED_DETAIL,
+    SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL,
     SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL,
     SCO_RECEIVE_REQUIRES_KIT_DETAIL,
+    assert_sco_fulfillment_allowed,
     assert_sco_kit_fully_issued,
     assert_sco_receive_allowed,
     sco_kit_is_fully_issued,
@@ -54,6 +58,18 @@ class SubcontractControlSmokeTests(TestCase):
         with self.assertRaises(HTTPException) as raised:
             assert_sco_kit_fully_issued(SimpleNamespace(components=[]))
         self.assertEqual(raised.exception.detail, SCO_KIT_MUST_BE_ISSUED_DETAIL)
+
+    def test_issue_35_cannot_issue_before_approve(self):
+        with self.assertRaises(HTTPException) as raised:
+            assert_sco_fulfillment_allowed(
+                SimpleNamespace(status="PLANNED", approval_status="DRAFT"),
+                "issuing materials",
+            )
+        self.assertEqual(raised.exception.detail, SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL)
+        assert_sco_fulfillment_allowed(
+            SimpleNamespace(status="PLANNED", approval_status="APPROVED"),
+            "issuing materials",
+        )
 
     def test_issue_35_cannot_receive_before_issue_and_approve(self):
         with self.assertRaises(HTTPException) as raised:
@@ -144,6 +160,17 @@ class ReceiveQtySmokeTests(TestCase):
     def test_issue_22_short_receive_uses_cancel_remaining(self):
         assert_can_close_remaining(progressed=800, remaining=200)
         assert_qty_within_remaining(item_id="1001G00001710", qty=800, remaining=1000)
+
+    def test_partial_issue_allowed_over_issue_rejected(self):
+        assert_qty_within_issuable(item_id="1001G00001710", qty=50, remaining=200)
+        with self.assertRaises(HTTPException) as raised:
+            assert_qty_within_issuable(item_id="1001G00001710", qty=201, remaining=200)
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(
+            raised.exception.detail,
+            over_issue_detail("1001G00001710", 201, 200),
+        )
+        self.assertIn("Over-issue is not allowed", raised.exception.detail)
 
 
 class JournalWorkflowSmokeTests(TestCase):

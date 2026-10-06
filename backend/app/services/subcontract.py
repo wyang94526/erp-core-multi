@@ -44,8 +44,7 @@ CANCELLED_SCO = "CANCELLED"
 CLOSED_SCO_STATUSES = {"COMPLETED", "CANCELLED"}
 AMENDABLE_APPROVAL = "APPROVED"
 SCO_KIT_MUST_BE_ISSUED_DETAIL = (
-    "Cannot approve Subcontract Order: All required kit components must be "
-    "fully issued to the subcontractor first."
+    "All required kit components must be fully issued to the subcontractor first."
 )
 SCO_PREVIEW_NON_BLOCKING_CODES = frozenset({"INSUFFICIENT_STOCK"})
 SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL = (
@@ -60,8 +59,8 @@ SCO_RECEIVE_REQUIRES_KIT_DETAIL = (
     "have been issued to the subcontractor."
 )
 SCO_NO_MATERIAL_KIT_DETAIL = (
-    "A Material BOM / subcontract kit is required. Issue materials, then "
-    "approve, then receive finished goods."
+    "A Material BOM / subcontract kit is required. Approve the order, then "
+    "issue materials, then receive finished goods."
 )
 PARENT_SO_MUST_BE_APPROVED_FOR_SCO_DETAIL = (
     "The parent Sales Order must be approved before a subcontract order can be created or updated."
@@ -288,13 +287,16 @@ def assert_can_amend_cost_sheet(sco) -> None:
 
 
 def assert_sco_fulfillment_allowed(sco, action_label: str = "this action") -> None:
-    """Issue materials on an open SCO. Kit issue comes before approval."""
+    """Issue materials only after the SCO is approved."""
     status = (getattr(sco, "status", None) or "").upper()
     if status in CLOSED_SCO_STATUSES:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot {action_label} on a {status.lower()} subcontract order",
         )
+    approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
+    if approval != AMENDABLE_APPROVAL:
+        raise HTTPException(status_code=400, detail=SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL)
 
 
 def _sco_received_and_remaining(sco) -> tuple[int, int]:
@@ -398,14 +400,14 @@ def assert_sco_receive_allowed(sco) -> None:
             status_code=400,
             detail=f"Cannot receive goods on a {status.lower()} order",
         )
-    if not sco_kit_is_fully_issued(sco):
-        raise HTTPException(status_code=400, detail=SCO_RECEIVE_REQUIRES_KIT_DETAIL)
     approval = (getattr(sco, "approval_status", None) or "DRAFT").upper()
     if approval != AMENDABLE_APPROVAL:
         raise HTTPException(
             status_code=400,
             detail=SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL,
         )
+    if not sco_kit_is_fully_issued(sco):
+        raise HTTPException(status_code=400, detail=SCO_RECEIVE_REQUIRES_KIT_DETAIL)
 
 
 def sco_kit_remaining(component) -> Decimal:

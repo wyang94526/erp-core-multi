@@ -4,7 +4,7 @@
  */
 
 export const SCO_KIT_MUST_BE_ISSUED_MESSAGE =
-  'Cannot approve Subcontract Order: All required kit components must be fully issued to the subcontractor first.'
+  'All required kit components must be fully issued to the subcontractor first.'
 
 type KitQtyLine = {
   quantity_required?: number | string | null

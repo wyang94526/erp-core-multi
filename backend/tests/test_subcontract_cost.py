@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.services.subcontract import (
     SCO_KIT_MUST_BE_ISSUED_DETAIL,
+    SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL,
     assert_can_amend_cost_sheet,
     assert_sco_fulfillment_allowed,
     assert_sco_kit_fully_issued,
@@ -52,12 +53,17 @@ def test_amend_allowed_only_when_approved_and_open():
     assert closed.value.status_code == 400
 
 
-def test_fulfillment_allows_issue_before_approval():
+def test_fulfillment_requires_approval_to_issue():
     assert not previously_approved(SimpleNamespace(amendment_number=0, revision_number=0))
     draft = SimpleNamespace(approval_status="DRAFT", amendment_number=0, status="PLANNED")
-    assert_sco_fulfillment_allowed(draft, "issuing materials")
+    with pytest.raises(HTTPException) as blocked:
+        assert_sco_fulfillment_allowed(draft, "issuing materials")
+    assert blocked.value.status_code == 400
+    assert blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
     amending = SimpleNamespace(approval_status="DRAFT", amendment_number=1, status="PLANNED")
-    assert_sco_fulfillment_allowed(amending, "issuing materials")
+    with pytest.raises(HTTPException) as amending_blocked:
+        assert_sco_fulfillment_allowed(amending, "issuing materials")
+    assert amending_blocked.value.detail == SCO_MUST_BE_APPROVED_TO_ISSUE_DETAIL
     assert_sco_fulfillment_allowed(
         SimpleNamespace(approval_status="APPROVED", amendment_number=0, status="PLANNED"),
         "issuing materials",

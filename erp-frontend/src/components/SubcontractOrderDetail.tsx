@@ -18,8 +18,7 @@ import { generateSubcontractVendorPdf } from '../utils/generateSubcontractPdf'
 import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { defaultCostSheet } from '../utils/scoCostSheet'
 import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
-import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
-import { SCO_KIT_MUST_BE_ISSUED_MESSAGE, scoHasUnissuedKitComponents } from '../utils/scoKitIssue'
+import { overIssueDetail, scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
 import {
   overReceiveDetail,
   scoCanReceiveFinishedGoods,
@@ -530,9 +529,27 @@ export function SubcontractOrderDetail() {
       const key = `${component.sco_line_id || 'line'}:${component.component_item_id}`
       const qty = issueLines[key]
       if (!qty || Number(qty) <= 0) continue
+      const issued = Number(qty)
+      const remaining = remainingRequiredQty(component, kitLines)
+      if (issued > remaining) {
+        setFormErrors({
+          issue: overIssueDetail(component.component_item_id, issued, remaining),
+        })
+        return
+      }
+      const onHand = onHandQty(component, kitLines)
+      if (issued > onHand) {
+        setFormErrors({
+          issue:
+            `Insufficient on-hand quantity for ${component.component_item_id}: ` +
+            `available=${onHand}, requested=${issued}. ` +
+            'Receive the material purchase order (or add stock) before issuing the kit.',
+        })
+        return
+      }
       lines.push({
         component_item_id: component.component_item_id,
-        quantity_issued: Number(qty),
+        quantity_issued: issued,
         sco_line_id: component.sco_line_id || undefined,
       })
     }
@@ -763,8 +780,6 @@ export function SubcontractOrderDetail() {
         documentId={sco.sco_number}
         approvalStatus={sco.approval_status}
         currentApprovalStep={sco.current_approval_step}
-        actionDisabled={scoHasUnissuedKitComponents(sco.components)}
-        actionDisabledReason={SCO_KIT_MUST_BE_ISSUED_MESSAGE}
         onStatusChange={() => {
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
           queryClient.invalidateQueries({ queryKey: ['subcontractOrders'] })
@@ -1157,9 +1172,10 @@ export function SubcontractOrderDetail() {
         )}
 
         {showIssueForm && canOperateKit && (
-          <form onSubmit={handleIssueSubmit} style={{ marginBottom: '20px' }}>
+          <form noValidate onSubmit={handleIssueSubmit} style={{ marginBottom: '20px' }}>
             <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)' }}>
-              Issue ID is assigned automatically as UM31-YYMMXXXX
+              Issue ID is assigned automatically as UM31-YYMMXXXX. A partial issue is
+              allowed. Over-issue is rejected.
             </p>
             <div style={gridStyle}>
               <div style={fieldGroupStyle}>
@@ -1202,6 +1218,7 @@ export function SubcontractOrderDetail() {
                     const onHand = onHandQty(c, kitLines)
                     const key = issueLineKey(c.sco_line_id, c.component_item_id)
                     const short = remaining > onHand
+                    const maxIssue = Math.max(0, Math.min(remaining, onHand))
                     return (
                       <tr key={c.sco_component_id} style={tbodyRowStyle}>
                         <td style={tdStyle}>
@@ -1225,8 +1242,8 @@ export function SubcontractOrderDetail() {
                           <input
                             type="number"
                             min="0"
-                            step="0.0001"
-                            max={onHand}
+                            step="1"
+                            max={maxIssue}
                             value={issueLines[key] ?? ''}
                             onChange={(e) => handleIssueLineChange(key, e.target.value)}
                             style={{ ...inputStyle, width: '140px', textAlign: 'right' }}

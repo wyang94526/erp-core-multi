@@ -592,7 +592,7 @@ def propose_draft_subcontract_order(
 
     Provide either:
     - template_sco_number: clone an existing SCO (optional quantity_multiplier, e.g. 2 for "x 2"), or
-    - supplier_id + item_id + quantity_ordered (a Material BOM kit is required; issue materials, then approve, then receive).
+    - supplier_id + item_id + quantity_ordered (a Material BOM kit is required; approve, then issue materials, then receive).
 
     When cloning, supplier/item/unit_price come from the template; quantity_ordered is multiplied.
     Component kit lines are rebuilt from BOM on create (scaled to the new quantity).
@@ -878,8 +878,8 @@ def propose_orders_from_sales_order(
     """Propose a subcontract order (and optional material PO) from a sales order.
 
     Use for "create corresponding subcontract order and purchase order for PU61-…".
-    Links SCO lines to remaining SO qty that have a Material BOM. Issue the kit,
-    then approve, then receive. The material PO is
+    Links SCO lines to remaining SO qty that have a Material BOM. Approve,
+    then issue the kit, then receive. The material PO is
     created after the SCO so kit lines get sco_component_id. Does not write until
     the user confirms. Parent SO must be approved.
     """

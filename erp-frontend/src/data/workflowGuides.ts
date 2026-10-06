@@ -95,7 +95,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
     title: 'Subcontract to Pay & Sales Fulfillment',
     badge: 'Manufacturing & Outside Processing',
     summary:
-      'When a customer sales order needs a subcontract assembly, create the SCO, issue the kit, receive finished goods, pay the processor, then fulfill and invoice the original SO.',
+      'When a customer sales order needs a subcontract assembly, create the SCO, approve it, issue the kit, receive finished goods, pay the processor, then fulfill and invoice the original SO.',
     steps: [
       {
         id: 'sco-demand',
@@ -119,19 +119,19 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         ],
       },
       {
-        id: 'sco-issue',
-        title: 'Issue the Component Kit',
+        id: 'sco-approve',
+        title: 'Approve the Subcontract Order',
         navPath: 'Manufacturing ▸ Subcontract Orders (detail)',
-        body: 'Issue materials from the Draft SCO before approval. When the kit is fully issued, status moves to materials issued. Use the SCO PDF as the pack-out list sent with the kit.',
+        body: 'Submit and approve the SCO before any kit issue. After approval, issue materials then receive finished goods. Use Create Revision to change vendor charges or finished-good quantity on the same UP23 number; the approved snapshot is frozen and issue/receive stay locked until re-approval.',
         links: [
           { label: 'Open Subcontract Orders', to: '/subcontract-orders' },
         ],
       },
       {
-        id: 'sco-approve',
-        title: 'Approve the Subcontract Order',
+        id: 'sco-issue',
+        title: 'Issue the Component Kit',
         navPath: 'Manufacturing ▸ Subcontract Orders (detail)',
-        body: 'Submit and approve only after every kit line is issued. After approval, receive finished goods. Use Create Revision to change vendor charges or finished-good quantity on the same UP23 number; the approved snapshot is frozen and issue/receive stay locked until re-approval.',
+        body: 'Issue materials only after the SCO is approved. When the kit is fully issued, status moves to materials issued. Use the SCO PDF as the pack-out list sent with the kit.',
         links: [
           { label: 'Open Subcontract Orders', to: '/subcontract-orders' },
         ],

@@ -58,7 +58,7 @@ from app.services.document_sequences import (
     next_document_number,
 )
 from app.services.period_close import assert_transaction_date_open
-from app.services.remaining_close import assert_qty_within_remaining
+from app.services.remaining_close import assert_qty_within_issuable, assert_qty_within_remaining
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
@@ -942,6 +942,12 @@ def issue_materials(
             raise HTTPException(status_code=400, detail=f"Component product {line.component_item_id} not found")
 
         qty_issued = Decimal(str(line.quantity_issued))
+        remaining = sco_component.quantity_required - (sco_component.quantity_issued or 0)
+        assert_qty_within_issuable(
+            item_id=line.component_item_id,
+            qty=qty_issued,
+            remaining=remaining,
+        )
         on_hand = Decimal(inventory.available_on_hand(db, line.component_item_id))
         if qty_issued > on_hand:
             raise HTTPException(
@@ -950,16 +956,6 @@ def issue_materials(
                     f"Insufficient on-hand quantity for {line.component_item_id}: "
                     f"available={on_hand}, requested={qty_issued}. "
                     "Receive the material purchase order (or add stock) before issuing the kit."
-                ),
-            )
-
-        remaining = sco_component.quantity_required - (sco_component.quantity_issued or 0)
-        if qty_issued > remaining:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Cannot issue {qty_issued} of {line.component_item_id}; "
-                    f"remaining on line={remaining}"
                 ),
             )
 

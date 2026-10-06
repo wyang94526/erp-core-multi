@@ -437,7 +437,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Creating Subcontract / Outside-Processing Orders',
     routeMatch: ['/subcontract-orders'],
     summary:
-      'Subcontract orders (SCOs) send an assembly to an outside processor. The order pins a Material BOM, issues the component kit, then is approved, then receives finished goods.',
+      'Subcontract orders (SCOs) send an assembly to an outside processor. The order pins a Material BOM, is approved, issues the component kit, then receives finished goods.',
     screenshots: [
       { src: '/guide-screenshots/sco-form.jpg', caption: 'New subcontract order header' },
       { src: '/guide-screenshots/sco-detail.jpg', caption: 'SCO detail with issue / receive actions' },
@@ -447,14 +447,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Choose the subcontractor (vendor type subcontractor or both) and the assembly item.',
       'The item must have an active Material BOM. The active version is the default and quantity drives the kit.',
       'Save the SCO. Open the detail page to review required components.',
-      'Issue all kit components to the subcontractor while the SCO is still Draft.',
-      'After the kit is fully issued, submit and approve the SCO. Then receive finished goods. Print the shipping document from an issue when the kit is sent.',
+      'Submit and approve the SCO while it is still Draft. Materials cannot be issued until the order is approved.',
+      'After approval, issue kit components to the subcontractor. A partial issue is allowed; quantity cannot exceed remaining required. Then receive finished goods. Print the shipping document from an issue when the kit is sent.',
       'When finished goods return, record a receipt (quantity cannot exceed remaining ordered). A short receipt is allowed; if the processor will not return the rest, bill the received quantity and click Cancel remaining. Over-receipt is rejected. GRNI is posted for the value received. The parent sales order can then fulfill only the quantity received so far.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you. If the processor will not return the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change vendor charges or finished-good quantity after approval, open the SCO and click Create Revision. Edit the sheet, then submit for approval again. The SCO number stays the same. Linked purchase orders stay on the same SCO.',
     ],
     callouts: [
-      { kind: 'required', text: 'Issue the full material kit first. The subcontract order can be approved only after issue, and finished goods can be received only after approval.' },
+      { kind: 'required', text: 'Approve the subcontract order first. Materials can be issued only after approval, and finished goods can be received only after the kit is issued.' },
       { kind: 'required', text: 'A linked Sales Order must already be approved. Draft sales orders cannot be selected or saved on the SCO.' },
       { kind: 'important', text: 'Status moves with materials issued and goods received. Do not invoice before a finished-goods receipt if you match to GRNI.' },
       { kind: 'important', text: 'After approval, use Create Revision to change vendor charges or quantity. Do not cancel and recreate the SCO if a Material PO is already linked.' },
@@ -477,7 +477,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'What if the processor returns short or tries to return more than ordered?',
         answer:
-          'A short receipt is allowed. Bill the quantity received, then click Cancel remaining. Over-receipt is not allowed — the system raises an error if the quantity is greater than remaining receivable.',
+          'A short receipt is allowed. Bill the quantity received, then click Cancel remaining. Over-receipt is not allowed — the system raises an error if the quantity is greater than remaining receivable. The same rule applies to kit issue: a partial issue is allowed, and over-issue is rejected.',
       },
     ],
     troubleshooting: [
@@ -955,7 +955,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'From the AI Assistant you can ask for the same statements (“Income Statement for June 2026”, “P&L for September 2026”). Use Open the full report to land here with the period already set.',
     ],
     callouts: [
-      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L. Income Statement shows Debit, Credit, and Net (credit − debit for sales such as 4110001). Trial Balance Period Net uses the same operating activity.' },
+      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L. Income Statement shows period Debit / Credit / Net plus YTD Debit / YTD Credit / YTD Net from January 1 through Date to (credit − debit for sales such as 4110001). Trial Balance Period Net uses the same operating activity as the period columns.' },
       { kind: 'tip', text: 'Budget vs. Actual uses the budget book when rows exist; otherwise it compares to the same dates in the prior year.' },
     ],
     faqs: [

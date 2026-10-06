@@ -521,7 +521,7 @@ export function SubcontractOrderForm() {
                 <p style={{ color: 'var(--text)' }}>
                   {previewQuery.isFetching
                     ? 'Calculating kit…'
-                    : 'No material kit. A Material BOM is required so components can be issued before approval and receipt.'}
+                    : 'No material kit. A Material BOM is required so components can be issued after approval, then finished goods can be received.'}
                 </p>
               )}
             </div>
@@ -563,7 +563,7 @@ export function SubcontractOrderForm() {
             <>
               {stockWarnings.length > 0 && (
                 <div style={warningAlertStyle}>
-                  {`${stockWarnings.length} component${stockWarnings.length === 1 ? '' : 's'} are short of available stock. You can still create the subcontract order; issue the kit before approval.`}
+                  {`${stockWarnings.length} component${stockWarnings.length === 1 ? '' : 's'} are short of available stock. You can still create the subcontract order; issue the kit after approval.`}
                 </div>
               )}
               {blockingWarnings.length > 0 && (

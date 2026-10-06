@@ -30,9 +30,21 @@ def over_receive_detail(item_id: str, qty, remaining) -> str:
     )
 
 
+def over_issue_detail(item_id: str, qty, remaining) -> str:
+    return (
+        f"Quantity {qty} exceeds remaining issuable {remaining} for {item_id}. "
+        "Over-issue is not allowed."
+    )
+
+
 def assert_qty_within_remaining(*, item_id: str, qty, remaining) -> None:
     if qty > remaining:
         raise HTTPException(status_code=400, detail=over_receive_detail(item_id, qty, remaining))
+
+
+def assert_qty_within_issuable(*, item_id: str, qty, remaining) -> None:
+    if qty > remaining:
+        raise HTTPException(status_code=400, detail=over_issue_detail(item_id, qty, remaining))
 
 
 def is_remaining_closed(document) -> bool:

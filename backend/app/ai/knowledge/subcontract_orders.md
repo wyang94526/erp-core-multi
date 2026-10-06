@@ -16,7 +16,9 @@ Legacy single-item create (`item_id` + `quantity_ordered`) still works and is st
 
 Cost sheet rows are free-text (default template: Receiving/IQC, Assembly, Inventory & Shipment, Admin, Margin). `cost_per_unit = minutes × sf_rate / 60` unless a flat cost is entered.
 
-Cost sheet edits are allowed while `approval_status` is `DRAFT` or `REJECTED`. After approval, `POST /api/v1/subcontract-orders/{sco_number}/amend` (permission `subcontract:submit`) reopens the same SCO as Draft, increments `amendment_number`, and writes an `AMENDED` approval-history row. Linked Material POs stay. Issue materials can continue during the amendment. Supplier invoices still require `APPROVED`. Re-submit the updated cost sheet through the normal approval workflow.
+Cost sheet edits are allowed while `approval_status` is `DRAFT` or `REJECTED`. After approval, `POST /api/v1/subcontract-orders/{sco_number}/amend` (permission `subcontract:submit`) reopens the same SCO as Draft, increments `amendment_number`, and writes an `AMENDED` approval-history row. Linked Material POs stay. Materials cannot be issued until the SCO is `APPROVED` again. Supplier invoices still require `APPROVED`. Re-submit the updated cost sheet through the normal approval workflow.
+
+Control flow: approve → issue kit → receive finished goods. Draft / pending / rejected SCOs cannot issue materials. Receive still requires a fully issued kit plus `APPROVED`.
 
 Receiving finished goods (`POST /{sco_number}/receive-goods`) posts warehouse stock via `inventory.receive_stock` (same path as PO receipts) and GRNI. Sales-order fulfillment issues that warehouse quantity, not the item-master cache.
 
