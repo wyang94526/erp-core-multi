@@ -47,7 +47,7 @@ def pnl_operating_journal_filter():
     )
 
 DEBIT_NORMAL = {"asset", "expense"}
-CREDIT_NORMAL = {"liability", "equity", "revenue"}
+CREDIT_NORMAL = {"liability", "equity", "revenue", "income"}
 
 FIXED_ASSET_NAME_MARKERS = (
     "equipment",
@@ -81,7 +81,7 @@ REPORT_CATALOG: list[dict[str, Any]] = [
         "title": "Income Statement (Profit & Loss)",
         "category": "primary",
         "category_label": "Primary Financial Statements",
-        "description": "Revenue, cost of sales, and operating expenses for the selected period with net income.",
+        "description": "Period debit, credit, and signed net for revenue and expense. Close journals are excluded.",
         "parameters": ["Date Range", "Financial Period", "Currency"],
         "default_action": "Generate Report",
     },
@@ -117,7 +117,7 @@ REPORT_CATALOG: list[dict[str, Any]] = [
         "title": "Trial Balance",
         "category": "operational",
         "category_label": "Operational & Sub-Ledger Reports",
-        "description": "Debit and credit totals by G/L account from posted journals through the as-of date.",
+        "description": "Cumulative posted debit/credit through the as-of date, plus period operating activity that matches the P&L.",
         "parameters": ["As Of Date", "Currency"],
         "default_action": "Generate Report",
     },
@@ -173,7 +173,7 @@ class AccountBalance:
 
     @property
     def signed(self) -> Decimal:
-        return signed_balance(self.account_type, self.debit, self.credit)
+        return signed_balance(self.account_type, self.debit, self.credit, self.account_code, self.account_name)
 
 
 def money(value: Any) -> Decimal:
@@ -186,10 +186,36 @@ def num(value: Decimal | int | float | None) -> float:
     return float(money(value))
 
 
-def signed_balance(account_type: str | None, debit: Any, credit: Any) -> Decimal:
+def normalize_account_type(
+    account_type: str | None,
+    account_code: str | None = None,
+    account_name: str | None = None,
+) -> str:
+    """Map chart labels so P&L/TB treat 4110001-style sales as revenue, not credit-only."""
+    kind = (account_type or "").strip().lower()
+    if kind == "income":
+        kind = "revenue"
+    if kind in DEBIT_NORMAL or kind in CREDIT_NORMAL:
+        return kind
+    blob = f"{account_code or ''} {account_name or ''}".lower()
+    digits = "".join(ch for ch in (account_code or "") if ch.isdigit())
+    if "revenue" in blob or "sales" in blob or digits.startswith("4"):
+        return "revenue"
+    if any(token in blob for token in ("expense", "cost of", "cogs")) or digits.startswith(("5", "6")):
+        return "expense"
+    return kind
+
+
+def signed_balance(
+    account_type: str | None,
+    debit: Any,
+    credit: Any,
+    account_code: str | None = None,
+    account_name: str | None = None,
+) -> Decimal:
     debit_amt = money(debit)
     credit_amt = money(credit)
-    kind = (account_type or "").strip().lower()
+    kind = normalize_account_type(account_type, account_code, account_name)
     if kind in DEBIT_NORMAL:
         return money(debit_amt - credit_amt)
     return money(credit_amt - debit_amt)
@@ -448,8 +474,12 @@ def _account_balances(
 
 
 def _section_accounts(balances: list[AccountBalance], account_type: str) -> list[AccountBalance]:
-    wanted = account_type.lower()
-    return [item for item in balances if (item.account_type or "").lower() == wanted]
+    wanted = normalize_account_type(account_type)
+    return [
+        item
+        for item in balances
+        if normalize_account_type(item.account_type, item.account_code, item.account_name) == wanted
+    ]
 
 
 def _append_account_rows(
@@ -475,6 +505,48 @@ def _append_account_rows(
     if not accounts:
         rows.append(_row({"label": "No balances", amount_key: 0}, indent=1))
     rows.append(_row({"label": f"Total {title}", amount_key: num(total)}, emphasis="total"))
+    return total
+
+
+def _append_pnl_account_rows(
+    rows: list[dict[str, Any]],
+    title: str,
+    accounts: list[AccountBalance],
+) -> Decimal:
+    """P&L lines show debit, credit, and signed net so OCI can reconcile 4110001."""
+    rows.append(_row({"label": title, "debit": None, "credit": None, "amount": None}, emphasis="section"))
+    total = ZERO
+    debit_total = ZERO
+    credit_total = ZERO
+    for account in accounts:
+        amount = account.signed
+        total += amount
+        debit_total += account.debit
+        credit_total += account.credit
+        rows.append(
+            _row(
+                {
+                    "label": f"{account.account_code}  {account.account_name}",
+                    "debit": num(account.debit),
+                    "credit": num(account.credit),
+                    "amount": num(amount),
+                },
+                indent=1,
+            )
+        )
+    if not accounts:
+        rows.append(_row({"label": "No balances", "debit": 0, "credit": 0, "amount": 0}, indent=1))
+    rows.append(
+        _row(
+            {
+                "label": f"Total {title}",
+                "debit": num(debit_total),
+                "credit": num(credit_total),
+                "amount": num(total),
+            },
+            emphasis="total",
+        )
+    )
     return total
 
 
@@ -549,20 +621,25 @@ def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             opex.append(account)
 
     rows: list[dict[str, Any]] = []
-    revenue_total = _append_account_rows(rows, "Revenue", revenue_accts)
-    cogs_total = _append_account_rows(rows, "Cost of Sales", cogs) if cogs else ZERO
+    revenue_total = _append_pnl_account_rows(rows, "Revenue", revenue_accts)
+    cogs_total = _append_pnl_account_rows(rows, "Cost of Sales", cogs) if cogs else ZERO
     if cogs:
         gross = money(revenue_total - cogs_total)
-        rows.append(_row({"label": "Gross Profit", "amount": num(gross)}, emphasis="total"))
+        rows.append(_row({"label": "Gross Profit", "debit": None, "credit": None, "amount": num(gross)}, emphasis="total"))
     else:
         gross = revenue_total
-    opex_total = _append_account_rows(rows, "Operating Expenses", opex)
+    opex_total = _append_pnl_account_rows(rows, "Operating Expenses", opex)
     net = money(revenue_total - cogs_total - opex_total)
-    rows.append(_row({"label": "Net Income", "amount": num(net)}, emphasis="net"))
+    rows.append(_row({"label": "Net Income", "debit": None, "credit": None, "amount": num(net)}, emphasis="net"))
     return {
         "title": "Income Statement (Profit & Loss)",
         "subtitle": f"{date_from.isoformat()} to {date_to.isoformat()}",
-        "columns": _columns(("label", "Account", "left", "text"), ("amount", "Amount", "right", "number")),
+        "columns": _columns(
+            ("label", "Account", "left", "text"),
+            ("debit", "Debit", "right", "number"),
+            ("credit", "Credit", "right", "number"),
+            ("amount", "Net", "right", "number"),
+        ),
         "rows": rows,
         "summary": {
             "revenue": num(revenue_total),
@@ -572,8 +649,9 @@ def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             "net_income": num(net),
         },
         "notes": [
-            "Activity is taken from posted journal entries in the selected date range.",
-            "Month-end and year-end close journals are excluded so revenue and expense stay the operating totals.",
+            "Posted journals in the selected date range. Each account shows debit, credit, and signed net (revenue: credit − debit; expense: debit − credit).",
+            "Month-end and year-end close journals are excluded so operating revenue is not zeroed after park.",
+            "Trial Balance Period Debit / Period Credit / Period Net use this same operating activity, so 4110001 must match.",
         ],
     }
 
@@ -870,13 +948,35 @@ def _ap_aging(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
 
 def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     as_of: date = filters["_as_of"]
+    date_from: date = filters["_from"]
+    date_to: date = filters["_to"]
     balances = _account_balances(db, as_of=as_of, currency=filters["_currency"])
+    period_balances = _account_balances(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        currency=filters["_currency"],
+        exclude_close_journals=True,
+    )
+    period_by_id = {item.account_id: item for item in period_balances}
+    seen = {item.account_id for item in balances}
+    extra_period = [item for item in period_balances if item.account_id not in seen]
     rows: list[dict[str, Any]] = []
     debit_total = ZERO
     credit_total = ZERO
-    for account in balances:
+    period_debit_total = ZERO
+    period_credit_total = ZERO
+    period_net_total = ZERO
+    for account in [*balances, *extra_period]:
+        period = period_by_id.get(account.account_id)
+        period_debit = period.debit if period else ZERO
+        period_credit = period.credit if period else ZERO
+        period_net = period.signed if period else ZERO
         debit_total += account.debit
         credit_total += account.credit
+        period_debit_total += period_debit
+        period_credit_total += period_credit
+        period_net_total += period_net
         rows.append(
             _row(
                 {
@@ -885,6 +985,9 @@ def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
                     "debit": num(account.debit),
                     "credit": num(account.credit),
                     "balance": num(account.signed),
+                    "period_debit": num(period_debit),
+                    "period_credit": num(period_credit),
+                    "period_net": num(period_net),
                 }
             )
         )
@@ -896,12 +999,19 @@ def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
                 "debit": num(debit_total),
                 "credit": num(credit_total),
                 "balance": num(debit_total - credit_total),
+                "period_debit": num(period_debit_total),
+                "period_credit": num(period_credit_total),
+                "period_net": num(period_net_total),
             },
             emphasis="net",
         )
     )
     difference = money(debit_total - credit_total)
-    notes = ["Only posted journal entries through the as-of date are included."]
+    notes = [
+        "Debit / Credit / Net (normal) are cumulative posted activity through the as-of date, including close journals.",
+        f"Period Debit / Period Credit / Period Net are posted operating activity {date_from.isoformat()} to {date_to.isoformat()}, excluding close. Those columns match the Income Statement.",
+        "Reconcile journal export to the cumulative columns by filtering Posting = Posted.",
+    ]
     if difference != ZERO:
         notes.append(f"Trial balance is out of balance by {difference}.")
     return {
@@ -913,12 +1023,24 @@ def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             ("debit", "Debit", "right", "number"),
             ("credit", "Credit", "right", "number"),
             ("balance", "Net (normal)", "right", "number"),
+            ("period_debit", "Period Debit", "right", "number"),
+            ("period_credit", "Period Credit", "right", "number"),
+            ("period_net", "Period Net", "right", "number"),
         ),
-        "rows": rows or [_empty_row("No posted activity", ("debit", "credit", "balance"))],
+        "rows": rows
+        or [
+            _empty_row(
+                "No posted activity",
+                ("debit", "credit", "balance", "period_debit", "period_credit", "period_net"),
+            )
+        ],
         "summary": {
             "total_debit": num(debit_total),
             "total_credit": num(credit_total),
             "out_of_balance": num(difference),
+            "period_debit": num(period_debit_total),
+            "period_credit": num(period_credit_total),
+            "period_net": num(period_net_total),
         },
         "notes": notes,
     }
@@ -1175,18 +1297,23 @@ def _budget_vs_actual(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     pnl_accounts = [
         item
         for item in actuals
-        if (item.account_type or "").lower() in {"revenue", "expense"}
+        if normalize_account_type(item.account_type, item.account_code, item.account_name)
+        in {"revenue", "expense"}
     ] or [
         item
         for item in prior.values()
-        if (item.account_type or "").lower() in {"revenue", "expense"}
+        if normalize_account_type(item.account_type, item.account_code, item.account_name)
+        in {"revenue", "expense"}
     ]
     # Include budget-only accounts
     extra_ids = set(budgets) - {item.account_id for item in pnl_accounts}
     if extra_ids:
         extras = db.query(ChartOfAccount).filter(ChartOfAccount.id.in_(extra_ids)).all()
         for account in extras:
-            if (account.account_type or "").lower() not in {"revenue", "expense"}:
+            if normalize_account_type(account.account_type, account.account_code, account.account_name) not in {
+                "revenue",
+                "expense",
+            }:
                 continue
             pnl_accounts.append(
                 AccountBalance(account.id, account.account_code, account.account_name, account.account_type, ZERO, ZERO)

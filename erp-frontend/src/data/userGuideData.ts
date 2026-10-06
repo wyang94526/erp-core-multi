@@ -823,7 +823,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance & Accounting → General Ledger & Setup → Manual Journal Entry (or open General Ledger and create a journal).',
       'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
       'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted). Use View on a submitted journal to read the lines; use Return to Draft to send it back for editing, then Submit again.',
-      'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. Export CSV downloads the journals (and their posting lines) that match the current filters. System-generated journals show a System chip and link back to the source document and posting rule.',
+      'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. The list and Export CSV default to Posted journals so the file can be summed to Trial Balance. Switch Posting to All to include drafts. System-generated journals show a System chip and link back to the source document and posting rule.',
       'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads YEC_CLOSE (P&L → 3350) and YEC_NI_CLEAR (reverse 3353 / 3354); month-end parks NI with MEC_PARK_NI; bank transfers use each bank’s G/L.',
     ],
     callouts: [
@@ -941,7 +941,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'From the AI Assistant you can ask for the same statements (“Income Statement for June 2026”, “P&L for September 2026”). Use Open the full report to land here with the period already set.',
     ],
     callouts: [
-      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L.' },
+      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L. Income Statement shows Debit, Credit, and Net (credit − debit for sales such as 4110001). Trial Balance Period Net uses the same operating activity.' },
       { kind: 'tip', text: 'Budget vs. Actual uses the budget book when rows exist; otherwise it compares to the same dates in the prior year.' },
     ],
     faqs: [

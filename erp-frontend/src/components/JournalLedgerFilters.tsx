@@ -32,7 +32,7 @@ export function useJournalLedgerFilters() {
       date_to: searchParams.get('date_to') || '',
       period: searchParams.get('period') || '',
       rule: searchParams.get('rule') || 'ALL',
-      posting: searchParams.get('posting') || 'ALL',
+      posting: searchParams.get('posting') || 'Posted',
       approval: searchParams.get('approval') || 'ALL',
     }),
     [queryKey, searchParams],

@@ -179,7 +179,7 @@ export const EMPTY_JOURNAL_LEDGER_FILTERS: JournalLedgerFilters = {
   date_to: '',
   period: '',
   rule: 'ALL',
-  posting: 'ALL',
+  posting: 'Posted',
   approval: 'ALL',
 }
 

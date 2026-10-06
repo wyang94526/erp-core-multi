@@ -3029,6 +3029,19 @@ def approve_supplier_invoice(db: Session, invoice_id: int) -> dict:
     return serialize_supplier_invoice(_load_invoice(db, invoice_id))
 
 
+def non_po_debit_account(
+    *,
+    invoice_type: str | None,
+    goods_receipt_id,
+    distribution_account,
+    inventory_account,
+):
+    """Allocated landed cost hits inventory; unallocated Non-PO keeps the chosen expense account."""
+    if (invoice_type or "").upper() == "LANDED_COST" and goods_receipt_id:
+        return inventory_account
+    return distribution_account
+
+
 def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, total: Decimal) -> None:
     inventory_account, _ap, landed_rule = resolve_posting_rule(
         db, EVENT_SUPPLIER_INVOICE, VARIANT_LANDED_COST, invoice.vendor
@@ -3048,10 +3061,17 @@ def _post_non_po_approval(db: Session, invoice: SupplierInvoice, ap_account, tot
         debit_account = dist.gl_account or db.get(ChartOfAccount, dist.gl_account_id)
         if debit_account is None:
             raise HTTPException(status_code=400, detail="GL account not found for distribution")
-        receipt = None
-        if invoice.invoice_type == "LANDED_COST" and dist.goods_receipt_id:
-            receipt = db.get(GoodsReceipt, dist.goods_receipt_id)
-            debit_account = inventory_account
+        receipt = (
+            db.get(GoodsReceipt, dist.goods_receipt_id)
+            if invoice.invoice_type == "LANDED_COST" and dist.goods_receipt_id
+            else None
+        )
+        debit_account = non_po_debit_account(
+            invoice_type=invoice.invoice_type,
+            goods_receipt_id=dist.goods_receipt_id,
+            distribution_account=debit_account,
+            inventory_account=inventory_account,
+        )
         receipt_number = getattr(receipt, "receipt_number", None)
         finance._post_balanced_journal_entry(
             db,

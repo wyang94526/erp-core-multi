@@ -13,12 +13,32 @@ from app.services.finance import resolve_ap_bill_po_number, serialize_ap_bill_ro
 from app.services.p2p import require_approved_reference_po
 
 
+class _EmptyQuery:
+    def options(self, *_args, **_kwargs):
+        return self
+
+    def filter(self, *_args, **_kwargs):
+        return self
+
+    def order_by(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        return None
+
+    def scalar(self):
+        return 0
+
+
 class FakeDb:
     def __init__(self, orders=None):
         self.orders = orders or {}
 
     def get(self, _model, key):
         return self.orders.get(key)
+
+    def query(self, _model):
+        return _EmptyQuery()
 
 
 class ApBillPoLinkTests(TestCase):
