@@ -32,7 +32,7 @@ from app.services.accounting import (
 from app.services import month_end_close, year_end_close
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.journal_list import apply_journal_list_filters
-from app.services.journal_source import assert_journal_mutable
+from app.services.journal_source import assert_journal_editable, assert_journal_mutable
 from app.services.period_close import KIND_ADJUSTMENT, assert_transaction_date_open
 
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
@@ -301,7 +301,7 @@ def update_journal_entry(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot edit a journal entry with approval status {approval}",
         )
-    assert_journal_mutable(entry)
+    assert_journal_editable(entry)
     assert_transaction_date_open(
         db, entry.posting_date, document="journal entry", kind=KIND_ADJUSTMENT
     )

@@ -48,8 +48,33 @@ SOURCE_DOCUMENT_TYPES = frozenset(
 
 SYSTEM_JOURNAL_IMMUTABLE_DETAIL = (
     "System-generated journal entries cannot be edited or deleted. "
-    "Reverse them from the source document."
+    "Reverse them from the source document so the audit trail stays intact."
 )
+_EDITABLE_APPROVAL = frozenset({"DRAFT", "REJECTED"})
+
+
+def journal_is_editable(entry: Any) -> bool:
+    """Manual unposted Draft or Rejected journals can be edited. System journals stay locked."""
+    if bool(getattr(entry, "is_system_generated", False)):
+        return False
+    approval = (getattr(entry, "approval_status", None) or "DRAFT").strip().upper()
+    posting = (getattr(entry, "posting_status", None) or "").strip().lower()
+    return posting != "posted" and approval in _EDITABLE_APPROVAL
+
+
+def assert_journal_editable(entry: Any) -> None:
+    if bool(getattr(entry, "is_system_generated", False)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=SYSTEM_JOURNAL_IMMUTABLE_DETAIL,
+        )
+    if journal_is_editable(entry):
+        return
+    approval = getattr(entry, "approval_status", None) or "DRAFT"
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"Cannot edit a journal entry with approval status {approval}",
+    )
 
 
 def infer_source_document_type(description: Any = None, reference: Any = None) -> str | None:

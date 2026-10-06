@@ -11,6 +11,7 @@ from unittest import TestCase
 from fastapi import HTTPException
 
 from app.services.document_sequences import DOCUMENT_PREFIXES
+from app.services.journal_source import journal_is_editable
 from app.services.financial_reports import signed_balance
 from app.services.o2c import (
     resolve_fulfillment_ship_date,
@@ -143,6 +144,35 @@ class ReceiveQtySmokeTests(TestCase):
     def test_issue_22_short_receive_uses_cancel_remaining(self):
         assert_can_close_remaining(progressed=800, remaining=200)
         assert_qty_within_remaining(item_id="1001G00001710", qty=800, remaining=1000)
+
+
+class JournalWorkflowSmokeTests(TestCase):
+    def test_issue_31_draft_and_rejected_manual_journals_are_editable(self):
+        self.assertFalse(
+            journal_is_editable(
+                SimpleNamespace(approval_status="DRAFT", posting_status="Draft", is_system_generated=True)
+            )
+        )
+        self.assertTrue(
+            journal_is_editable(
+                SimpleNamespace(approval_status="DRAFT", posting_status="Draft", is_system_generated=False)
+            )
+        )
+        self.assertTrue(
+            journal_is_editable(
+                SimpleNamespace(approval_status="REJECTED", posting_status="Draft", is_system_generated=False)
+            )
+        )
+        self.assertFalse(
+            journal_is_editable(
+                SimpleNamespace(approval_status="PENDING_APPROVAL", posting_status="Draft")
+            )
+        )
+        self.assertFalse(
+            journal_is_editable(
+                SimpleNamespace(approval_status="APPROVED", posting_status="Posted")
+            )
+        )
 
 
 class StatementLogicSmokeTests(TestCase):

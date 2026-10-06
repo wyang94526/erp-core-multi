@@ -848,7 +848,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         question: 'Can I edit a journal after it was submitted or returned?',
         answer:
-          'Yes. Open View on a pending journal to read it, then Return to Draft (with a reason). The journal becomes Draft so you can Edit the lines and Submit again. Auto-generated journals stay read-only; return those to Draft or reverse them from the source document.',
+          'Yes, for manual journals. Open View on a pending journal, then Return to Draft (with a reason). The journal becomes Draft so you can Edit the lines and Submit again. Auto-generated journals stay read-only — reverse them from the source document so the audit trail stays intact.',
       },
       {
         question: 'Should I change a posting rule when a journal is auto-generated?',

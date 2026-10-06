@@ -310,7 +310,7 @@ export function ManualJournalEntryPage() {
             </h1>
             <p style={hintStyle}>
               {loadedEntry && isSystemJournal(loadedEntry)
-                ? 'This journal was generated automatically. Return it to Draft from approval, or reverse it from the source document, instead of rewriting the lines.'
+                ? 'This journal was generated automatically. Lines cannot be edited. Reverse it from the source document so the audit trail stays intact.'
                 : readOnly && approvalStatus === 'PENDING_APPROVAL'
                   ? 'This journal is awaiting approval. Use Return to Draft to send it back so it can be edited and submitted again.'
                   : readOnly && approvalStatus === 'APPROVED'
@@ -373,7 +373,7 @@ export function ManualJournalEntryPage() {
           </label>
         </div>
 
-        {readOnly && loadedEntry && (isSystemJournal(loadedEntry) || sourceHref || (ruleHref && ruleLabel)) && (
+        {loadedEntry && (isSystemJournal(loadedEntry) || sourceHref || (ruleHref && ruleLabel)) && (
           <div style={sourceActionsStyle}>
             {sourceHref ? (
               <Link to={sourceHref} style={sourceLinkStyle}>

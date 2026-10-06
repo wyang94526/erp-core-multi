@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import JournalEntry, LedgerPosting
-from app.services.journal_source import assert_journal_mutable
+from app.services.journal_source import assert_journal_editable
 from app.schemas import LedgerPostingCreate, LedgerPostingRead, LedgerPostingUpdate
 from app.services.accounting import (
     ensure_account_exists,
@@ -27,7 +27,7 @@ def _reload_entry_postings(db: Session, entry_id: UUID) -> list[LedgerPosting]:
 def _assert_entry_mutable(db: Session, entry_id: UUID) -> None:
     entry = db.get(JournalEntry, entry_id)
     if entry is not None:
-        assert_journal_mutable(entry)
+        assert_journal_editable(entry)
 
 
 @router.get("", response_model=list[LedgerPostingRead])
