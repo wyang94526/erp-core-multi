@@ -21,10 +21,13 @@ import { goodsReceiptHref, receiptLinkStyle } from '../utils/goodsReceipts'
 import { scoCanIssueMaterials, scoIssueBlockedReason } from '../utils/scoIssue'
 import { SCO_KIT_MUST_BE_ISSUED_MESSAGE, scoHasUnissuedKitComponents } from '../utils/scoKitIssue'
 import {
+  overReceiveDetail,
   scoCanReceiveFinishedGoods,
   scoCanShowCloseRemaining,
   scoCloseRemainingBlockedReason,
   scoReceiveBlockedReason,
+  scoReceiveItemId,
+  scoRemainingToReceive,
 } from '../utils/scoReceive'
 import {
   HoverTip,
@@ -334,6 +337,9 @@ export function SubcontractOrderDetail() {
   const issueBlockedReason = scoIssueBlockedReason(sco)
   const canReceiveFinishedGoods = scoCanReceiveFinishedGoods(sco)
   const receiveBlockedReason = scoReceiveBlockedReason(sco)
+  const receiveLineId = receiveForm.sco_line_id ? Number(receiveForm.sco_line_id) : null
+  const receiveRemaining = scoRemainingToReceive(sco, receiveLineId)
+  const receiveItemId = scoReceiveItemId(sco, receiveLineId)
 
   const assemblyLines =
     sco.lines && sco.lines.length > 0
@@ -556,6 +562,12 @@ export function SubcontractOrderDetail() {
 
     if (!receiveForm.quantity_received || Number(receiveForm.quantity_received) <= 0) {
       setFormErrors({ receive: 'Quantity received must be greater than 0' })
+      return
+    }
+
+    const qty = Number(receiveForm.quantity_received)
+    if (qty > receiveRemaining) {
+      setFormErrors({ receive: overReceiveDetail(receiveItemId, qty, receiveRemaining) })
       return
     }
 
@@ -1362,7 +1374,16 @@ export function SubcontractOrderDetail() {
                 type="button"
                 onClick={() => {
                   if (!canReceiveFinishedGoods) return
-                  setShowReceiveForm((v) => !v)
+                  setShowReceiveForm((open) => {
+                    if (!open) {
+                      const remaining = scoRemainingToReceive(sco, receiveLineId)
+                      setReceiveForm((prev) => ({
+                        ...prev,
+                        quantity_received: remaining > 0 ? String(remaining) : '',
+                      }))
+                    }
+                    return !open
+                  })
                 }}
                 disabled={!canReceiveFinishedGoods}
                 aria-disabled={!canReceiveFinishedGoods}
@@ -1394,9 +1415,11 @@ export function SubcontractOrderDetail() {
         )}
 
         {showReceiveForm && canReceiveFinishedGoods && (
-          <form onSubmit={handleReceiveSubmit} style={{ marginBottom: '20px' }}>
+          <form noValidate onSubmit={handleReceiveSubmit} style={{ marginBottom: '20px' }}>
             <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text)' }}>
-              Receipt ID is assigned automatically as UP72-YYMMXXXX
+              Receipt ID is assigned automatically as UP72-YYMMXXXX. A short receipt is
+              allowed. If the processor will not return the rest, bill the received quantity
+              and click Cancel remaining. Over-receipt is rejected.
             </p>
             <div style={gridStyle}>
               {(sco.lines || []).length > 1 && (
@@ -1417,10 +1440,11 @@ export function SubcontractOrderDetail() {
                 </div>
               )}
               <div style={fieldGroupStyle}>
-                <label style={labelStyle}>Quantity Received *</label>
+                <label style={labelStyle}>Quantity Received * (remaining {receiveRemaining})</label>
                 <input
                   type="number"
                   min="1"
+                  max={receiveRemaining}
                   value={receiveForm.quantity_received}
                   onChange={(e) =>
                     setReceiveForm((prev) => ({ ...prev, quantity_received: e.target.value }))

@@ -5,6 +5,9 @@
 
 import type { PurchaseOrder, PurchaseOrderItem } from '../types'
 import { isAmountOnlyLine } from './itemTypes'
+import { overReceiveDetail } from './receiveQty'
+
+export { overReceiveDetail }
 
 export const ALL_PO_ITEMS_RECEIVED_MESSAGE =
   'All items on this purchase order have been fully received'

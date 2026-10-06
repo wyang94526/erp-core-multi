@@ -82,6 +82,7 @@ from app.services.remaining_close import (
     REMAINING_ALREADY_CLOSED_DETAIL,
     REMAINING_CLOSED_RECEIVE_DETAIL,
     assert_can_close_remaining,
+    assert_qty_within_remaining,
     is_remaining_closed,
 )
 
@@ -313,12 +314,9 @@ def assert_receipt_qty_adjustment(
     other_received = already_received - old_qty
     if other_received < 0:
         other_received = Decimal("0")
-    if not amount_only and ordered_qty > 0 and other_received + new_qty > ordered_qty:
+    if not amount_only and ordered_qty > 0:
         remaining = ordered_qty - other_received
-        raise HTTPException(
-            status_code=400,
-            detail=f"Quantity {new_qty} exceeds remaining receivable {remaining} for {sku}",
-        )
+        assert_qty_within_remaining(item_id=sku, qty=new_qty, remaining=remaining)
     if other_received + new_qty < billed_qty:
         raise HTTPException(
             status_code=400,
@@ -1590,11 +1588,7 @@ def receive_purchase_order(
             remaining = po_qty - already_qty
             if qty <= 0:
                 raise HTTPException(status_code=400, detail="quantity_received must be positive")
-            if qty > remaining:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Quantity {qty} exceeds remaining receivable {remaining} for {po_line.sku}",
-                )
+            assert_qty_within_remaining(item_id=po_line.sku, qty=qty, remaining=remaining)
         line_amount = (unit_cost * qty).quantize(Decimal("0.01"))
         already[po_line.sku] = already_qty + qty
         debit_account, grni_account, posting_rule = resolve_posting_rule(

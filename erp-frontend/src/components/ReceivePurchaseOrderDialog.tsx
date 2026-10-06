@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import type { PurchaseOrderItem } from '../types'
-import { remainingReceiveQty } from '../utils/poP2p'
+import { overReceiveDetail, remainingReceiveQty } from '../utils/poP2p'
 import { isAmountOnlyLine } from '../utils/itemTypes'
 import { formatReceiptQty } from '../utils/goodsReceipts'
 import { primaryButtonStyle, secondaryButtonStyle } from '../utils/documentPageStyles'
@@ -95,7 +95,7 @@ export function ReceivePurchaseOrderDialog({
         return
       }
       if (qty > remaining) {
-        setFormError(`${item.sku}: this receipt cannot exceed remaining ${formatReceiptQty(remaining)}.`)
+        setFormError(overReceiveDetail(item.sku, qty, remaining))
         return
       }
       lines.push({
@@ -121,13 +121,13 @@ export function ReceivePurchaseOrderDialog({
 
   return (
     <div style={overlayStyle} role="dialog" aria-modal="true" aria-labelledby="receive-po-title">
-      <form style={modalStyle} onSubmit={handleSubmit}>
+      <form noValidate style={modalStyle} onSubmit={handleSubmit}>
         <h3 id="receive-po-title" style={titleStyle}>
           Receive goods — {poNumber}
         </h3>
         <p style={hintStyle}>
-          Enter the quantity arriving now. You can receive less than the remaining quantity and
-          post another receipt later.
+          A short receipt is allowed. If the vendor will not ship the rest, bill the received
+          quantity and click Cancel remaining. Over-receipt is rejected.
         </p>
 
         <div style={headerFieldsStyle}>

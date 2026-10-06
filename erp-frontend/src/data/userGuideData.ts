@@ -294,7 +294,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Set Freight Payment Terms. Prepaid shipping is added to the vendor Grand Total. 3rd-party / collect freight is estimated landed cost only and excluded from the vendor invoice total.',
       'Search and add item lines by internal part number (type to search the catalog). Save Draft anytime.',
       'Submit for approval. Approvers follow the purchasing workflow (amount bands).',
-      'When the PO is Approved, open it and click Receive Goods. Enter the quantity arriving now — a short shipment is a partial receipt; remaining quantity can be received later. If a received quantity was entered incorrectly, open the PU67- receipt and click Adjust quantities. Each receipt posts GRNI.',
+      'When the PO is Approved, open it and click Receive Goods. Enter the quantity arriving now. A short shipment is a partial receipt; if the rest will not arrive, bill the received quantity and click Cancel remaining. The system rejects over-receipt. If a received quantity was entered incorrectly, open the PU67- receipt and click Adjust quantities. Each receipt posts GRNI.',
       'Create a Supplier Invoice / Bill against received quantities under Finance → Supplier Invoices. If the vendor will not ship the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change an approved or in-approval PO before any posted receipt or supplier invoice, click Create Revision. The PU62 number stays the same. The last approved snapshot is frozen, the PO returns to Draft, and Receive Goods / Create Bill stay blocked until it is approved again. Revision history and field changes appear on the PO after re-approval.',
     ],
@@ -302,7 +302,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       { kind: 'required', text: 'Vendor and at least one line item are required to submit (empty lines are allowed only on Draft).' },
       { kind: 'important', text: '3rd-party freight must not appear on the goods vendor bill. Confirm Freight Payment Terms before submit; carrier account is required when freight is collect or routing.' },
       { kind: 'important', text: 'Create Revision is blocked once posted goods receipts or supplier invoices exist. Do not overwrite received or billed quantities on the same PO.' },
-      { kind: 'important', text: 'Cancel remaining is blocked until the received quantity has a supplier invoice. Create the bill first, then close leftover quantity.' },
+      { kind: 'important', text: 'Cancel remaining is blocked until the received quantity has a supplier invoice. Create the bill first, then close leftover quantity. Over-receipt is rejected with an error.' },
       { kind: 'important', text: 'Delete is only for draft / rejected POs with no posted receipts or supplier invoices. A posted PU67- receipt and its UG11- journal stay in Goods Receipts and the General Ledger.' },
     ],
     tips: [
@@ -321,6 +321,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         answer:
           'Click Create Revision (same PU62 number), edit lines or header, then submit for approval again. Recall / Amend still work; they now run this same revision path. You need po:submit_for_approval or po:approve.',
       },
+      {
+        question: 'What if the vendor ships short or tries to ship more than ordered?',
+        answer:
+          'A short receipt is allowed. Bill the quantity received, then click Cancel remaining to close leftover quantity. Over-receipt is not allowed — the system raises an error if the quantity is greater than remaining receivable.',
+      },
     ],
     troubleshooting: [
       {
@@ -330,6 +335,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Receive Goods is disabled',
         fix: 'The PO must be Approved (approval_status APPROVED). Draft, pending, or revised-but-not-reapproved POs cannot receive.',
+      },
+      {
+        issue: 'Receive Goods says over-receipt is not allowed',
+        fix: 'Enter no more than remaining receivable. A short receipt is allowed; if the rest will not arrive, bill the received quantity and click Cancel remaining.',
       },
       {
         issue: 'Create Revision is disabled',
@@ -440,7 +449,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Save the SCO. Open the detail page to review required components.',
       'Issue all kit components to the subcontractor while the SCO is still Draft.',
       'After the kit is fully issued, submit and approve the SCO. Then receive finished goods. Print the shipping document from an issue when the kit is sent.',
-      'When finished goods return, record a receipt (Receipt ID + quantity). A short shipment is a partial receipt; remaining quantity can be received later. GRNI is posted for the value received. The parent sales order can then fulfill only the quantity received so far.',
+      'When finished goods return, record a receipt (quantity cannot exceed remaining ordered). A short receipt is allowed; if the processor will not return the rest, bill the received quantity and click Cancel remaining. Over-receipt is rejected. GRNI is posted for the value received. The parent sales order can then fulfill only the quantity received so far.',
       'Create a supplier invoice against the SCO / receipt from Finance when the processor bills you. If the processor will not return the rest, click Cancel remaining only after that received quantity has been billed.',
       'To change vendor charges or finished-good quantity after approval, open the SCO and click Create Revision. Edit the sheet, then submit for approval again. The SCO number stays the same. Linked purchase orders stay on the same SCO.',
     ],
@@ -464,6 +473,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         question: 'How do I track status?',
         answer:
           'The SCO list and detail header show status (planned, materials issued, partially received, completed, cancelled). Receipts and material issues are on the same detail page.',
+      },
+      {
+        question: 'What if the processor returns short or tries to return more than ordered?',
+        answer:
+          'A short receipt is allowed. Bill the quantity received, then click Cancel remaining. Over-receipt is not allowed — the system raises an error if the quantity is greater than remaining receivable.',
       },
     ],
     troubleshooting: [

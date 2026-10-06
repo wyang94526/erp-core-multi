@@ -20,6 +20,7 @@ import {
   receiptWarehouseLabel,
 } from '../utils/goodsReceipts'
 import { journalDisplayId, journalEditPath } from '../utils/journalEntries'
+import { overReceiveDetail } from '../utils/receiveQty'
 import {
   HoverTip,
   actionRowStyle,
@@ -124,6 +125,11 @@ export function GoodsReceiptDetail() {
       const qty = Number(raw)
       if (!raw || raw.trim() === '' || !Number.isFinite(qty) || qty <= 0) {
         setFormError(`Enter a positive quantity for ${line.item_id}.`)
+        return
+      }
+      const ordered = Number(line.quantity_ordered)
+      if (Number.isFinite(ordered) && ordered > 0 && qty > ordered) {
+        setFormError(overReceiveDetail(line.item_id, qty, ordered))
         return
       }
     }
@@ -327,6 +333,11 @@ export function GoodsReceiptDetail() {
                           <input
                             type="number"
                             min="0"
+                            max={
+                              Number(line.quantity_ordered) > 0
+                                ? Number(line.quantity_ordered)
+                                : undefined
+                            }
                             step="any"
                             aria-label={`Received quantity for ${line.item_id}`}
                             value={qtyByLine[String(line.id)] ?? ''}

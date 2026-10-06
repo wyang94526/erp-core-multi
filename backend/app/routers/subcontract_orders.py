@@ -58,6 +58,7 @@ from app.services.document_sequences import (
     next_document_number,
 )
 from app.services.period_close import assert_transaction_date_open
+from app.services.remaining_close import assert_qty_within_remaining
 from app.services.bom_versions import resolve_header
 from app.services.catalog import explode_assembly_components, material_bom_lines, required_quantity
 from app.services.po_sco_demand import list_eligible_for_material_po, unfulfilled_components
@@ -1071,11 +1072,11 @@ def receive_goods(
     ]
     total_received_so_far = sum((r.quantity_received for r in existing_receipts), 0)
     remaining = ordered_qty - total_received_so_far
-    if payload.quantity_received > remaining:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot receive more than remaining ordered quantity: remaining={remaining}",
-        )
+    assert_qty_within_remaining(
+        item_id=item_id,
+        qty=payload.quantity_received,
+        remaining=remaining,
+    )
 
     wip = Decimal(product.wip_quantity or 0)
     deduct = min(wip, Decimal(payload.quantity_received))

@@ -23,6 +23,18 @@ REMAINING_CLOSED_FULFILL_DETAIL = (
 )
 
 
+def over_receive_detail(item_id: str, qty, remaining) -> str:
+    return (
+        f"Quantity {qty} exceeds remaining receivable {remaining} for {item_id}. "
+        "Over-receipt is not allowed."
+    )
+
+
+def assert_qty_within_remaining(*, item_id: str, qty, remaining) -> None:
+    if qty > remaining:
+        raise HTTPException(status_code=400, detail=over_receive_detail(item_id, qty, remaining))
+
+
 def is_remaining_closed(document) -> bool:
     return bool(getattr(document, "remaining_closed", False))
 

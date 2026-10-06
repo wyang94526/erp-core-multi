@@ -4,7 +4,10 @@
  */
 
 import type { SubcontractOrder } from '../types'
+import { overReceiveDetail } from './receiveQty'
 import { scoHasUnissuedKitComponents } from './scoKitIssue'
+
+export { overReceiveDetail }
 
 export const SCO_RECEIVE_REQUIRES_APPROVAL_MESSAGE =
   'Finished goods cannot be received until the Subcontract Order receives full management approval.'
@@ -43,6 +46,41 @@ export function scoReceivedQty(sco: Pick<SubcontractOrder, 'quantity_ordered' | 
     }, 0)
   }
   return headerQty + Object.values(receivedByLine).reduce((sum, qty) => sum + qty, 0)
+}
+
+export function scoRemainingToReceive(
+  sco: Pick<SubcontractOrder, 'quantity_ordered' | 'item_id' | 'lines' | 'finished_goods_receipts'>,
+  scoLineId?: number | null,
+): number {
+  const receipts = sco.finished_goods_receipts || []
+  const lines = sco.lines || []
+  if (scoLineId) {
+    const line = lines.find((row) => Number(row.sco_line_id) === Number(scoLineId))
+    const ordered = Number(line?.quantity_ordered ?? sco.quantity_ordered ?? 0)
+    const got = receipts.reduce((sum, receipt) => {
+      const receiptLine = receipt.sco_line_id == null ? null : Number(receipt.sco_line_id)
+      const matchesLine = receiptLine === Number(scoLineId)
+      const matchesHeaderFirstLine = receiptLine == null && Number(line?.line_number || 1) === 1
+      if (!matchesLine && !matchesHeaderFirstLine) return sum
+      return sum + Number(receipt.quantity_received || 0)
+    }, 0)
+    return Math.max(0, ordered - got)
+  }
+  const ordered = lines.length
+    ? lines.reduce((sum, line) => sum + Number(line.quantity_ordered || 0), 0)
+    : Number(sco.quantity_ordered || 0)
+  return Math.max(0, ordered - scoReceivedQty(sco))
+}
+
+export function scoReceiveItemId(
+  sco: Pick<SubcontractOrder, 'item_id' | 'lines'>,
+  scoLineId?: number | null,
+): string {
+  if (scoLineId) {
+    const line = (sco.lines || []).find((row) => Number(row.sco_line_id) === Number(scoLineId))
+    if (line?.item_id) return line.item_id
+  }
+  return sco.item_id
 }
 
 export const BILL_RECEIVED_BEFORE_CANCEL_REMAINING =

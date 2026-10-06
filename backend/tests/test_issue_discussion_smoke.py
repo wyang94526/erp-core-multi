@@ -17,6 +17,11 @@ from app.services.o2c import (
     resolve_sales_invoice_issue_date,
 )
 from app.services.p2p import _resolve_posting_date, non_po_debit_account
+from app.services.remaining_close import (
+    assert_can_close_remaining,
+    assert_qty_within_remaining,
+    over_receive_detail,
+)
 from app.services.subcontract import (
     SCO_KIT_MUST_BE_ISSUED_DETAIL,
     SCO_RECEIVE_REQUIRES_APPROVAL_DETAIL,
@@ -122,6 +127,22 @@ class LandedCostAccountSmokeTests(TestCase):
             ).account_code,
             "5190",
         )
+
+
+class ReceiveQtySmokeTests(TestCase):
+    def test_issue_22_over_receive_raises_error(self):
+        with self.assertRaises(HTTPException) as raised:
+            assert_qty_within_remaining(item_id="1001G00001710", qty=1100, remaining=200)
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(
+            raised.exception.detail,
+            over_receive_detail("1001G00001710", 1100, 200),
+        )
+        self.assertIn("Over-receipt is not allowed", raised.exception.detail)
+
+    def test_issue_22_short_receive_uses_cancel_remaining(self):
+        assert_can_close_remaining(progressed=800, remaining=200)
+        assert_qty_within_remaining(item_id="1001G00001710", qty=800, remaining=1000)
 
 
 class StatementLogicSmokeTests(TestCase):

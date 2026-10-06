@@ -203,7 +203,7 @@ export const WORKFLOW_GUIDES: WorkflowGuide[] = [
         id: 'p2p-receipt',
         title: 'Goods Receipt & Quality Inspection',
         navPath: 'Sales & Procurement ▸ Goods Receipts',
-        body: 'Receive against the approved PO (Receive Goods) so GRNI posts. Enter only the quantity that arrived; remaining quantity can be received on a later receipt. If a qty was entered incorrectly, open the PU67- receipt and Adjust quantities. Do not cancel remaining until the received quantity has a supplier invoice. Inspect quality, then confirm the receipt appears under Goods Receipts and as a Receipt movement in the target warehouse / bin.',
+        body: 'Receive against the approved PO (Receive Goods) so GRNI posts. Enter only the quantity that arrived. A later receipt can take more leftover quantity, but over-receipt is rejected. If the vendor will not ship the rest, bill the received quantity and click Cancel remaining. If a qty was entered incorrectly, open the PU67- receipt and Adjust quantities. Inspect quality, then confirm the receipt appears under Goods Receipts and as a Receipt movement in the target warehouse / bin.',
         links: [
           { label: 'Goods Receipts', to: '/goods-receipts' },
           { label: 'Go to Stock Movements', to: '/inventory/movements' },
