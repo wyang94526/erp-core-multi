@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { BookOpen, CalendarCheck, CalendarRange, Lock, Upload } from 'lucide-react'
 import { headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyles'
 import { PageHeader } from './PageHeader'
@@ -59,6 +59,7 @@ function GeneralLedger() {
   const [importing, setImporting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'entries' | 'postings'>('entries')
   const csvInputRef = useRef<HTMLInputElement | null>(null)
   const approvalPanelRef = useRef<HTMLDivElement | null>(null)
   const canCreate = hasPermission('journal:create')
@@ -151,8 +152,8 @@ function GeneralLedger() {
     }
   }
 
-  const formatCurrency = (amount: number) =>
-    amount === 0
+  const formatCurrency = (amount: number, showZero = false) =>
+    amount === 0 && !showZero
       ? ''
       : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 
@@ -243,6 +244,18 @@ function GeneralLedger() {
     },
   })
 
+  const postingTotals = useMemo(
+    () =>
+      sortedRows.reduce(
+        (totals, row) => ({
+          debit: totals.debit + row.debit,
+          credit: totals.credit + row.credit,
+        }),
+        { debit: 0, credit: 0 },
+      ),
+    [sortedRows],
+  )
+
   return (
     <div style={containerStyle}>
       <PageHeader title="General Ledger" subtitle="Double-entry journal postings and period close">
@@ -293,12 +306,6 @@ function GeneralLedger() {
         exportDisabled={loading}
         onExport={handleExportJournals}
       />
-      <p style={filterCountStyle}>
-        {loading
-          ? 'Searching journals…'
-          : `${sortedEntries.length} journal${sortedEntries.length === 1 ? '' : 's'} match current filters`}
-      </p>
-
       {selectedId && (
         <div ref={approvalPanelRef} style={approvalAnchorStyle}>
           <div style={approvalContextStyle}>
@@ -322,175 +329,210 @@ function GeneralLedger() {
 
       <div style={dashboardSectionStyle}>
         <div style={sectionHeaderRowStyle}>
-          <h3 style={{ ...sectionTitleStyle, margin: 0 }}>Journal Entries</h3>
-        </div>
-        {loading ? (
-          <div style={emptyStateWrapperStyle}>Loading journal entries...</div>
-        ) : sortedEntries.length === 0 ? (
-          <div style={emptyStateWrapperStyle}>
-            {hasActiveFilters ? 'No journal entries match the current filters.' : 'No journal entries found.'}
-            {hasActiveFilters ? (
-              <div style={{ marginTop: 12 }}>
-                <button type="button" style={headerButtonStyle} onClick={clearFilters}>
-                  Clear filters
-                </button>
-              </div>
-            ) : null}
+          <div style={tabListStyle} role="tablist" aria-label="General Ledger views">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'entries'}
+              onClick={() => setActiveTab('entries')}
+              style={tabButtonStyle(activeTab === 'entries')}
+            >
+              Journal Entries{loading ? '' : ` (${sortedEntries.length})`}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'postings'}
+              onClick={() => setActiveTab('postings')}
+              style={tabButtonStyle(activeTab === 'postings')}
+            >
+              Posting Detail{loading ? '' : ` (${sortedRows.length})`}
+            </button>
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
-            <table style={directoryTableStyle}>
-              <thead>
-                <tr style={directoryTheadRowStyle}>
-                  <SortableTh
-                    label="Date"
-                    columnKey="created_at"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Journal ID"
-                    columnKey="id"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Description"
-                    columnKey="description"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Reference"
-                    columnKey="reference"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Source"
-                    columnKey="source_document_type"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Period"
-                    columnKey="period"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Posting"
-                    columnKey="posting_status"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <SortableTh
-                    label="Approval"
-                    columnKey="approval_status"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                  <th style={directoryThStyle}>Actions</th>
-                  <SortableTh
-                    label="Posting Rule"
-                    columnKey="posting_rule_id"
-                    sortConfig={entrySortConfig}
-                    onRequestSort={requestEntrySort}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedEntries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    style={
-                      entry.id === selectedId
-                        ? { ...directoryTbodyRowStyle, backgroundColor: '#e3f2fd' }
-                        : directoryTbodyRowStyle
-                    }
-                  >
-                    <td style={directoryTdStyle}>
-                      {formatDate(entry.posting_date || entry.created_at)}
-                    </td>
-                    <td style={directoryTdStyle}>{journalDisplayId(entry)}</td>
-                    <td style={directoryTdStyle}>
-                      <div style={descriptionCellStyle}>
-                        {isInferredSystemJournal(entry) && (
-                          <span style={systemChipStyle} title="System-generated from a source document">
-                            <Lock size={11} />
-                            System
-                          </span>
-                        )}
-                        <span>{entry.description}</span>
-                      </div>
-                    </td>
-                    <td style={directoryTdStyle}>{entry.reference || '—'}</td>
-                    <td style={directoryTdStyle}>
-                      {inferredJournalSource(entry) === 'MANUAL'
-                        ? 'Manual'
-                        : `${sourceDocumentLabel(inferredJournalSource(entry))}${
-                            entry.source_record_id ? ` · ${entry.source_record_id}` : ''
-                          }`}
-                    </td>
-                    <td style={directoryTdStyle}>{entry.period || '—'}</td>
-                    <td style={directoryTdStyle}>{entry.posting_status || '—'}</td>
-                    <td style={directoryTdStyle}>{entry.approval_status || 'DRAFT'}</td>
-                    <td style={directoryTdStyle}>
-                      <div style={actionRowStyle}>
-                        {canCreate && isJournalEditable(entry) ? (
-                          <button
-                            style={editButtonStyle}
-                            onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
-                          >
-                            Edit
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            style={viewButtonStyle}
-                            onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
-                          >
-                            View
-                          </button>
-                        )}
-                        <button
-                          style={approvalButtonStyle}
-                          onClick={() => {
-                            setSelectedId(entry.id)
-                            requestAnimationFrame(() => {
-                              approvalPanelRef.current?.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start',
-                              })
-                            })
-                          }}
+        </div>
+        {activeTab === 'entries' ? (
+          loading ? (
+            <div style={emptyStateWrapperStyle}>Loading journal entries...</div>
+          ) : sortedEntries.length === 0 ? (
+            <div style={emptyStateWrapperStyle}>
+              {hasActiveFilters ? 'No journal entries match the current filters.' : 'No journal entries found.'}
+              {hasActiveFilters ? (
+                <div style={{ marginTop: 12 }}>
+                  <button type="button" style={headerButtonStyle} onClick={clearFilters}>
+                    Clear filters
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={directoryTableStyle}>
+                <thead>
+                  <tr style={directoryTheadRowStyle}>
+                    <SortableTh
+                      label="Date"
+                      columnKey="created_at"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Journal ID"
+                      columnKey="id"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Description"
+                      columnKey="description"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Reference"
+                      columnKey="reference"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Source"
+                      columnKey="source_document_type"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Period"
+                      columnKey="period"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Posting"
+                      columnKey="posting_status"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <SortableTh
+                      label="Approval"
+                      columnKey="approval_status"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                    <th style={directoryThStyle}>Actions</th>
+                    <SortableTh
+                      label="Posting Rule"
+                      columnKey="posting_rule_id"
+                      sortConfig={entrySortConfig}
+                      onRequestSort={requestEntrySort}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedEntries.map((entry) => (
+                    <tr
+                      key={entry.id}
+                      style={
+                        entry.id === selectedId
+                          ? { ...directoryTbodyRowStyle, backgroundColor: '#e3f2fd' }
+                          : directoryTbodyRowStyle
+                      }
+                    >
+                      <td style={directoryTdStyle}>
+                        {formatDate(entry.posting_date || entry.created_at)}
+                      </td>
+                      <td style={directoryTdStyle}>
+                        <Link
+                          to={journalEditPath(entry.id, { from: '/general-ledger' })}
+                          style={journalIdLinkStyle}
+                          title="Open journal entry"
                         >
-                          Approval
-                        </button>
-                        {canCreate && isJournalDeletable(entry) && (
+                          {journalDisplayId(entry)}
+                        </Link>
+                      </td>
+                      <td style={directoryTdStyle}>
+                        <div style={descriptionCellStyle}>
+                          {isInferredSystemJournal(entry) && (
+                            <span style={systemChipStyle} title="System-generated from a source document">
+                              <Lock size={11} />
+                              System
+                            </span>
+                          )}
+                          <span>{entry.description}</span>
+                        </div>
+                      </td>
+                      <td style={directoryTdStyle}>{entry.reference || '—'}</td>
+                      <td style={directoryTdStyle}>
+                        {inferredJournalSource(entry) === 'MANUAL'
+                          ? 'Manual'
+                          : `${sourceDocumentLabel(inferredJournalSource(entry))}${
+                              entry.source_record_id ? ` · ${entry.source_record_id}` : ''
+                            }`}
+                      </td>
+                      <td style={directoryTdStyle}>{entry.period || '—'}</td>
+                      <td style={directoryTdStyle}>{entry.posting_status || '—'}</td>
+                      <td style={directoryTdStyle}>{entry.approval_status || 'DRAFT'}</td>
+                      <td style={directoryTdStyle}>
+                        <div style={actionRowStyle}>
+                          {canCreate && isJournalEditable(entry) ? (
+                            <button
+                              style={editButtonStyle}
+                              onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
+                            >
+                              Edit
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={viewButtonStyle}
+                              onClick={() => navigate(journalEditPath(entry.id, { from: '/general-ledger' }))}
+                            >
+                              View
+                            </button>
+                          )}
                           <button
-                            type="button"
-                            style={deleteButtonStyle}
-                            disabled={deletingId === entry.id}
-                            onClick={() => void handleDeleteJournal(entry)}
+                            style={approvalButtonStyle}
+                            onClick={() => {
+                              setSelectedId(entry.id)
+                              requestAnimationFrame(() => {
+                                approvalPanelRef.current?.scrollIntoView({
+                                  behavior: 'smooth',
+                                  block: 'start',
+                                })
+                              })
+                            }}
                           >
-                            {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                            Approval
                           </button>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }} title={inferredPostingRule(entry, rules)?.name || entry.posting_rule_name || ''}>
-                      {postingRuleDisplay(entry, rules) || '—'}
+                          {canCreate && isJournalDeletable(entry) && (
+                            <button
+                              type="button"
+                              style={deleteButtonStyle}
+                              disabled={deletingId === entry.id}
+                              onClick={() => void handleDeleteJournal(entry)}
+                            >
+                              {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ ...directoryTdStyle, fontFamily: 'monospace' }} title={inferredPostingRule(entry, rules)?.name || entry.posting_rule_name || ''}>
+                        {postingRuleDisplay(entry, rules) || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={directoryTfootRowStyle}>
+                    <td colSpan={10} style={directoryTfootTdStyle}>
+                      Total {sortedEntries.length} journal{sortedEntries.length === 1 ? '' : 's'}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <h3 style={sectionTitleStyle}>Posting Detail</h3>
-        {loading ? null : sortedRows.length === 0 ? (
+                </tfoot>
+              </table>
+            </div>
+          )
+        ) : loading ? (
+          <div style={emptyStateWrapperStyle}>Loading posting lines...</div>
+        ) : sortedRows.length === 0 ? (
           <div style={emptyStateWrapperStyle}>
             {hasActiveFilters ? 'No posting lines match the current filters.' : 'No postings found.'}
           </div>
@@ -578,6 +620,20 @@ function GeneralLedger() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={directoryTfootRowStyle}>
+                  <td colSpan={5} style={directoryTfootTdStyle}>
+                    Total {sortedRows.length} posting line{sortedRows.length === 1 ? '' : 's'}
+                  </td>
+                  <td style={{ ...directoryTfootTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatCurrency(postingTotals.debit, true)}
+                  </td>
+                  <td style={{ ...directoryTfootTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatCurrency(postingTotals.credit, true)}
+                  </td>
+                  <td colSpan={2} style={directoryTfootTdStyle} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
@@ -597,12 +653,6 @@ const containerStyle: React.CSSProperties = {
   textAlign: 'left',
 }
 
-const filterCountStyle: React.CSSProperties = {
-  margin: '-8px 0 16px',
-  fontSize: '13px',
-  color: '#616161',
-}
-
 const dashboardSectionStyle: React.CSSProperties = {
   backgroundColor: '#fff',
   border: '1px solid #ddd',
@@ -611,19 +661,32 @@ const dashboardSectionStyle: React.CSSProperties = {
   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
 }
 
-const sectionTitleStyle: React.CSSProperties = {
-  margin: '0 0 12px 0',
-  fontSize: '16px',
-  fontWeight: 700,
-  color: '#212121',
-}
-
 const sectionHeaderRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: '12px',
   marginBottom: '12px',
+}
+
+const tabListStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+function tabButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '8px 14px',
+    borderRadius: 6,
+    border: active ? '1px solid #1565c0' : '1px solid #ddd',
+    background: active ? '#1565c0' : '#fff',
+    color: active ? '#fff' : '#424242',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 700,
+    fontFamily: 'inherit',
+  }
 }
 
 const approvalButtonStyle: React.CSSProperties = {
@@ -690,6 +753,24 @@ const directoryTdStyle: React.CSSProperties = {
   padding: '12px 10px',
   color: '#424242',
   verticalAlign: 'middle',
+}
+
+const journalIdLinkStyle: React.CSSProperties = {
+  color: '#1565c0',
+  textDecoration: 'underline',
+  fontWeight: 600,
+}
+
+const directoryTfootRowStyle: React.CSSProperties = {
+  backgroundColor: '#f5f5f5',
+  borderTop: '2px solid #cfd8dc',
+}
+
+const directoryTfootTdStyle: React.CSSProperties = {
+  padding: '12px 10px',
+  color: '#212121',
+  fontWeight: 700,
+  fontSize: 13,
 }
 
 const descriptionCellStyle: React.CSSProperties = {

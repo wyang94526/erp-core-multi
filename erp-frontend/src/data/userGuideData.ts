@@ -837,7 +837,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Go to Finance & Accounting → General Ledger & Setup → Manual Journal Entry (or open General Ledger and create a journal).',
       'Enter the journal date, reference, and balanced debit/credit lines against Chart of Accounts codes.',
       'Save as Draft, then Submit for approval. The journal posts only when it is approved (posting_status Posted). Use View on a submitted journal to read the lines; use Return to Draft to send it back for editing, then Submit again.',
-      'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. The list and Export CSV default to Posted journals so the file can be summed to Trial Balance. Switch Posting to All to include drafts. System-generated journals show a System chip and link back to the source document and posting rule.',
+      'Use General Ledger filters to search by journal text, source, posted date, period, posting rule, posting status, or approval. The Journal Entries tab lists headers with a total count at the bottom. Open Posting Detail to review debit/credit lines and their totals for the same filters. The list and Export CSV default to Posted journals so the file can be summed to Trial Balance. Switch Posting to All to include drafts. System-generated journals show a System chip and link back to the source document and posting rule.',
       'Do not rewrite posting rules when an auto-generated journal is created. Year-end close reads YEC_CLOSE (P&L → 3350) and YEC_NI_CLEAR (reverse 3353 / 3354); month-end parks NI with MEC_PARK_NI; bank transfers use each bank’s G/L.',
     ],
     callouts: [
