@@ -40,7 +40,7 @@ export const REPORT_HUB_CATALOG: FinancialReportCatalogItem[] = [
     title: 'Income Statement (Profit & Loss)',
     category: 'primary',
     category_label: REPORT_CATEGORY_META.primary.label,
-    description: 'Period debit, credit, and signed net for revenue and expense. Close journals are excluded.',
+    description: 'Period and year-to-date debit, credit, and signed net for revenue and expense. Close journals are excluded.',
     parameters: ['Date Range', 'Financial Period', 'Currency'],
     default_action: 'Generate Report',
   },

@@ -81,7 +81,7 @@ REPORT_CATALOG: list[dict[str, Any]] = [
         "title": "Income Statement (Profit & Loss)",
         "category": "primary",
         "category_label": "Primary Financial Statements",
-        "description": "Period debit, credit, and signed net for revenue and expense. Close journals are excluded.",
+        "description": "Period and year-to-date debit, credit, and signed net for revenue and expense. Close journals are excluded.",
         "parameters": ["Date Range", "Financial Period", "Currency"],
         "default_action": "Generate Report",
     },
@@ -508,46 +508,155 @@ def _append_account_rows(
     return total
 
 
+def _zero_pnl_balance(account: AccountBalance) -> AccountBalance:
+    return AccountBalance(
+        account_id=account.account_id,
+        account_code=account.account_code,
+        account_name=account.account_name,
+        account_type=account.account_type,
+        debit=ZERO,
+        credit=ZERO,
+    )
+
+
+def _combine_pnl_accounts(
+    period_accounts: list[AccountBalance],
+    ytd_accounts: list[AccountBalance],
+) -> list[tuple[AccountBalance, AccountBalance]]:
+    period_by_id = {item.account_id: item for item in period_accounts}
+    ytd_by_id = {item.account_id: item for item in ytd_accounts}
+    ordered: list[AccountBalance] = []
+    seen: set[UUID] = set()
+    for item in period_accounts:
+        ordered.append(item)
+        seen.add(item.account_id)
+    extras = sorted(
+        (item for item in ytd_accounts if item.account_id not in seen),
+        key=lambda item: item.account_code,
+    )
+    ordered.extend(extras)
+    pairs: list[tuple[AccountBalance, AccountBalance]] = []
+    for item in ordered:
+        pairs.append(
+            (
+                period_by_id.get(item.account_id) or _zero_pnl_balance(item),
+                ytd_by_id.get(item.account_id) or _zero_pnl_balance(item),
+            )
+        )
+    return pairs
+
+
+def _pnl_year_start(filters: dict[str, Any]) -> date:
+    date_to: date = filters["_to"]
+    year_start = date(int(filters["_year"]), 1, 1)
+    if year_start > date_to:
+        year_start = date(date_to.year, 1, 1)
+    return year_start
+
+
+def _is_cogs_account(account: AccountBalance) -> bool:
+    blob = f"{account.account_code} {account.account_name}".lower()
+    return any(token in blob for token in ("cogs", "cost of", "cost of sales", "cost of goods"))
+
+
+def _split_cogs(accounts: list[AccountBalance]) -> tuple[list[AccountBalance], list[AccountBalance]]:
+    cogs: list[AccountBalance] = []
+    opex: list[AccountBalance] = []
+    for account in accounts:
+        if _is_cogs_account(account):
+            cogs.append(account)
+        else:
+            opex.append(account)
+    return cogs, opex
+
+
+def _pnl_keys(
+    *,
+    debit: float | None = None,
+    credit: float | None = None,
+    amount: float | None = None,
+    ytd_debit: float | None = None,
+    ytd_credit: float | None = None,
+    ytd_amount: float | None = None,
+) -> dict[str, Any]:
+    return {
+        "debit": debit,
+        "credit": credit,
+        "amount": amount,
+        "ytd_debit": ytd_debit,
+        "ytd_credit": ytd_credit,
+        "ytd_amount": ytd_amount,
+    }
+
+
 def _append_pnl_account_rows(
     rows: list[dict[str, Any]],
     title: str,
     accounts: list[AccountBalance],
-) -> Decimal:
-    """P&L lines show debit, credit, and signed net so OCI can reconcile 4110001."""
-    rows.append(_row({"label": title, "debit": None, "credit": None, "amount": None}, emphasis="section"))
+    ytd_accounts: list[AccountBalance] | None = None,
+) -> tuple[Decimal, Decimal]:
+    """P&L lines show period and YTD debit, credit, and signed net so 4110001 reconciles."""
+    ytd_list = ytd_accounts if ytd_accounts is not None else accounts
+    pairs = _combine_pnl_accounts(accounts, ytd_list)
+    rows.append(_row({"label": title, **_pnl_keys()}, emphasis="section"))
     total = ZERO
+    ytd_total = ZERO
     debit_total = ZERO
     credit_total = ZERO
-    for account in accounts:
-        amount = account.signed
+    ytd_debit_total = ZERO
+    ytd_credit_total = ZERO
+    for period, ytd in pairs:
+        amount = period.signed
+        ytd_amount = ytd.signed
         total += amount
-        debit_total += account.debit
-        credit_total += account.credit
+        ytd_total += ytd_amount
+        debit_total += period.debit
+        credit_total += period.credit
+        ytd_debit_total += ytd.debit
+        ytd_credit_total += ytd.credit
         rows.append(
             _row(
                 {
-                    "label": f"{account.account_code}  {account.account_name}",
-                    "debit": num(account.debit),
-                    "credit": num(account.credit),
-                    "amount": num(amount),
+                    "label": f"{period.account_code}  {period.account_name}",
+                    **_pnl_keys(
+                        debit=num(period.debit),
+                        credit=num(period.credit),
+                        amount=num(amount),
+                        ytd_debit=num(ytd.debit),
+                        ytd_credit=num(ytd.credit),
+                        ytd_amount=num(ytd_amount),
+                    ),
                 },
                 indent=1,
             )
         )
-    if not accounts:
-        rows.append(_row({"label": "No balances", "debit": 0, "credit": 0, "amount": 0}, indent=1))
+    if not pairs:
+        rows.append(
+            _row(
+                {
+                    "label": "No balances",
+                    **_pnl_keys(debit=0, credit=0, amount=0, ytd_debit=0, ytd_credit=0, ytd_amount=0),
+                },
+                indent=1,
+            )
+        )
     rows.append(
         _row(
             {
                 "label": f"Total {title}",
-                "debit": num(debit_total),
-                "credit": num(credit_total),
-                "amount": num(total),
+                **_pnl_keys(
+                    debit=num(debit_total),
+                    credit=num(credit_total),
+                    amount=num(total),
+                    ytd_debit=num(ytd_debit_total),
+                    ytd_credit=num(ytd_credit_total),
+                    ytd_amount=num(ytd_total),
+                ),
             },
             emphasis="total",
         )
     )
-    return total
+    return total, ytd_total
 
 
 def _balance_sheet(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
@@ -603,42 +712,79 @@ def _balance_sheet(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
 def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     date_from: date = filters["_from"]
     date_to: date = filters["_to"]
+    ytd_from = _pnl_year_start(filters)
+    currency = filters["_currency"]
     balances = _account_balances(
         db,
         date_from=date_from,
         date_to=date_to,
-        currency=filters["_currency"],
+        currency=currency,
+        exclude_close_journals=True,
+    )
+    ytd_balances = _account_balances(
+        db,
+        date_from=ytd_from,
+        date_to=date_to,
+        currency=currency,
         exclude_close_journals=True,
     )
     revenue_accts = _section_accounts(balances, "Revenue")
+    ytd_revenue_accts = _section_accounts(ytd_balances, "Revenue")
     expense_accts = _section_accounts(balances, "Expense")
-    cogs, opex = [], []
-    for account in expense_accts:
-        blob = f"{account.account_code} {account.account_name}".lower()
-        if any(token in blob for token in ("cogs", "cost of", "cost of sales", "cost of goods")):
-            cogs.append(account)
-        else:
-            opex.append(account)
+    ytd_expense_accts = _section_accounts(ytd_balances, "Expense")
+    cogs, opex = _split_cogs(expense_accts)
+    ytd_cogs, ytd_opex = _split_cogs(ytd_expense_accts)
 
     rows: list[dict[str, Any]] = []
-    revenue_total = _append_pnl_account_rows(rows, "Revenue", revenue_accts)
-    cogs_total = _append_pnl_account_rows(rows, "Cost of Sales", cogs) if cogs else ZERO
-    if cogs:
+    revenue_total, ytd_revenue_total = _append_pnl_account_rows(
+        rows, "Revenue", revenue_accts, ytd_revenue_accts
+    )
+    if cogs or ytd_cogs:
+        cogs_total, ytd_cogs_total = _append_pnl_account_rows(rows, "Cost of Sales", cogs, ytd_cogs)
         gross = money(revenue_total - cogs_total)
-        rows.append(_row({"label": "Gross Profit", "debit": None, "credit": None, "amount": num(gross)}, emphasis="total"))
+        ytd_gross = money(ytd_revenue_total - ytd_cogs_total)
+        rows.append(
+            _row(
+                {
+                    "label": "Gross Profit",
+                    **_pnl_keys(amount=num(gross), ytd_amount=num(ytd_gross)),
+                },
+                emphasis="total",
+            )
+        )
     else:
+        cogs_total = ZERO
+        ytd_cogs_total = ZERO
         gross = revenue_total
-    opex_total = _append_pnl_account_rows(rows, "Operating Expenses", opex)
+        ytd_gross = ytd_revenue_total
+    opex_total, ytd_opex_total = _append_pnl_account_rows(
+        rows, "Operating Expenses", opex, ytd_opex
+    )
     net = money(revenue_total - cogs_total - opex_total)
-    rows.append(_row({"label": "Net Income", "debit": None, "credit": None, "amount": num(net)}, emphasis="net"))
+    ytd_net = money(ytd_revenue_total - ytd_cogs_total - ytd_opex_total)
+    rows.append(
+        _row(
+            {
+                "label": "Net Income",
+                **_pnl_keys(amount=num(net), ytd_amount=num(ytd_net)),
+            },
+            emphasis="net",
+        )
+    )
     return {
         "title": "Income Statement (Profit & Loss)",
-        "subtitle": f"{date_from.isoformat()} to {date_to.isoformat()}",
+        "subtitle": (
+            f"{date_from.isoformat()} to {date_to.isoformat()}"
+            f" · YTD {ytd_from.isoformat()} to {date_to.isoformat()}"
+        ),
         "columns": _columns(
             ("label", "Account", "left", "text"),
             ("debit", "Debit", "right", "number"),
             ("credit", "Credit", "right", "number"),
             ("amount", "Net", "right", "number"),
+            ("ytd_debit", "YTD Debit", "right", "number"),
+            ("ytd_credit", "YTD Credit", "right", "number"),
+            ("ytd_amount", "YTD Net", "right", "number"),
         ),
         "rows": rows,
         "summary": {
@@ -647,11 +793,17 @@ def _income_statement(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             "gross_profit": num(gross),
             "operating_expenses": num(opex_total),
             "net_income": num(net),
+            "ytd_revenue": num(ytd_revenue_total),
+            "ytd_cogs": num(ytd_cogs_total),
+            "ytd_gross_profit": num(ytd_gross),
+            "ytd_operating_expenses": num(ytd_opex_total),
+            "ytd_net_income": num(ytd_net),
         },
         "notes": [
-            "Posted journals in the selected date range. Each account shows debit, credit, and signed net (revenue: credit − debit; expense: debit − credit).",
+            "Debit / Credit / Net are posted operating activity in the selected date range (revenue: credit − debit; expense: debit − credit).",
+            f"YTD Debit / YTD Credit / YTD Net are the same operating activity from {ytd_from.isoformat()} through {date_to.isoformat()}.",
             "Month-end and year-end close journals are excluded so operating revenue is not zeroed after park.",
-            "Trial Balance Period Debit / Period Credit / Period Net use this same operating activity, so 4110001 must match.",
+            "Trial Balance Period Debit / Period Credit / Period Net match the Income Statement period columns, so 4110001 must match.",
         ],
     }
 

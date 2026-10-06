@@ -23,6 +23,7 @@ from app.services.financial_reports import (
     resolve_filters,
     signed_balance,
     _append_pnl_account_rows,
+    _pnl_year_start,
 )
 
 
@@ -62,7 +63,7 @@ class FinancialReportHelperTests(unittest.TestCase):
 
     def test_pnl_rows_include_debit_credit_and_net(self):
         rows: list[dict] = []
-        total = _append_pnl_account_rows(
+        total, ytd_total = _append_pnl_account_rows(
             rows,
             "Revenue",
             [
@@ -75,12 +76,59 @@ class FinancialReportHelperTests(unittest.TestCase):
                     credit=Decimal("9000.00"),
                 )
             ],
+            [
+                AccountBalance(
+                    account_id=UUID("00000000-0000-0000-0000-000000000001"),
+                    account_code="4110001",
+                    account_name="Sales Revenue",
+                    account_type="Revenue",
+                    debit=Decimal("1500.00"),
+                    credit=Decimal("50000.00"),
+                )
+            ],
         )
         self.assertEqual(total, Decimal("8000.00"))
+        self.assertEqual(ytd_total, Decimal("48500.00"))
         line = rows[1]["cells"]
         self.assertEqual(line["debit"], 1000.0)
         self.assertEqual(line["credit"], 9000.0)
         self.assertEqual(line["amount"], 8000.0)
+        self.assertEqual(line["ytd_debit"], 1500.0)
+        self.assertEqual(line["ytd_credit"], 50000.0)
+        self.assertEqual(line["ytd_amount"], 48500.0)
+
+    def test_pnl_includes_ytd_only_accounts(self):
+        rows: list[dict] = []
+        period_account = AccountBalance(
+            account_id=UUID("00000000-0000-0000-0000-000000000001"),
+            account_code="4110001",
+            account_name="Sales Revenue",
+            account_type="Revenue",
+            debit=Decimal("0.00"),
+            credit=Decimal("100.00"),
+        )
+        ytd_prior = AccountBalance(
+            account_id=UUID("00000000-0000-0000-0000-000000000002"),
+            account_code="4110002",
+            account_name="Service Revenue",
+            account_type="Revenue",
+            debit=Decimal("0.00"),
+            credit=Decimal("250.00"),
+        )
+        total, ytd_total = _append_pnl_account_rows(
+            rows,
+            "Revenue",
+            [period_account],
+            [period_account, ytd_prior],
+        )
+        self.assertEqual(total, Decimal("100.00"))
+        self.assertEqual(ytd_total, Decimal("350.00"))
+        labels = [row["cells"]["label"] for row in rows]
+        self.assertTrue(any("4110002" in label for label in labels))
+
+    def test_pnl_year_start_uses_fiscal_year(self):
+        start = _pnl_year_start({"_year": 2026, "_to": date(2026, 9, 30)})
+        self.assertEqual(start, date(2026, 1, 1))
 
     def test_aging_buckets(self):
         self.assertEqual(aging_bucket(-3), "current")
