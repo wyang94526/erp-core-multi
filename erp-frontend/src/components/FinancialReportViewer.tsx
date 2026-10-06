@@ -132,6 +132,15 @@ export default function FinancialReportViewer() {
           />
         </label>
         <label style={filterLabelStyle}>
+          Period
+          <input
+            type="month"
+            style={inputStyle}
+            value={filters.period || ''}
+            onChange={(e) => setFilters((current) => filtersFromPeriod(e.target.value, current))}
+          />
+        </label>
+        <label style={filterLabelStyle}>
           Date from
           <input
             type="date"
@@ -147,15 +156,6 @@ export default function FinancialReportViewer() {
             style={inputStyle}
             value={filters.date_to || ''}
             onChange={(e) => setFilters((current) => ({ ...current, date_to: e.target.value }))}
-          />
-        </label>
-        <label style={filterLabelStyle}>
-          Period
-          <input
-            type="month"
-            style={inputStyle}
-            value={filters.period || ''}
-            onChange={(e) => setFilters((current) => filtersFromPeriod(e.target.value, current))}
           />
         </label>
         <label style={filterLabelStyle}>
