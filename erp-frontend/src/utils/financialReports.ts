@@ -76,7 +76,8 @@ export const REPORT_HUB_CATALOG: FinancialReportCatalogItem[] = [
     title: 'Trial Balance',
     category: 'operational',
     category_label: REPORT_CATEGORY_META.operational.label,
-    description: 'Cumulative posted debit/credit through the as-of date, plus period operating activity that matches the P&L.',
+    description:
+      'Imported 試算表 ending balances through the as-of month, plus later posted debit/credit, and period operating activity that matches the P&L.',
     parameters: ['As Of Date', 'Currency'],
     default_action: 'Generate Report',
   },

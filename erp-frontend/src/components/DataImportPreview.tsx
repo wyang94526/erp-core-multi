@@ -940,7 +940,8 @@ function PreviewBody({
         <>
           <p style={muted}>
             Columns match <code>gl_account_balances</code>. Debit minus credit is stored as the
-            ending balance. Rows are upserted for the ending period you enter above. Accounts must
+            ending balance. After Load trial balance, Reports → Trial Balance uses these rows as the
+            opening book for that month-end (and later months plus posted journals). Accounts must
             already exist in the chart of accounts.
           </p>
           {(data.trial_balance_errors ?? []).length > 0 && (

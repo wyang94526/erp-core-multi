@@ -17,10 +17,12 @@ from app.services.financial_reports import (
     classify_counter_account,
     is_cash_account,
     is_fixed_asset_account,
+    merge_account_balances,
     normalize_account_type,
     period_bounds,
     pnl_operating_journal_filter,
     resolve_filters,
+    select_imported_period,
     signed_balance,
     _append_pnl_account_rows,
     _pnl_year_start,
@@ -163,6 +165,27 @@ class FinancialReportHelperTests(unittest.TestCase):
         self.assertEqual(classify_counter_account("Revenue", "4000", "Sales"), "operating")
         self.assertEqual(classify_counter_account("Asset", "1500", "Equipment"), "investing")
         self.assertEqual(classify_counter_account("Equity", "3000", "Retained Earnings"), "financing")
+
+    def test_imported_period_is_latest_month_end_on_or_before_as_of(self):
+        periods = ["2026-07", "2026-08"]
+        self.assertEqual(select_imported_period(periods, date(2026, 7, 31)), "2026-07")
+        self.assertEqual(select_imported_period(periods, date(2026, 8, 15)), "2026-07")
+        self.assertEqual(select_imported_period(periods, date(2026, 8, 31)), "2026-08")
+        self.assertIsNone(select_imported_period(periods, date(2026, 6, 30)))
+
+    def test_merge_adds_imported_and_later_journal_activity(self):
+        cash_id = UUID("00000000-0000-0000-0000-000000000110")
+        ap_id = UUID("00000000-0000-0000-0000-000000000217")
+        imported = [
+            AccountBalance(cash_id, "1103", "Cash", "Asset", Decimal("100.00"), Decimal("0")),
+            AccountBalance(ap_id, "2171", "AP", "Liability", Decimal("0"), Decimal("100.00")),
+        ]
+        later = [
+            AccountBalance(cash_id, "1103", "Cash", "Asset", Decimal("50.00"), Decimal("0")),
+        ]
+        merged = {row.account_id: row for row in merge_account_balances(imported, later)}
+        self.assertEqual(merged[cash_id].debit, Decimal("150.00"))
+        self.assertEqual(merged[ap_id].credit, Decimal("100.00"))
 
 
 if __name__ == "__main__":

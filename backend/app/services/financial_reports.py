@@ -3,8 +3,9 @@
 
 """Financial statement and management-report builders.
 
-Reports are derived from posted journal entries, AR/AP open balances, cash
-ledger clearing, and (when present) the financial_budgets book.
+Reports are derived from posted journal entries, imported period ending
+balances (試算表 / gl_account_balances), AR/AP open balances, cash ledger
+clearing, and (when present) the financial_budgets book.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from app.models import (
     ChartOfAccount,
     Customer,
     FinancialBudget,
+    GlAccountBalance,
     JournalEntry,
     LedgerPosting,
     Supplier,
@@ -117,7 +119,7 @@ REPORT_CATALOG: list[dict[str, Any]] = [
         "title": "Trial Balance",
         "category": "operational",
         "category_label": "Operational & Sub-Ledger Reports",
-        "description": "Cumulative posted debit/credit through the as-of date, plus period operating activity that matches the P&L.",
+        "description": "Imported 試算表 ending balances through the as-of month, plus later posted debit/credit, and period operating activity that matches the P&L.",
         "parameters": ["As Of Date", "Currency"],
         "default_action": "Generate Report",
     },
@@ -238,6 +240,43 @@ def period_bounds(period: str) -> tuple[date, date]:
     year, month = int(year_s), int(month_s)
     last = monthrange(year, month)[1]
     return date(year, month, 1), date(year, month, last)
+
+
+def select_imported_period(periods: Iterable[str], as_of: date) -> str | None:
+    """Latest YYYY-MM whose month-end is on or before as_of."""
+    chosen: tuple[str, date] | None = None
+    for raw in periods:
+        period = (raw or "").strip()
+        if len(period) < 7:
+            continue
+        try:
+            _start, end = period_bounds(period[:7])
+        except (ValueError, IndexError):
+            continue
+        if end > as_of:
+            continue
+        if chosen is None or end > chosen[1]:
+            chosen = (period[:7], end)
+    return chosen[0] if chosen else None
+
+
+def merge_account_balances(*groups: Iterable[AccountBalance]) -> list[AccountBalance]:
+    combined: dict[UUID, AccountBalance] = {}
+    for group in groups:
+        for item in group:
+            existing = combined.get(item.account_id)
+            if existing is None:
+                combined[item.account_id] = item
+                continue
+            combined[item.account_id] = AccountBalance(
+                account_id=item.account_id,
+                account_code=item.account_code or existing.account_code,
+                account_name=item.account_name or existing.account_name,
+                account_type=item.account_type or existing.account_type,
+                debit=money(existing.debit + item.debit),
+                credit=money(existing.credit + item.credit),
+            )
+    return sorted(combined.values(), key=lambda item: item.account_code)
 
 
 def is_fixed_asset_account(code: str | None, name: str | None, account_type: str | None) -> bool:
@@ -417,6 +456,60 @@ def _entry_date():
     return func.coalesce(JournalEntry.posting_date, cast(JournalEntry.created_at, Date))
 
 
+def _imported_account_balances(
+    db: Session,
+    *,
+    period: str,
+    currency: str,
+) -> list[AccountBalance]:
+    rows = (
+        db.query(
+            ChartOfAccount.id,
+            ChartOfAccount.account_code,
+            ChartOfAccount.account_name,
+            ChartOfAccount.account_type,
+            GlAccountBalance.ending_debit,
+            GlAccountBalance.ending_credit,
+        )
+        .join(GlAccountBalance, GlAccountBalance.account_id == ChartOfAccount.id)
+        .filter(GlAccountBalance.period == period)
+        .filter(func.upper(func.coalesce(GlAccountBalance.currency, "USD")) == currency.upper())
+        .order_by(ChartOfAccount.account_code)
+        .all()
+    )
+    return [
+        AccountBalance(
+            account_id=row[0],
+            account_code=row[1] or "",
+            account_name=row[2] or "",
+            account_type=row[3] or "",
+            debit=money(row[4]),
+            credit=money(row[5]),
+        )
+        for row in rows
+    ]
+
+
+def _imported_cutover(
+    db: Session,
+    *,
+    as_of: date,
+    currency: str,
+) -> tuple[str, date] | None:
+    periods = [
+        period
+        for (period,) in db.query(GlAccountBalance.period)
+        .filter(func.upper(func.coalesce(GlAccountBalance.currency, "USD")) == currency.upper())
+        .distinct()
+        .all()
+        if period
+    ]
+    chosen = select_imported_period(periods, as_of)
+    if not chosen:
+        return None
+    return chosen, period_bounds(chosen)[1]
+
+
 def _account_balances(
     db: Session,
     *,
@@ -425,7 +518,23 @@ def _account_balances(
     date_to: date | None = None,
     currency: str = "USD",
     exclude_close_journals: bool = False,
+    include_imported: bool = False,
 ) -> list[AccountBalance]:
+    imported: list[AccountBalance] = []
+    je_from = date_from
+    je_to = date_to
+    je_as_of = as_of
+    if include_imported and as_of is not None and date_from is None:
+        cutover = _imported_cutover(db, as_of=as_of, currency=currency)
+        if cutover:
+            period, period_end = cutover
+            imported = _imported_account_balances(db, period=period, currency=currency)
+            je_from = period_end + timedelta(days=1)
+            je_to = as_of
+            je_as_of = None
+            if je_from > je_to:
+                return imported
+
     debit_sum = func.coalesce(func.sum(LedgerPosting.debit), 0)
     credit_sum = func.coalesce(func.sum(LedgerPosting.credit), 0)
     query = (
@@ -444,12 +553,12 @@ def _account_balances(
     )
     if exclude_close_journals:
         query = query.filter(pnl_operating_journal_filter())
-    if as_of is not None:
-        query = query.filter(_entry_date() <= as_of)
-    if date_from is not None:
-        query = query.filter(_entry_date() >= date_from)
-    if date_to is not None:
-        query = query.filter(_entry_date() <= date_to)
+    if je_as_of is not None:
+        query = query.filter(_entry_date() <= je_as_of)
+    if je_from is not None:
+        query = query.filter(_entry_date() >= je_from)
+    if je_to is not None:
+        query = query.filter(_entry_date() <= je_to)
     rows = (
         query.group_by(
             ChartOfAccount.id,
@@ -460,7 +569,7 @@ def _account_balances(
         .order_by(ChartOfAccount.account_code)
         .all()
     )
-    return [
+    activity = [
         AccountBalance(
             account_id=row[0],
             account_code=row[1] or "",
@@ -471,6 +580,9 @@ def _account_balances(
         )
         for row in rows
     ]
+    if imported:
+        return merge_account_balances(imported, activity)
+    return activity
 
 
 def _section_accounts(balances: list[AccountBalance], account_type: str) -> list[AccountBalance]:
@@ -1102,7 +1214,9 @@ def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     as_of: date = filters["_as_of"]
     date_from: date = filters["_from"]
     date_to: date = filters["_to"]
-    balances = _account_balances(db, as_of=as_of, currency=filters["_currency"])
+    balances = _account_balances(
+        db, as_of=as_of, currency=filters["_currency"], include_imported=True
+    )
     period_balances = _account_balances(
         db,
         date_from=date_from,
@@ -1160,9 +1274,9 @@ def _trial_balance(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     )
     difference = money(debit_total - credit_total)
     notes = [
-        "Debit / Credit / Net (normal) are cumulative posted activity through the as-of date, including close journals.",
+        "Debit / Credit / Net (normal) are the imported 試算表 ending book (if one exists on or before the as-of month) plus posted journals after that month-end, including close.",
         f"Period Debit / Period Credit / Period Net are posted operating activity {date_from.isoformat()} to {date_to.isoformat()}, excluding close. Those columns match the Income Statement.",
-        "Reconcile journal export to the cumulative columns by filtering Posting = Posted.",
+        "Reconcile journal export to activity after the imported month. The imported July (or later) 試算表 is the opening book, not a journal.",
     ]
     if difference != ZERO:
         notes.append(f"Trial balance is out of balance by {difference}.")

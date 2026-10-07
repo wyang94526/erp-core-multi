@@ -955,7 +955,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'From the AI Assistant you can ask for the same statements (“Income Statement for June 2026”, “P&L for September 2026”). Use Open the full report to land here with the period already set.',
     ],
     callouts: [
-      { kind: 'important', text: 'Statements include posted journal entries only. Draft journals do not affect trial balance or P&L. Income Statement shows period Debit / Credit / Net plus YTD Debit / YTD Credit / YTD Net from January 1 through Date to (credit − debit for sales such as 4110001). Trial Balance Period Net uses the same operating activity as the period columns.' },
+      { kind: 'important', text: 'Income Statement uses posted journals only. Trial Balance Debit / Credit / Net also include an imported 試算表 ending book when one exists on or before the as-of month, then add posted journals after that month-end. Draft journals do not affect either report. Income Statement shows period Debit / Credit / Net plus YTD Debit / YTD Credit / YTD Net from January 1 through Date to (credit − debit for sales such as 4110001). Trial Balance Period Net uses the same operating activity as the period columns.' },
       { kind: 'tip', text: 'Budget vs. Actual uses the budget book when rows exist; otherwise it compares to the same dates in the prior year.' },
     ],
     faqs: [
@@ -978,7 +978,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     troubleshooting: [
       {
         issue: 'A report is empty',
-        fix: 'Confirm journals are Posted (not Draft), widen the date range, and check Currency matches ledger postings (usually USD).',
+        fix: 'Income Statement needs Posted journals in the date range. Trial Balance Debit / Credit / Net also show an imported 試算表 when Period / As Of is that ending month (or later). Check Currency matches the ledger (usually USD).',
       },
     ],
   },
@@ -1075,7 +1075,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Choose the Customers, Suppliers, Items, BOM, Chart of Accounts, or Trial Balance tab and review mapped columns.',
       'Fix source-file issues called out in warnings.',
       'Click Incremental upsert to insert new IDs and update existing masters (customers, vendors, items, BOM, accounts) without deleting orders.',
-      'To load ending balances, upload a 試算表 CSV, enter the ending period (YYYY-MM), and click Load trial balance. The file usually has no period column, so the month you enter is required.',
+      'To load ending balances, upload a 試算表 CSV, enter the ending period (YYYY-MM), and click Load trial balance. The file usually has no period column, so the month you enter is required. Then open Reports → Trial Balance, set Period (or As Of) to that month — for July 2026 use 2026-07 / 2026-07-31. Debit / Credit / Net show the imported book. Later months keep that opening book and add posted journals after the imported month-end. Period columns stay journal activity only and still match the Income Statement.',
       'Use Truncate & reload only for a first-time or rebuild load. That wipes those masters and related transactional rows, then reloads from the CSVs.',
     ],
     callouts: [
@@ -1093,6 +1093,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       {
         issue: 'Trial balance load is disabled or fails',
         fix: 'Enter the ending period as YYYY-MM. Accounts in the CSV must already exist in Chart of Accounts. Re-upload the 試算表 file if the import folder does not list it.',
+      },
+      {
+        issue: 'Trial Balance report is empty after Load trial balance',
+        fix: 'Set the report Period / As Of to the imported ending month (the July 試算表 is 2026-07). Incremental upsert does not load balances — only Load trial balance writes them. Later months show the imported book plus journals posted after that month-end.',
       },
     ],
   },
