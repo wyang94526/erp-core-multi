@@ -145,6 +145,8 @@ export function postingRulePath(ruleId?: string | null): string | null {
   return id ? `/posting-rules#rule-${id}` : null
 }
 
+export const JOURNAL_CLOSE_SOURCES = ['MONTH_END_CLOSE', 'YEAR_END_CLOSE'] as const
+
 export const JOURNAL_SOURCE_FILTER_OPTIONS = [
   { value: 'ALL', label: 'All sources' },
   { value: 'GOODS_RECEIPT', label: 'Goods Receipt' },
@@ -158,6 +160,39 @@ export const JOURNAL_SOURCE_FILTER_OPTIONS = [
   { value: 'YEAR_END_CLOSE', label: 'Year-End Close' },
   { value: 'MANUAL', label: 'Manual / imported' },
 ] as const
+
+export const JOURNAL_SOURCE_VALUES = JOURNAL_SOURCE_FILTER_OPTIONS.map((option) => option.value).filter(
+  (value) => value !== 'ALL',
+)
+
+export function parseJournalSources(source: string | null | undefined): string[] {
+  const parts = String(source || '')
+    .split(',')
+    .map((part) => part.trim().toUpperCase())
+    .filter((part) => part && part !== 'ALL')
+  return [...new Set(parts)]
+}
+
+export function journalSourcesAreAll(source: string | null | undefined): boolean {
+  const selected = parseJournalSources(source)
+  return selected.length === 0 || selected.length === JOURNAL_SOURCE_VALUES.length
+}
+
+export function encodeJournalSources(values: string[]): string {
+  const selected = [...new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean))]
+  if (selected.length === 0 || selected.length === JOURNAL_SOURCE_VALUES.length) return 'ALL'
+  return selected.sort().join(',')
+}
+
+export function operatingJournalSources(): string {
+  const close = new Set<string>(JOURNAL_CLOSE_SOURCES)
+  return encodeJournalSources(JOURNAL_SOURCE_VALUES.filter((value) => !close.has(value)))
+}
+
+export function journalSourceIsSelected(source: string | null | undefined, value: string): boolean {
+  if (value === 'ALL') return journalSourcesAreAll(source)
+  return journalSourcesAreAll(source) || parseJournalSources(source).includes(value.toUpperCase())
+}
 
 export type JournalLedgerFilters = {
   q: string
@@ -266,7 +301,7 @@ export function filterJournalEntries(
   rules: PostingRule[] = [],
 ) {
   const q = filters.q.trim().toLowerCase()
-  const source = (filters.source || 'ALL').toUpperCase()
+  const sources = parseJournalSources(filters.source)
   const origin = (filters.origin || 'ALL').toUpperCase()
   const rule = (filters.rule || 'ALL').trim()
   const posting = (filters.posting || 'ALL').toLowerCase()
@@ -280,8 +315,9 @@ export function filterJournalEntries(
     const inferredSource = inferredJournalSource(entry)
     if (origin === 'SYSTEM' && !isInferredSystemJournal(entry)) return false
     if (origin === 'MANUAL' && isInferredSystemJournal(entry)) return false
-    if (source === 'MANUAL' && inferredSource !== 'MANUAL') return false
-    if (source !== 'ALL' && source !== 'MANUAL' && inferredSource !== source) return false
+    if (sources.length > 0 && !journalSourcesAreAll(filters.source) && !sources.includes(inferredSource)) {
+      return false
+    }
     if (rule && rule !== 'ALL') {
       const inferredRule = inferredPostingRule(entry, rules)
       if ((inferredRule?.id || entry.posting_rule_id || '') !== rule) return false
@@ -374,7 +410,7 @@ export function journalExportFilename(now = new Date()) {
 export function journalLedgerFiltersActive(filters: JournalLedgerFilters) {
   return (
     Boolean(filters.q.trim()) ||
-    (filters.source || 'ALL') !== 'ALL' ||
+    !journalSourcesAreAll(filters.source) ||
     (filters.origin || 'ALL') !== 'ALL' ||
     Boolean(filters.date_from.trim()) ||
     Boolean(filters.date_to.trim()) ||

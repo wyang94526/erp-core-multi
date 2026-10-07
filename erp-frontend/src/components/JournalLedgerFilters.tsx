@@ -9,7 +9,13 @@ import type { PostingRule } from '../types'
 import {
   EMPTY_JOURNAL_LEDGER_FILTERS,
   JOURNAL_SOURCE_FILTER_OPTIONS,
+  JOURNAL_SOURCE_VALUES,
+  encodeJournalSources,
   journalLedgerFiltersActive,
+  journalSourceIsSelected,
+  journalSourcesAreAll,
+  operatingJournalSources,
+  parseJournalSources,
   type JournalLedgerFilters,
 } from '../utils/journalEntries'
 
@@ -64,12 +70,20 @@ export function JournalLedgerFiltersBar({
 }: JournalLedgerFiltersBarProps) {
   const { filters, setFilter, clearFilters, hasActiveFilters } = useJournalLedgerFilters()
   const canExport = Boolean(onExport) && !exportDisabled && (exportCount ?? 0) > 0
+  const allSourcesSelected = journalSourcesAreAll(filters.source)
+  const excludeCloseActive = filters.source === operatingJournalSources()
 
   const onChange =
     (key: keyof JournalLedgerFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setFilter(key, event.target.value)
     }
+
+  const toggleSource = (value: string, checked: boolean) => {
+    const current = allSourcesSelected ? [...JOURNAL_SOURCE_VALUES] : parseJournalSources(filters.source)
+    const next = checked ? [...current, value] : current.filter((item) => item !== value)
+    setFilter('source', encodeJournalSources(next))
+  }
 
   return (
     <div style={filtersBarStyle}>
@@ -83,16 +97,47 @@ export function JournalLedgerFiltersBar({
           style={inputStyle}
         />
       </label>
-      <label style={fieldStyle}>
+      <div style={{ ...fieldStyle, flex: '2 1 520px', maxWidth: 720, minWidth: 280 }}>
         <span style={labelStyle}>Journal source</span>
-        <select value={filters.source} onChange={onChange('source')} style={inputStyle}>
-          {JOURNAL_SOURCE_FILTER_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
+        <div style={sourceToolbarStyle}>
+          <button
+            type="button"
+            onClick={() => setFilter('source', operatingJournalSources())}
+            disabled={excludeCloseActive}
+            title="Leave out Month-End Close and Year-End Close so the list matches the Income Statement"
+            style={{
+              ...sourceChipStyle,
+              background: excludeCloseActive ? '#1565c0' : 'var(--bg)',
+              color: excludeCloseActive ? '#fff' : 'var(--text-h)',
+              borderColor: excludeCloseActive ? '#1565c0' : 'var(--border)',
+              cursor: excludeCloseActive ? 'default' : 'pointer',
+            }}
+          >
+            Exclude close
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('source', 'ALL')}
+            disabled={allSourcesSelected}
+            title="Include every journal source"
+            style={sourceChipStyle}
+          >
+            All sources
+          </button>
+        </div>
+        <div style={sourceGridStyle} role="group" aria-label="Journal sources">
+          {JOURNAL_SOURCE_FILTER_OPTIONS.filter((option) => option.value !== 'ALL').map((option) => (
+            <label key={option.value} style={sourceOptionStyle}>
+              <input
+                type="checkbox"
+                checked={journalSourceIsSelected(filters.source, option.value)}
+                onChange={(event) => toggleSource(option.value, event.target.checked)}
+              />
+              <span>{option.label}</span>
+            </label>
           ))}
-        </select>
-      </label>
+        </div>
+      </div>
       <label style={fieldStyle}>
         <span style={labelStyle}>Origin</span>
         <select value={filters.origin} onChange={onChange('origin')} style={inputStyle}>
@@ -203,6 +248,44 @@ const labelStyle: CSSProperties = {
   color: 'var(--text)',
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
+}
+
+const sourceToolbarStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+}
+
+const sourceChipStyle: CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+  fontSize: '0.75rem',
+  fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
+const sourceGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+  gap: '4px 12px',
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  backgroundColor: 'var(--bg)',
+}
+
+const sourceOptionStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: '0.8rem',
+  color: 'var(--text-h)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 }
 
 const inputStyle: CSSProperties = {

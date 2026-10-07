@@ -47,6 +47,25 @@ def _matches_any_system_source():
     )
 
 
+def parse_journal_sources(source_document_type: str | None) -> list[str]:
+    """Accept one source or a comma-separated list. ALL / blank means no source filter."""
+    parts = [
+        part.strip().upper()
+        for part in str(source_document_type or "").split(",")
+        if part.strip()
+    ]
+    selected = [part for part in parts if part != "ALL"]
+    return list(dict.fromkeys(selected))
+
+
+def _source_match_clause(source: str):
+    if source == "MANUAL":
+        return not_(_matches_any_system_source())
+    if source in SOURCE_DOCUMENT_TYPES:
+        return _matches_stored_or_inferred_source(source)
+    return None
+
+
 def apply_journal_list_filters(
     query: Query[JournalEntry],
     *,
@@ -77,11 +96,12 @@ def apply_journal_list_filters(
             )
         )
 
-    source = (source_document_type or "").strip().upper()
-    if source == "MANUAL":
-        query = query.filter(not_(_matches_any_system_source()))
-    elif source in SOURCE_DOCUMENT_TYPES:
-        query = query.filter(_matches_stored_or_inferred_source(source))
+    sources = parse_journal_sources(source_document_type)
+    clauses = [clause for source in sources if (clause := _source_match_clause(source)) is not None]
+    if len(clauses) == 1:
+        query = query.filter(clauses[0])
+    elif clauses:
+        query = query.filter(or_(*clauses))
 
     origin_key = (origin or "").strip().upper()
     if origin_key == "SYSTEM":

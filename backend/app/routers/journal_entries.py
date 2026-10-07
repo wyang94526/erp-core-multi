@@ -97,7 +97,11 @@ def list_journal_entries(
     skip: int = 0,
     limit: int = 500,
     q: str | None = None,
-    source: str | None = Query(default=None, alias="source"),
+    source: str | None = Query(
+        default=None,
+        alias="source",
+        description="One source or a comma-separated list (e.g. GOODS_RECEIPT,MANUAL). Omit or ALL for every source.",
+    ),
     origin: str | None = None,
     rule: str | None = Query(default=None, alias="rule"),
     date_from: date | None = None,

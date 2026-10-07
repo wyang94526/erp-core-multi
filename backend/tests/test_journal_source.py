@@ -7,7 +7,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from app.services.journal_list import infer_posting_rule_id
+from app.services.journal_list import infer_posting_rule_id, parse_journal_sources
 from app.services.journal_source import (
     SOURCE_GOODS_RECEIPT,
     SOURCE_MONTH_END_CLOSE,
@@ -99,6 +99,15 @@ class JournalSourceTests(unittest.TestCase):
                     posting_status="Posted",
                 )
             )
+
+    def test_parse_journal_sources_accepts_comma_list(self):
+        self.assertEqual(parse_journal_sources(None), [])
+        self.assertEqual(parse_journal_sources("ALL"), [])
+        self.assertEqual(parse_journal_sources("MANUAL"), ["MANUAL"])
+        self.assertEqual(
+            parse_journal_sources("GOODS_RECEIPT, MANUAL, YEAR_END_CLOSE, goods_receipt"),
+            ["GOODS_RECEIPT", "MANUAL", "YEAR_END_CLOSE"],
+        )
 
 
 if __name__ == "__main__":
