@@ -3,8 +3,9 @@
  * @date: 2026-09-30
  */
 
+import { ChevronDown } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import { useMemo, type CSSProperties, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent } from 'react'
 import type { PostingRule } from '../types'
 import {
   EMPTY_JOURNAL_LEDGER_FILTERS,
@@ -62,6 +63,111 @@ export function useJournalLedgerFilters() {
   }
 }
 
+function sourceFilterLabel(source: string) {
+  if (journalSourcesAreAll(source)) return 'All sources'
+  if (source === operatingJournalSources()) return 'Exclude close'
+  const selected = parseJournalSources(source)
+  if (selected.length === 1) {
+    return JOURNAL_SOURCE_FILTER_OPTIONS.find((option) => option.value === selected[0])?.label || selected[0]
+  }
+  return `${selected.length} sources`
+}
+
+function JournalSourceDropdown({
+  source,
+  onChange,
+}: {
+  source: string
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const allSourcesSelected = journalSourcesAreAll(source)
+  const excludeCloseActive = source === operatingJournalSources()
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const toggleSource = (value: string, checked: boolean) => {
+    const current = allSourcesSelected ? [...JOURNAL_SOURCE_VALUES] : parseJournalSources(source)
+    const next = checked ? [...current, value] : current.filter((item) => item !== value)
+    onChange(encodeJournalSources(next))
+  }
+
+  return (
+    <div ref={rootRef} style={{ ...fieldStyle, flex: '1.2 1 200px', maxWidth: 260, position: 'relative' }}>
+      <span style={labelStyle}>Journal source</span>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        title={sourceFilterLabel(source)}
+        style={sourceTriggerStyle}
+      >
+        <span style={sourceTriggerTextStyle}>{sourceFilterLabel(source)}</span>
+        <ChevronDown size={16} aria-hidden />
+      </button>
+      {open ? (
+        <div style={sourceMenuStyle} role="listbox" aria-multiselectable aria-label="Journal sources">
+          <div style={sourceMenuActionsStyle}>
+            <button
+              type="button"
+              onClick={() => onChange(operatingJournalSources())}
+              disabled={excludeCloseActive}
+              title="Leave out Month-End Close and Year-End Close so the list matches the Income Statement"
+              style={{
+                ...sourceActionStyle,
+                background: excludeCloseActive ? '#1565c0' : 'var(--bg)',
+                color: excludeCloseActive ? '#fff' : 'var(--text-h)',
+                borderColor: excludeCloseActive ? '#1565c0' : 'var(--border)',
+                cursor: excludeCloseActive ? 'default' : 'pointer',
+              }}
+            >
+              Exclude close
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange('ALL')}
+              disabled={allSourcesSelected}
+              title="Include every journal source"
+              style={sourceActionStyle}
+            >
+              All sources
+            </button>
+          </div>
+          {JOURNAL_SOURCE_FILTER_OPTIONS.filter((option) => option.value !== 'ALL').map((option) => {
+            const checked = journalSourceIsSelected(source, option.value)
+            return (
+              <label key={option.value} style={sourceOptionStyle}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => toggleSource(option.value, event.target.checked)}
+                />
+                <span>{option.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function JournalLedgerFiltersBar({
   rules,
   onExport,
@@ -70,20 +176,12 @@ export function JournalLedgerFiltersBar({
 }: JournalLedgerFiltersBarProps) {
   const { filters, setFilter, clearFilters, hasActiveFilters } = useJournalLedgerFilters()
   const canExport = Boolean(onExport) && !exportDisabled && (exportCount ?? 0) > 0
-  const allSourcesSelected = journalSourcesAreAll(filters.source)
-  const excludeCloseActive = filters.source === operatingJournalSources()
 
   const onChange =
     (key: keyof JournalLedgerFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setFilter(key, event.target.value)
     }
-
-  const toggleSource = (value: string, checked: boolean) => {
-    const current = allSourcesSelected ? [...JOURNAL_SOURCE_VALUES] : parseJournalSources(filters.source)
-    const next = checked ? [...current, value] : current.filter((item) => item !== value)
-    setFilter('source', encodeJournalSources(next))
-  }
 
   return (
     <div style={filtersBarStyle}>
@@ -97,47 +195,7 @@ export function JournalLedgerFiltersBar({
           style={inputStyle}
         />
       </label>
-      <div style={{ ...fieldStyle, flex: '2 1 520px', maxWidth: 720, minWidth: 280 }}>
-        <span style={labelStyle}>Journal source</span>
-        <div style={sourceToolbarStyle}>
-          <button
-            type="button"
-            onClick={() => setFilter('source', operatingJournalSources())}
-            disabled={excludeCloseActive}
-            title="Leave out Month-End Close and Year-End Close so the list matches the Income Statement"
-            style={{
-              ...sourceChipStyle,
-              background: excludeCloseActive ? '#1565c0' : 'var(--bg)',
-              color: excludeCloseActive ? '#fff' : 'var(--text-h)',
-              borderColor: excludeCloseActive ? '#1565c0' : 'var(--border)',
-              cursor: excludeCloseActive ? 'default' : 'pointer',
-            }}
-          >
-            Exclude close
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('source', 'ALL')}
-            disabled={allSourcesSelected}
-            title="Include every journal source"
-            style={sourceChipStyle}
-          >
-            All sources
-          </button>
-        </div>
-        <div style={sourceGridStyle} role="group" aria-label="Journal sources">
-          {JOURNAL_SOURCE_FILTER_OPTIONS.filter((option) => option.value !== 'ALL').map((option) => (
-            <label key={option.value} style={sourceOptionStyle}>
-              <input
-                type="checkbox"
-                checked={journalSourceIsSelected(filters.source, option.value)}
-                onChange={(event) => toggleSource(option.value, event.target.checked)}
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <JournalSourceDropdown source={filters.source} onChange={(value) => setFilter('source', value)} />
       <label style={fieldStyle}>
         <span style={labelStyle}>Origin</span>
         <select value={filters.origin} onChange={onChange('origin')} style={inputStyle}>
@@ -250,38 +308,71 @@ const labelStyle: CSSProperties = {
   textTransform: 'uppercase',
 }
 
-const sourceToolbarStyle: CSSProperties = {
+const sourceTriggerStyle: CSSProperties = {
+  width: '100%',
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  backgroundColor: 'var(--bg)',
+  color: 'var(--text-h)',
+  fontSize: '0.875rem',
+  fontFamily: 'inherit',
   display: 'flex',
-  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'space-between',
   gap: 8,
+  cursor: 'pointer',
+  textAlign: 'left',
 }
 
-const sourceChipStyle: CSSProperties = {
-  padding: '6px 10px',
+const sourceTriggerTextStyle: CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const sourceMenuStyle: CSSProperties = {
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  right: 0,
+  zIndex: 20,
+  marginTop: 4,
+  padding: '8px 0',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  backgroundColor: 'var(--bg)',
+  boxShadow: 'var(--shadow)',
+  maxHeight: 320,
+  overflowY: 'auto',
+}
+
+const sourceMenuActionsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+  padding: '0 8px 8px',
+  borderBottom: '1px solid var(--border)',
+  marginBottom: 4,
+}
+
+const sourceActionStyle: CSSProperties = {
+  padding: '4px 8px',
   borderRadius: 6,
   border: '1px solid var(--border)',
   background: 'var(--bg)',
   color: 'var(--text-h)',
-  fontSize: '0.75rem',
+  fontSize: '0.72rem',
   fontWeight: 700,
   cursor: 'pointer',
   fontFamily: 'inherit',
 }
 
-const sourceGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-  gap: '4px 12px',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid var(--border)',
-  backgroundColor: 'var(--bg)',
-}
-
 const sourceOptionStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 8,
+  padding: '6px 10px',
   fontSize: '0.8rem',
   color: 'var(--text-h)',
   cursor: 'pointer',
