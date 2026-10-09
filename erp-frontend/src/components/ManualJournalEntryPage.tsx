@@ -6,15 +6,28 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, FileDown, Loader2 } from 'lucide-react'
 import { approvalService, chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import { usePeriodStatus } from '../hooks/useFinancePeriodSettings'
 import type { JournalEntry, JournalLineDraft } from '../types'
+import {
+  HoverTip,
+  actionRowStyle,
+  documentPageHeaderStyle,
+  documentPageTitleBlockStyle,
+  headerActionsStyle,
+  headerButtonStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+} from '../utils/documentPageStyles'
+import { generateJournalEntryPdf, journalEntryToPdfInput } from '../utils/generateJournalEntryPdf'
 import { newJournalLine } from '../utils/journalCsvImport'
 import {
   inferredPostingRule,
   isJournalEditable,
   isSystemJournal,
+  journalDisplayId,
   journalReturnLabel,
   journalReturnPath,
   postingRuleDisplay,
@@ -22,6 +35,7 @@ import {
   sourceDocumentLabel,
   sourceDocumentPath,
 } from '../utils/journalEntries'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import AccountLookup from './AccountLookup'
 import ApprovalPanel from './ApprovalPanel'
 
@@ -87,6 +101,7 @@ export function ManualJournalEntryPage() {
   const [description, setDescription] = useState('')
   const [lines, setLines] = useState<JournalLineDraft[]>([newJournalLine(), newJournalLine()])
   const [busy, setBusy] = useState(false)
+  const [printingPdf, setPrintingPdf] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadedId, setLoadedId] = useState<string | null>(null)
 
@@ -246,6 +261,47 @@ export function ManualJournalEntryPage() {
     loadedEntry && (isSystemJournal(loadedEntry) || !isJournalEditable(loadedEntry)),
   )
 
+  const handlePrintPdf = async () => {
+    setPrintingPdf(true)
+    setError(null)
+    try {
+      const branding = await loadCompanyPdfBranding().catch(() => null)
+      if (loadedEntry?.postings?.length && readOnly) {
+        generateJournalEntryPdf(journalEntryToPdfInput(loadedEntry, accounts, branding))
+        return
+      }
+      const byId = new Map(accounts.map((row) => [row.id, row]))
+      const pdfLines = lines
+        .filter((line) => line.account_id && (parseAmount(line.debit) > 0 || parseAmount(line.credit) > 0))
+        .map((line) => {
+          const account = byId.get(line.account_id)
+          return {
+            account_code: account?.account_code || line.sourceAccountCode || '',
+            account_name: account?.account_name || '',
+            description: line.description,
+            debit: parseAmount(line.debit),
+            credit: parseAmount(line.credit),
+            currency: 'USD',
+          }
+        })
+      generateJournalEntryPdf({
+        journalNumber: loadedEntry ? journalDisplayId(loadedEntry) : 'DRAFT',
+        postingDate,
+        period,
+        reference,
+        description,
+        postingStatus: loadedEntry?.posting_status,
+        approvalStatus: loadedEntry?.approval_status,
+        lines: pdfLines,
+        branding,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to print journal entry PDF')
+    } finally {
+      setPrintingPdf(false)
+    }
+  }
+
   if (isEdit && entryQuery.isLoading) {
     return (
       <div style={pageStyle}>
@@ -280,8 +336,9 @@ export function ManualJournalEntryPage() {
         <p style={errorStyle}>
           {entryQuery.error instanceof Error ? entryQuery.error.message : 'Journal entry not found.'}
         </p>
-        <button type="button" style={cancelBtn} onClick={goBack}>
-          {backLabel}
+        <button type="button" style={headerButtonStyle} onClick={goBack}>
+          <ArrowLeft size={15} />
+          {backLabel.replace(/^Back to\s+/i, '')}
         </button>
       </div>
     )
@@ -297,8 +354,8 @@ export function ManualJournalEntryPage() {
   return (
     <div style={pageStyle}>
       <form style={formStyle} onSubmit={onSubmit}>
-        <div style={headerStyle}>
-          <div>
+        <div style={documentPageHeaderStyle}>
+          <div style={documentPageTitleBlockStyle}>
             <h1 style={titleStyle}>
               {loadedEntry?.journal_number
                 ? loadedEntry.journal_number
@@ -317,6 +374,24 @@ export function ManualJournalEntryPage() {
                     ? 'This journal is approved and posted. Create a reversing journal if a correction is needed.'
                     : 'Manual double-entry journal mapped to the chart of accounts. Debits must equal credits. Rejected journals return to Draft for editing.'}
             </p>
+          </div>
+          <div style={headerActionsStyle}>
+            <div style={actionRowStyle}>
+              <HoverTip label="Download or print this journal entry as a PDF">
+                <button type="button" style={primaryButtonStyle} disabled={printingPdf} onClick={() => void handlePrintPdf()}>
+                  {printingPdf ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <FileDown size={15} />}
+                  PDF
+                </button>
+              </HoverTip>
+            </div>
+            <div style={actionRowStyle}>
+              <HoverTip label={readOnly ? backLabel : 'Cancel without saving'}>
+                <button type="button" style={headerButtonStyle} onClick={goBack} disabled={busy}>
+                  <ArrowLeft size={15} />
+                  {readOnly ? backLabel.replace(/^Back to\s+/i, '') : 'Cancel'}
+                </button>
+              </HoverTip>
+            </div>
           </div>
         </div>
 
@@ -493,26 +568,23 @@ export function ManualJournalEntryPage() {
         )}
         {error && <div style={errorStyle}>{error}</div>}
 
-        <div style={actionsStyle}>
-          <button type="button" style={cancelBtn} onClick={goBack} disabled={busy}>
-            {readOnly ? backLabel : 'Cancel'}
-          </button>
-          {!readOnly && (
+        {!readOnly && (
+          <div style={actionsStyle}>
             <button
               type="button"
-              style={secondaryBtn}
+              style={secondaryButtonStyle}
               disabled={busy || periodStatus.blocked}
               onClick={() => void handleSave(false)}
             >
               {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Draft'}
             </button>
-          )}
-          {!readOnly && canSubmit && (
-            <button type="submit" style={primaryBtn} disabled={busy || periodStatus.blocked}>
-              {busy ? 'Submitting…' : 'Submit for Approval'}
-            </button>
-          )}
-        </div>
+            {canSubmit && (
+              <button type="submit" style={primaryButtonStyle} disabled={busy || periodStatus.blocked}>
+                {busy ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            )}
+          </div>
+        )}
       </form>
       {isEdit && loadedEntry && (
         <ApprovalPanel
@@ -544,10 +616,6 @@ const formStyle: CSSProperties = {
   borderRadius: '8px',
   padding: '24px',
   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-}
-
-const headerStyle: CSSProperties = {
-  marginBottom: '16px',
 }
 
 const titleStyle: CSSProperties = {
@@ -673,37 +741,6 @@ const actionsStyle: CSSProperties = {
   gap: '8px',
   marginTop: '18px',
   flexWrap: 'wrap',
-}
-
-const cancelBtn: CSSProperties = {
-  padding: '8px 14px',
-  border: '1px solid #ccc',
-  background: '#fff',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-}
-
-const secondaryBtn: CSSProperties = {
-  padding: '8px 14px',
-  border: '1px solid #90caf9',
-  background: '#e3f2fd',
-  color: '#1565c0',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontWeight: 700,
-}
-
-const primaryBtn: CSSProperties = {
-  padding: '8px 14px',
-  border: 'none',
-  background: '#2196F3',
-  color: '#fff',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontWeight: 700,
 }
 
 const removeBtn: CSSProperties = {

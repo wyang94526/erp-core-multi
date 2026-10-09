@@ -90,13 +90,16 @@ export function drawPdfLetterhead(
   doc: jsPDF,
   branding: CompanyPdfBranding | null | undefined,
   documentLabel: string,
+  options?: { marginX?: number; startY?: number },
 ): number {
   const pageWidth = doc.internal.pageSize.getWidth()
-  const marginX = 48
+  const marginX = options?.marginX ?? 48
   const profile = branding?.profile
   const companyName = (profile?.company_name || 'Grand-Tek Technology USA').trim()
-  let y = 44
+  let y = options?.startY ?? 44
   let textX = marginX
+  const rightX = pageWidth - marginX
+  const labelWidth = Math.min(130, doc.getTextWidth(documentLabel || 'DOCUMENT') + 8)
 
   if (branding?.logoDataUrl) {
     try {
@@ -110,16 +113,18 @@ export function drawPdfLetterhead(
     }
   }
 
+  const nameMaxWidth = Math.max(140, rightX - labelWidth - 12 - textX)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(15)
   doc.setTextColor(40, 40, 40)
-  doc.text(companyName, textX, y)
+  const nameLines = doc.splitTextToSize(companyName, nameMaxWidth) as string[]
+  doc.text(nameLines, textX, y)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
   doc.setTextColor(90, 90, 90)
-  doc.text(documentLabel, pageWidth - marginX, y, { align: 'right' })
-  y += 14
+  doc.text(documentLabel, rightX, y, { align: 'right' })
+  y += 13 * Math.max(nameLines.length, 1)
 
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
@@ -129,16 +134,17 @@ export function drawPdfLetterhead(
     profile?.contact_phone?.trim() ? `Tel: ${profile.contact_phone.trim()}` : '',
   ].filter(Boolean)
   if (contactBits.length) {
-    doc.text(contactBits.join('  ·  '), textX, y)
-    y += 12
+    const contactLines = doc.splitTextToSize(contactBits.join('  ·  '), rightX - textX) as string[]
+    doc.text(contactLines, textX, y)
+    y += 11 * contactLines.length
   } else {
     y += 4
   }
 
   doc.setDrawColor(...PDF_RULE_RGB)
   doc.setLineWidth(1.5)
-  doc.line(marginX, y + 4, pageWidth - marginX, y + 4)
-  return y + 26
+  doc.line(marginX, y + 4, rightX, y + 4)
+  return y + 22
 }
 
 export function drawBillShipBlocks(

@@ -10,8 +10,10 @@ import { headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyl
 import { PageHeader } from './PageHeader'
 import { chartOfAccountsService, journalEntryService, postingRulesService } from '../api/services'
 import type { JournalEntry, PostingRule } from '../types'
+import { generateJournalEntryPdf, journalEntryToPdfInput } from '../utils/generateJournalEntryPdf'
 import { parseJournalBulkCsvFile } from '../utils/journalCsvImport'
 import { downloadTextFile } from '../utils/financialReports'
+import { loadCompanyPdfBranding } from '../utils/pdfLetterhead'
 import { ApprovalPanel } from './ApprovalPanel'
 import { JournalLedgerFiltersBar, useJournalLedgerFilters } from './JournalLedgerFilters'
 import { useAuth } from '../context/AuthContext'
@@ -58,6 +60,7 @@ function GeneralLedger() {
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [printingId, setPrintingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'entries' | 'postings'>('entries')
   const csvInputRef = useRef<HTMLInputElement | null>(null)
@@ -149,6 +152,25 @@ function GeneralLedger() {
       setError(err instanceof Error ? err.message : 'Failed to delete journal entry')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handlePrintJournalPdf = async (entry: JournalEntry) => {
+    setPrintingId(entry.id)
+    setError(null)
+    try {
+      const [detail, accounts, branding] = await Promise.all([
+        entry.postings?.length
+          ? Promise.resolve(entry)
+          : journalEntryService.getJournalEntry(entry.id),
+        chartOfAccountsService.listAccounts(0, 2000).catch(() => []),
+        loadCompanyPdfBranding().catch(() => null),
+      ])
+      generateJournalEntryPdf(journalEntryToPdfInput(detail, accounts, branding))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to print journal entry PDF')
+    } finally {
+      setPrintingId(null)
     }
   }
 
@@ -488,6 +510,14 @@ function GeneralLedger() {
                               View
                             </button>
                           )}
+                          <button
+                            type="button"
+                            style={viewButtonStyle}
+                            disabled={printingId === entry.id}
+                            onClick={() => void handlePrintJournalPdf(entry)}
+                          >
+                            {printingId === entry.id ? 'PDF…' : 'PDF'}
+                          </button>
                           <button
                             style={approvalButtonStyle}
                             onClick={() => {
