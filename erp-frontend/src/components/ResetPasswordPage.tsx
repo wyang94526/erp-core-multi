@@ -6,6 +6,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authService } from '../api/services'
+import { CompanyBrand } from './CompanyBrand'
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -95,7 +96,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">Grand-Tek Technology USA</div>
+        <CompanyBrand className="auth-brand" />
         <h1 className="auth-title">Reset password</h1>
         <p className="auth-subtitle">
           {step === 'email'

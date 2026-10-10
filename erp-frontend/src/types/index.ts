@@ -399,7 +399,7 @@ export interface RoleBrief {
 
 export interface CurrentUser {
   id: string;
-  email: string;
+  email: string | null;
   full_name: string;
   status?: string;
   department_id?: string | null;
@@ -407,6 +407,7 @@ export interface CurrentUser {
   roles?: RoleBrief[];
   permissions?: string[];
   has_security_question?: boolean;
+  must_change_password?: boolean;
   role_id: string | null;
   role_name: string | null;
 }

@@ -6,6 +6,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { authService } from '../api/services'
+import { CompanyBrand } from './CompanyBrand'
 import { useAuth } from '../context/AuthContext'
 
 const CUSTOM_OPTION = '__custom__'
@@ -95,7 +96,7 @@ export default function RegisterPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">Grand-Tek Technology USA</div>
+        <CompanyBrand className="auth-brand" />
         <h1 className="auth-title">Create account</h1>
         <p className="auth-subtitle">
           New accounts start as Unassigned. An admin can grant a role after registration.

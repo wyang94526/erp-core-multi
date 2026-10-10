@@ -25,6 +25,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
+import { CompanyBrand } from './CompanyBrand'
 import { useAuth } from '../context/AuthContext'
 import { isUnassignedUser } from '../config/dashboardRoles'
 import {
@@ -400,7 +401,7 @@ export default function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
       aria-hidden={collapsed}
     >
       <div className="app-sidebar-inner">
-        <div className="app-sidebar-brand">Grand-Tek Technology USA</div>
+        <CompanyBrand className="app-sidebar-brand" />
         <nav className="app-sidebar-nav" aria-label="Main">
           {visibleCategories.map((category) => {
             const isOpen = Boolean(openCategories[category.id])

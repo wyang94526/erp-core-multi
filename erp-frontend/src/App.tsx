@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { CircleHelp } from 'lucide-react'
 import { Outlet, useLocation } from 'react-router-dom'
 import AiAssistant from './components/AiAssistant'
+import { CompanyBrand } from './components/CompanyBrand'
 import HelpDrawer from './components/help/HelpDrawer'
 import PageBreadcrumbs from './components/PageBreadcrumbs'
 import SidebarNav from './components/SidebarNav'
@@ -97,7 +98,7 @@ function App() {
               <span />
             </span>
           </button>
-          <h1 className="app-topbar-title">Grand-Tek Technology USA</h1>
+          <CompanyBrand className="app-topbar-title" heading />
           <div className="app-topbar-actions">
             <button
               type="button"

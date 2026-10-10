@@ -51,8 +51,10 @@ with engine.connect() as conn:
         )
     ).scalar()
 if not exists:
-    print("No alembic_version table — stamping head after init-scripts", flush=True)
-    raise SystemExit(subprocess.call(["alembic", "stamp", "head"]))
+    # init-scripts match the schema through 20260923_0041 (gl_account_balances).
+    # Later revisions add columns the API models require; do not stamp head.
+    print("No alembic_version table — stamping 20260923_0041 after init-scripts", flush=True)
+    raise SystemExit(subprocess.call(["alembic", "stamp", "20260923_0041"]))
 PY
 
 alembic upgrade head

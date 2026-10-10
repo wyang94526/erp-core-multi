@@ -66,6 +66,18 @@ CREATE TABLE IF NOT EXISTS gl_account_balances (
     CONSTRAINT uq_gl_account_balance_period_account UNIQUE (period, account_id, currency)
 );
 
+DROP TABLE IF EXISTS financial_budgets CASCADE;
+CREATE TABLE IF NOT EXISTS financial_budgets (
+    id UUID PRIMARY KEY,
+    fiscal_year INTEGER NOT NULL,
+    period VARCHAR(7) NOT NULL DEFAULT '',
+    account_id UUID NOT NULL REFERENCES chart_of_accounts(id),
+    amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_financial_budget_period_account UNIQUE (fiscal_year, period, account_id, currency)
+);
+
 DROP TABLE IF EXISTS payment_terms CASCADE;
 CREATE TABLE IF NOT EXISTS payment_terms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

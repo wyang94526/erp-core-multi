@@ -79,12 +79,13 @@ class AuthRegisterRequest(BaseModel):
 
 
 class AuthLoginRequest(BaseModel):
-    email: EmailStr
+    # Work email, or the initial administrator name before an email is set.
+    email: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=128)
 
 
 class AuthChangePasswordRequest(BaseModel):
-    email: EmailStr
+    email: str | None = Field(default=None, max_length=255)
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
 
@@ -241,6 +242,10 @@ class CompanyAddress(BaseModel):
     contact_person: str | None = None
     contact_email: str | None = None
     contact_phone: str | None = None
+
+
+class CompanyNameRead(BaseModel):
+    company_name: str
 
 
 class CompanyProfileRead(ORMModel):
@@ -2568,7 +2573,7 @@ class TransactionActionResult(BaseModel):
 
 class CurrentUserRead(BaseModel):
     id: str
-    email: EmailStr
+    email: str | None = None
     full_name: str
     status: str = 'ACTIVE'
     department_id: str | None = None
@@ -2576,6 +2581,7 @@ class CurrentUserRead(BaseModel):
     roles: list[UserRoleBrief] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     has_security_question: bool = False
+    must_change_password: bool = False
     # Legacy fields
     role_id: str | None = None
     role_name: str | None = None

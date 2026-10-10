@@ -8,12 +8,12 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_CORE_DB}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - erp_core_prod_postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_CORE_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -29,14 +29,15 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_CORE_DB}
       ENVIRONMENT: production
       AI_CHROMA_PATH: /data/chroma
       ATTACHMENTS_PATH: /data/attachments
       GTT_DATA_DIR: /data/imports
-      GTT_IMPORT_HOST_PATH: ${GTT_IMPORT_HOST_PATH:-C:/erp/erp-project/imports}
+      GTT_IMPORT_HOST_PATH: ${GTT_IMPORT_HOST_PATH:-C:/erp/erp-core-multi/imports}
     volumes:
-      - chroma_data:/data/chroma
-      - attachments_data:/data/attachments
+      - erp_core_prod_chroma_data:/data/chroma
+      - erp_core_prod_attachments_data:/data/attachments
       - ${GTT_IMPORTS_BIND:-./imports}:/data/imports
     depends_on:
       postgres:
@@ -55,6 +56,6 @@ services:
       - api
 
 volumes:
-  postgres_data:
-  chroma_data:
-  attachments_data:
+  erp_core_prod_postgres_data:
+  erp_core_prod_chroma_data:
+  erp_core_prod_attachments_data:

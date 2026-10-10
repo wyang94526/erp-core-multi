@@ -8,10 +8,18 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import get_current_user, require_permission
 from app.models import User
-from app.schemas import CompanyProfileRead, CompanyProfileUpdate
+from app.schemas import CompanyNameRead, CompanyProfileRead, CompanyProfileUpdate
 from app.services import company_profile as profile_service
 
 router = APIRouter(prefix="/company-profile", tags=["company-profile"])
+
+
+@router.get("/public", response_model=CompanyNameRead)
+def get_public_company_name(db: Session = Depends(get_db)):
+    """Company name for the shell and sign-in screens. No contact or address data."""
+    row = profile_service.get_or_create_profile(db)
+    db.commit()
+    return CompanyNameRead(company_name=row.company_name)
 
 
 @router.get("", response_model=CompanyProfileRead)

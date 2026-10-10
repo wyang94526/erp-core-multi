@@ -2284,6 +2284,10 @@ export const financialReportService = {
 };
 
 export const companyProfileService = {
+  async getPublicName(): Promise<{ company_name: string }> {
+    return apiClient.get<{ company_name: string }>('/api/v1/company-profile/public')
+  },
+
   async get(): Promise<CompanyProfile> {
     return apiClient.get<CompanyProfile>('/api/v1/company-profile')
   },

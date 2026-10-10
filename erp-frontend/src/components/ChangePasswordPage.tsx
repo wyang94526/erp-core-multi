@@ -6,12 +6,15 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authService } from '../api/services'
+import { CompanyBrand } from './CompanyBrand'
 import { useAuth } from '../context/AuthContext'
 
 const MIN_PASSWORD_LENGTH = 8
 
 export default function ChangePasswordPage() {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, refresh } = useAuth()
+  const mustChange = Boolean(user?.must_change_password)
+  const needsEmail = Boolean(user && !user.email)
   const navigate = useNavigate()
 
   const [email, setEmail] = useState(user?.email ?? '')
@@ -51,6 +54,10 @@ export default function ChangePasswordPage() {
       setError('New password must be different from the current password')
       return
     }
+    if (needsEmail && !email.trim()) {
+      setError('Work email is required')
+      return
+    }
 
     setSubmitting(true)
     try {
@@ -63,6 +70,10 @@ export default function ChangePasswordPage() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      if (isAuthenticated) {
+        await refresh()
+        navigate('/', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to change password')
     } finally {
@@ -73,10 +84,14 @@ export default function ChangePasswordPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">Grand-Tek Technology USA</div>
-        <h1 className="auth-title">Change password</h1>
+        <CompanyBrand className="auth-brand" />
+        <h1 className="auth-title">{needsEmail ? 'Set up administrator' : 'Change password'}</h1>
         <p className="auth-subtitle">
-          Enter your work email and current password, then choose a new one.
+          {needsEmail
+            ? 'Choose the administrator work email and a new password. The initial password cannot be kept.'
+            : mustChange
+              ? 'The initial administrator password must be changed before the rest of the system is available.'
+              : 'Enter your work email and current password, then choose a new one.'}
         </p>
 
         <form className="auth-form" onSubmit={onSubmit}>
@@ -88,6 +103,7 @@ export default function ChangePasswordPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              readOnly={!needsEmail && Boolean(user?.email)}
               disabled={submitting}
             />
           </label>
@@ -145,9 +161,9 @@ export default function ChangePasswordPage() {
         </form>
 
         <p className="auth-footer">
-          {isAuthenticated ? (
+          {isAuthenticated && !mustChange ? (
             <Link to="/">Back to dashboard</Link>
-          ) : (
+          ) : isAuthenticated ? null : (
             <>
               Remembered it? <Link to="/login">Sign in</Link>
               {' · '}

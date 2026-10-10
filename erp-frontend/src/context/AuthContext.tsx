@@ -23,7 +23,7 @@ type AuthContextValue = {
   token: string | null
   loading: boolean
   isAuthenticated: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<CurrentUser>
   register: (
     fullName: string,
     email: string,
@@ -76,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStoredAuthToken(result.access_token)
     setToken(result.access_token)
     setUser(result.user)
+    return result.user
   }, [])
 
   const register = useCallback(

@@ -10,7 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ImagePlus, Loader2, Save, Trash2 } from 'lucide-react'
 import { companyProfileService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
-import { COMPANY_PROFILE_KEY, useCompanyProfile } from '../hooks/useCompanyProfile'
+import { COMPANY_NAME_KEY, COMPANY_PROFILE_KEY, useCompanyProfile } from '../hooks/useCompanyProfile'
 import type { CompanyAddress, CompanyProfile } from '../types'
 import { emptyCompanyAddress } from '../utils/pdfLetterhead'
 import { PageHeader } from './PageHeader'
@@ -96,6 +96,7 @@ export function CompanyProfilePage() {
       }),
     onSuccess: (next) => {
       queryClient.setQueryData(COMPANY_PROFILE_KEY, next)
+      queryClient.setQueryData(COMPANY_NAME_KEY, { company_name: next.company_name })
       setSuccess('Company profile saved. New Sales, Purchase, and Subcontract order PDFs will use this letterhead.')
       setError(null)
     },

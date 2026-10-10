@@ -804,7 +804,7 @@ export function PurchaseOrderForm() {
                         type="button"
                         style={{
                           ...dangerButtonStyle,
-                          ...disabledActionStyle(state.can_close_remaining && !closingRemaining),
+                          ...disabledActionStyle(Boolean(state.can_close_remaining) && !closingRemaining),
                         }}
                         disabled={closingRemaining || !state.can_close_remaining}
                         onClick={() => void handleCloseRemaining()}
@@ -1048,7 +1048,7 @@ export function PurchaseOrderForm() {
                               </td>
                               <td style={relatedDocsTdStyle}>{(invoice.status || '').replace(/_/g, ' ')}</td>
                               <td style={{ ...relatedDocsTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
-                                {money(invoice.total_amount, invoice.currency || state.currency || 'USD')}
+                                {money(invoice.total_amount, invoice.currency || 'USD')}
                               </td>
                             </tr>
                           )

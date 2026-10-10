@@ -96,12 +96,13 @@ class User(Base):
     __tablename__ = 'users'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), unique=True, nullable=True)
     full_name = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=False)
     security_question = Column(String(255), nullable=True)
     security_answer_hash = Column(String(255), nullable=True)
     status = Column(String(20), nullable=False, server_default=text("'ACTIVE'"))
+    must_change_password = Column(Boolean, nullable=False, server_default=text('false'))
     department_id = Column(String(50), ForeignKey('departments.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
     updated_at = Column(

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 12
     # Shared demo password used when seeding / migrating existing users
     default_user_password: str = "Password123!"
+    # Created only when the database has no ROLE-ADMIN user yet.
+    # Email stays empty until the first sign-in.
+    bootstrap_admin_name: str = "Admin"
+    bootstrap_admin_password: str = "Password123!"
     # AI assistant (optional — heuristic tool router used when unset)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

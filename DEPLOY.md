@@ -134,24 +134,13 @@ If that fails:
 docker compose -f docker-compose.prod.yml logs --tail=80 api web postgres
 ```
 
-### 8. Open the UI and create an admin
+### 8. Open the UI and change the administrator password
 
 Browse to `http://<linux-or-vm-ip>/`.
 
-1. Register with your work email. Do **not** run `python backend/seed_db.py`.
-2. Promote that user (replace the email):
+A new database already has an administrator with no email. Sign in with the name `Admin` and password `Password123!`. The next screen asks for the administrator work email and a new password before any other page is available. Do **not** run `python backend/seed_db.py`, and do not grant `ROLE-ADMIN` with SQL.
 
-```bash
-cd /opt/erp-project
-set -a && . ./.env && set +a
-docker compose -f docker-compose.prod.yml exec postgres \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-  "INSERT INTO user_roles (user_id, role_id)
-   SELECT id, 'ROLE-ADMIN' FROM users WHERE email = 'you@company.com'
-   ON CONFLICT DO NOTHING;"
-```
-
-3. Log out and log in again so the new JWT includes `ROLE-ADMIN`.
+Later users register themselves and stay Unassigned until this administrator assigns a role under Administration → Users & Roles.
 
 ### 9. Smoke checks
 

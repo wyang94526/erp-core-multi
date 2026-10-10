@@ -5,10 +5,11 @@
 
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { CompanyBrand } from './CompanyBrand'
 import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
-  const { login, isAuthenticated, loading } = useAuth()
+  const { login, isAuthenticated, loading, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from || '/'
@@ -19,6 +20,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
 
   if (!loading && isAuthenticated) {
+    if (user?.must_change_password) {
+      return <Navigate to="/change-password" replace />
+    }
     return <Navigate to={from} replace />
   }
 
@@ -27,8 +31,8 @@ export default function LoginPage() {
     setError(null)
     setSubmitting(true)
     try {
-      await login(email.trim(), password)
-      navigate(from, { replace: true })
+      const signedIn = await login(email.trim(), password)
+      navigate(signedIn.must_change_password ? '/change-password' : from, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -39,7 +43,7 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand">Grand-Tek Technology USA</div>
+        <CompanyBrand className="auth-brand" />
         <h1 className="auth-title">Sign in</h1>
         <p className="auth-subtitle">Use your work email to access the system.</p>
 
@@ -47,7 +51,7 @@ export default function LoginPage() {
           <label className="auth-field">
             <span>Email</span>
             <input
-              type="email"
+              type="text"
               autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -86,8 +90,8 @@ export default function LoginPage() {
           Need an account? <Link to="/register">Register</Link>
         </p>
         <p className="auth-hint">
-          Demo users use password <code>Password123!</code>
-          {' '}· recovery answer <code>blue</code>
+          First sign-in uses the name <code>Admin</code> and password <code>Password123!</code>.
+          That sign-in asks you to set the administrator email and a new password.
         </p>
       </div>
     </div>

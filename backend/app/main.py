@@ -1,10 +1,14 @@
 # @author: Wendy Yang
 # @date: 2026-09-19
 
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.services.bootstrap_admin import ensure_bootstrap_admin, password_change_required
 from app.routers import (
     accounts,
     admin_rbac,
@@ -50,6 +54,13 @@ from app.routers import (
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    ensure_bootstrap_admin()
+    yield
+
+
 app = FastAPI(
     title="Custom ERP API",
     description="Python FastAPI backend for inventory, CRM, sales, and double-entry accounting.",
@@ -57,6 +68,7 @@ app = FastAPI(
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None if settings.is_production else "/redoc",
     openapi_url=None if settings.is_production else "/openapi.json",
+    lifespan=_lifespan,
 )
 
 app.add_middleware(
@@ -66,6 +78,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_password_change(request: Request, call_next):
+    if password_change_required(request.url.path, request.headers.get("authorization")):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Change the initial password before using the system"},
+        )
+    return await call_next(request)
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
