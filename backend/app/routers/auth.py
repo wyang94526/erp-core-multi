@@ -25,6 +25,7 @@ from app.schemas import (
     AuthSecurityQuestionsResponse,
     AuthTokenResponse,
     CurrentUserRead,
+    RegistrationCountryRead,
     UserRoleBrief,
 )
 from app.security_questions import normalize_security_answer
@@ -34,6 +35,7 @@ from app.services.auth import (
     hash_password,
     verify_password,
 )
+from app.services.companies import assign_local_company, registration_countries
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -61,6 +63,7 @@ def _serialize_current_user(user: User) -> dict:
         "role_name": roles[0].role_name if roles else None,
         "has_security_question": bool(user.security_question and user.security_answer_hash),
         "must_change_password": bool(user.must_change_password),
+        "country": user.country,
     }
 
 
@@ -117,6 +120,11 @@ def list_security_questions(db: Session = Depends(get_db)) -> dict:
     return {"questions": _active_catalog_questions(db)}
 
 
+@router.get("/countries", response_model=list[RegistrationCountryRead])
+def list_registration_countries(db: Session = Depends(get_db)) -> list[dict]:
+    return registration_countries(db)
+
+
 @router.post("/register", response_model=AuthTokenResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> dict:
     email = payload.email.strip().lower()
@@ -138,10 +146,13 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> dic
         password_hash=hash_password(payload.password),
         security_question=question,
         security_answer_hash=_hash_security_answer(payload.security_answer),
+        country=payload.country.strip(),
         status="ACTIVE",
     )
     user.roles = [role]
     db.add(user)
+    db.flush()
+    membership = assign_local_company(db, user)
     db.commit()
 
     user = _load_user(db, user.id)
@@ -151,6 +162,7 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> dic
         "access_token": token,
         "token_type": "bearer",
         "user": _serialize_current_user(user),
+        "company_id": membership.company_id,
     }
 
 
@@ -180,11 +192,20 @@ def login(payload: AuthLoginRequest, db: Session = Depends(get_db)) -> dict:
             detail="User account is inactive",
         )
 
+    company_id = None
+    if (user.country or "").strip():
+        membership = assign_local_company(db, user)
+        db.commit()
+        company_id = membership.company_id
+        user = _load_user(db, user.id)
+        assert user is not None
+
     token = create_access_token(user_id=user.id, email=user.email or "")
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": _serialize_current_user(user),
+        "company_id": company_id,
     }
 
 

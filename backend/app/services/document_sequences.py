@@ -10,10 +10,13 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Final, Sequence
 
+from uuid import UUID
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import DocumentSequence
+from app.company_context import current_document_company_id
+from app.models import CompanyDocumentPrefix, DocumentSequence
 
 _CANONICAL_SUFFIX = re.compile(r"^(?P<yy>\d{2})(?P<mm>\d{2})(?P<seq>\d{4})$")
 
@@ -27,6 +30,9 @@ DOC_MATERIAL_ISSUE: Final = "MATERIAL_ISSUE"
 DOC_FINISHED_GOODS_RECEIPT: Final = "FINISHED_GOODS_RECEIPT"
 DOC_BILL: Final = "BILL"
 DOC_JOURNAL: Final = "JOURNAL"
+DOC_PRODUCTION_ORDER: Final = "PRODUCTION_ORDER"
+DOC_PRODUCTION_ISSUE: Final = "PRODUCTION_ISSUE"
+DOC_PRODUCTION_RECEIPT: Final = "PRODUCTION_RECEIPT"
 
 DOCUMENT_PREFIXES: Final[dict[str, str]] = {
     DOC_SALES_ORDER: "PU61-",
@@ -39,6 +45,9 @@ DOCUMENT_PREFIXES: Final[dict[str, str]] = {
     DOC_FINISHED_GOODS_RECEIPT: "UP72-",
     DOC_BILL: "UX13-",
     DOC_JOURNAL: "UG11-",
+    DOC_PRODUCTION_ORDER: "MP01-",
+    DOC_PRODUCTION_ISSUE: "MP02-",
+    DOC_PRODUCTION_RECEIPT: "MP03-",
 }
 
 LEGACY_SALES_ORDER_PREFIX: Final = "PUB61-"
@@ -91,6 +100,25 @@ def parse_document_date(document_date: date | datetime | str | None) -> date:
     return date.fromisoformat(text[:10])
 
 
+def document_prefix(db: Session, doc_type: str, company_id: UUID | None = None) -> str:
+    """Prefix for this company, or the built-in Grand-Tek prefix when none is saved."""
+    prefix = DOCUMENT_PREFIXES.get(doc_type)
+    if prefix is None:
+        raise ValueError(f"Unknown document type: {doc_type}")
+    chosen = company_id or current_document_company_id()
+    if chosen is None:
+        return prefix
+    row = (
+        db.query(CompanyDocumentPrefix)
+        .filter(
+            CompanyDocumentPrefix.company_id == chosen,
+            CompanyDocumentPrefix.doc_type == doc_type,
+        )
+        .one_or_none()
+    )
+    return row.prefix if row is not None and row.prefix else prefix
+
+
 def format_document_number(prefix: str, document_date: date, sequence: int) -> str:
     if sequence < 1 or sequence > 9999:
         raise ValueError(f"Sequence {sequence} is outside 0001-9999")
@@ -102,27 +130,25 @@ def next_document_number(
     doc_type: str,
     document_date: date | datetime | str | None = None,
     preferred: str | None = None,
+    company_id: UUID | None = None,
 ) -> str:
     """Use *preferred* when it is unused and already canonical; otherwise allocate."""
-    prefix = DOCUMENT_PREFIXES.get(doc_type)
-    if prefix is None:
-        raise ValueError(f"Unknown document type: {doc_type}")
+    prefix = document_prefix(db, doc_type, company_id)
     parsed = parse_document_date(document_date)
     candidate = str(preferred or "").strip()
     if candidate and is_canonical_for_date(candidate, prefix, parsed):
         return candidate
-    return generate_document_number(db, doc_type, parsed)
+    return generate_document_number(db, doc_type, parsed, company_id)
 
 
 def peek_document_number(
     db: Session,
     doc_type: str,
     document_date: date | datetime | str | None = None,
+    company_id: UUID | None = None,
 ) -> str:
     """Return the next number without consuming the sequence."""
-    prefix = DOCUMENT_PREFIXES.get(doc_type)
-    if prefix is None:
-        raise ValueError(f"Unknown document type: {doc_type}")
+    prefix = document_prefix(db, doc_type, company_id)
     parsed = parse_document_date(document_date)
     year_month = parsed.strftime("%Y%m")
     row = (
@@ -141,12 +167,10 @@ def generate_document_number(
     db: Session,
     doc_type: str,
     document_date: date | datetime | str | None = None,
+    company_id: UUID | None = None,
 ) -> str:
     """Atomically increment the persisted counter and return the formatted number."""
-    prefix = DOCUMENT_PREFIXES.get(doc_type)
-    if prefix is None:
-        raise ValueError(f"Unknown document type: {doc_type}")
-
+    prefix = document_prefix(db, doc_type, company_id)
     parsed = parse_document_date(document_date)
     year_month = parsed.strftime("%Y%m")
     next_value = _next_sequence_value(db, doc_type, year_month)

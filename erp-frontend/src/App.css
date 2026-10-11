@@ -182,3 +182,17 @@
     border-right-color: var(--border);
   }
 }
+
+.foundation-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.foundation-table th,
+.foundation-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--divider, #e6e6e6);
+  white-space: nowrap;
+}

@@ -14,7 +14,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { getStoredAuthToken, setStoredAuthToken } from '../api/client'
+import { getStoredAuthToken, setStoredAuthToken, setStoredCompanyId } from '../api/client'
 import { authService } from '../api/services'
 import type { CurrentUser } from '../types'
 
@@ -27,6 +27,7 @@ type AuthContextValue = {
   register: (
     fullName: string,
     email: string,
+    country: string,
     password: string,
     securityQuestion: string,
     securityAnswer: string,
@@ -74,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const result = await authService.login({ email, password })
     setStoredAuthToken(result.access_token)
+    if (result.company_id) setStoredCompanyId(result.company_id)
     setToken(result.access_token)
     setUser(result.user)
     return result.user
@@ -83,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       fullName: string,
       email: string,
+      country: string,
       password: string,
       securityQuestion: string,
       securityAnswer: string,
@@ -90,11 +93,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await authService.register({
         full_name: fullName,
         email,
+        country,
         password,
         security_question: securityQuestion,
         security_answer: securityAnswer,
       })
       setStoredAuthToken(result.access_token)
+      if (result.company_id) setStoredCompanyId(result.company_id)
       setToken(result.access_token)
       setUser(result.user)
     },
@@ -103,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setStoredAuthToken(null)
+    setStoredCompanyId(null)
     setToken(null)
     setUser(null)
   }, [])

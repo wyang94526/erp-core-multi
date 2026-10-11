@@ -152,6 +152,7 @@ export interface Item {
   is_subcontract_assembly?: boolean;
   /** Raw material / purchased part used in kits */
   is_raw_material?: boolean;
+  requires_inspection?: boolean;
 }
 
 /** @deprecated Prefer Item — alias during migration */
@@ -408,6 +409,7 @@ export interface CurrentUser {
   permissions?: string[];
   has_security_question?: boolean;
   must_change_password?: boolean;
+  country?: string | null;
   role_id: string | null;
   role_name: string | null;
 }
@@ -519,10 +521,43 @@ export type TaxDocumentType =
   | string
 export type VendorIncoterm = 'FOB' | 'EXW' | 'DDP' | 'CIF' | 'FCA' | 'CPT' | string
 
+export interface StandardOperation {
+  id: number
+  company_id: string
+  operation_code: string
+  name: string
+  work_center_id: string | null
+  setup_minutes: string | number
+  run_minutes_per_unit: string | number
+  description: string | null
+}
+
+export interface MasterRoutingOperation {
+  id: number
+  sequence: number
+  standard_operation_id: number | null
+  work_center_id: string | null
+  operation_name: string
+  setup_minutes: string | number
+  run_minutes_per_unit: string | number
+}
+
+export interface MasterRouting {
+  id: number
+  company_id: string
+  routing_code: string
+  name: string
+  version_no: number
+  status: string
+  notes: string | null
+  operations: MasterRoutingOperation[]
+}
+
 export interface WorkCenter {
   work_center_id: string
   name: string
   warehouse_id?: string | null
+  hourly_rate?: string | number
   is_active?: boolean
 }
 
@@ -1417,6 +1452,8 @@ export interface CompanyAddress {
 export interface CompanyProfile {
   id: string
   company_name: string
+  country?: string | null
+  base_currency?: string | null
   contact_name: string | null
   contact_email: string | null
   contact_phone: string | null
@@ -1660,3 +1697,182 @@ export type FinancialReportQuery = Partial<{
   currency: string
   branch: string
 }>
+
+export interface Company {
+  id: string
+  code: string
+  name: string
+  country?: string | null
+  base_currency: string
+  is_active: boolean
+  parent_company_id?: string | null
+}
+
+export interface CompanyMembership {
+  company: Company
+  is_default: boolean
+}
+
+export interface ExchangeRate {
+  id: string
+  company_id: string
+  quote_currency: string
+  rate_to_base: string | number
+  effective_date: string
+  source: string
+}
+
+export interface BomRoutingOperation {
+  id: number
+  bom_header_id: number
+  sequence: number
+  work_center_id: string | null
+  name: string
+  setup_minutes: string | number
+  run_minutes_per_unit: string | number
+}
+
+export interface ProductionOrderMaterial {
+  id: number
+  component_item_id: string | null
+  component_code: string | null
+  item_type: string
+  quantity_required: string | number
+  quantity_issued: string | number
+  warehouse_id: string | null
+  lot_serial_tracking_required: boolean
+}
+
+export interface StepLaborLog {
+  id: number
+  operator_user_id: string | null
+  started_at: string
+  stopped_at: string | null
+  labor_hours: string | number
+}
+
+export interface StepScrapEntry {
+  id: number
+  quantity: number
+  reason_code: string
+  defect_class: string | null
+  notes: string | null
+}
+
+export interface MaterialBackflush {
+  id: number
+  component_item_id: string | null
+  quantity: string | number
+  lot_number: string | null
+  serial_number: string | null
+}
+
+export interface StepQualityCheck {
+  id: number
+  characteristic: string
+  specification: string | null
+  measured_value: string | null
+  passed: boolean
+  defect_class: string | null
+}
+
+export interface StepDowntime {
+  id: number
+  reason_code: string
+  minutes: string | number
+  notes: string | null
+}
+
+export interface StepParameter {
+  id: number
+  name: string
+  value: string
+  unit: string | null
+}
+
+export interface ProductionOrderRouting {
+  id: number
+  operation_sequence: number
+  work_center_id: string | null
+  operation_name: string
+  setup_time: string | number
+  run_time: string | number
+  status: string
+  setup_minutes_actual?: string | number
+  run_minutes_actual?: string | number
+  good_quantity?: number
+  scrap_quantity?: number
+  rework_quantity?: number
+  scrap_reason_code?: string | null
+  labor_hours?: string | number
+  started_at?: string | null
+  completed_at?: string | null
+  standard_minutes?: string | number | null
+  actual_minutes?: string | number | null
+  variance_minutes?: string | number | null
+  labor_logs?: StepLaborLog[]
+  scrap_entries?: StepScrapEntry[]
+  backflushes?: MaterialBackflush[]
+  quality_checks?: StepQualityCheck[]
+  downtime_logs?: StepDowntime[]
+  parameters?: StepParameter[]
+}
+
+export interface ProductionOrder {
+  production_order_id: string
+  company_id: string
+  item_id: string
+  sales_order_id: string | null
+  bom_header_id: number | null
+  warehouse_id: string | null
+  qty_ordered: number
+  qty_completed: number
+  scrapped_qty: number
+  status: string
+  order_date: string
+  planned_start: string | null
+  planned_end: string | null
+  due_date: string | null
+  master_routing_id: number | null
+  routing_code: string | null
+  routing_version_no: number | null
+  transaction_currency: string
+  exchange_rate: string | number | null
+  rate_date: string | null
+  transaction_amount: string | number
+  base_amount: string | number | null
+  backflushed_units?: number
+  notes: string | null
+  materials: ProductionOrderMaterial[]
+  operations: ProductionOrderRouting[]
+  receipts?: ProductionReceipt[]
+}
+
+export interface ProductionReceipt {
+  receipt_id: string
+  production_order_id: string
+  quantity_received: number
+  receipt_date: string
+  posted_to_stock: boolean
+  notes: string | null
+}
+
+export interface InspectionResult {
+  id: number
+  characteristic: string
+  specification: string | null
+  measured_value: string | null
+  passed: boolean
+}
+
+export interface Inspection {
+  id: string
+  company_id: string
+  source_type: 'production_receipt' | 'goods_receipt'
+  source_id: string
+  status: string
+  inspector_user_id: string | null
+  inspected_at: string | null
+  notes: string | null
+  results: InspectionResult[]
+}

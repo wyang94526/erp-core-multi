@@ -6,6 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps.company import get_current_company, require_company_row
+from app.models import Company
 from app.models.entities import BinLocation, ChartOfAccount, Supplier, WorkCenter
 from app import schemas
 from app.services.payment_terms import apply_payment_term_fields
@@ -35,6 +37,7 @@ def _validate_supplier_refs(db: Session, payload: dict) -> None:
 def create_supplier(
     payload: schemas.SupplierCreate,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ):
     existing_supplier = db.query(Supplier).filter(Supplier.supplier_id == payload.supplier_id).first()
     if existing_supplier:
@@ -43,6 +46,7 @@ def create_supplier(
     data = payload.model_dump()
     _validate_supplier_refs(db, data)
     db_supplier = Supplier(**data)
+    db_supplier.company_id = company.id
     apply_payment_term_fields(
         db,
         db_supplier,
@@ -66,8 +70,9 @@ def list_suppliers(
     vendor_type: str | None = Query(default=None),
     response: Response = None,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ):
-    query = db.query(Supplier)
+    query = db.query(Supplier).filter(Supplier.company_id == company.id)
     if vendor_type and vendor_type.strip():
         types = [part.strip().lower() for part in vendor_type.split(",") if part.strip()]
         if types:
@@ -83,11 +88,13 @@ def list_suppliers(
 
 
 @router.get("/{supplier_id}", response_model=schemas.SupplierRead)
-def get_supplier(supplier_id: str, db: Session = Depends(get_db)):
+def get_supplier(
+    supplier_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+):
     supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
-    if not supplier:
-        raise HTTPException(status_code=404, detail="Supplier not found")
-    return supplier
+    return require_company_row(supplier, company, "Supplier not found")
 
 
 @router.put("/{supplier_id}", response_model=schemas.SupplierRead)
@@ -95,7 +102,9 @@ def replace_supplier(
     supplier_id: str,
     payload: schemas.SupplierUpdate,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ):
+    require_company_row(db.get(Supplier, supplier_id), company, "Supplier not found")
     return _apply_supplier_update(supplier_id, payload, db)
 
 
@@ -104,7 +113,9 @@ def update_supplier(
     supplier_id: str,
     payload: schemas.SupplierUpdate,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ):
+    require_company_row(db.get(Supplier, supplier_id), company, "Supplier not found")
     return _apply_supplier_update(supplier_id, payload, db)
 
 
@@ -139,8 +150,12 @@ def _apply_supplier_update(
 
 
 @router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_supplier(supplier_id: str, db: Session = Depends(get_db)):
-    db_supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+def delete_supplier(
+    supplier_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+):
+    db_supplier = require_company_row(db.get(Supplier, supplier_id), company, "Supplier not found")
     if not db_supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
 

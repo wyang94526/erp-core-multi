@@ -854,6 +854,12 @@ export const workCenterService = {
       params: { skip, limit },
     })
   },
+  create(body: { work_center_id: string; name: string; warehouse_id?: string | null; hourly_rate: number; is_active: boolean }) {
+    return apiClient.post<WorkCenter>('/api/v1/work-centers', body)
+  },
+  update(id: string, body: { name: string; warehouse_id?: string | null; hourly_rate: number; is_active: boolean }) {
+    return apiClient.put<WorkCenter>(`/api/v1/work-centers/${encodeURIComponent(id)}`, body)
+  },
 };
 
 // ==========================================
@@ -1508,6 +1514,13 @@ export type AuthTokenResponse = {
   access_token: string;
   token_type: string;
   user: CurrentUser;
+  company_id?: string | null;
+};
+
+export type RegistrationCountry = {
+  country: string;
+  company_code: string;
+  company_name: string;
 };
 
 export type AuthChangePasswordResponse = {
@@ -1531,11 +1544,16 @@ export const authService = {
   register(data: {
     email: string;
     full_name: string;
+    country: string;
     password: string;
     security_question: string;
     security_answer: string;
   }): Promise<AuthTokenResponse> {
     return apiClient.post<AuthTokenResponse>('/api/v1/auth/register', data);
+  },
+
+  listCountries(): Promise<RegistrationCountry[]> {
+    return apiClient.get<RegistrationCountry[]>('/api/v1/auth/countries');
   },
 
   changePassword(data: {
@@ -2284,8 +2302,10 @@ export const financialReportService = {
 };
 
 export const companyProfileService = {
-  async getPublicName(): Promise<{ company_name: string }> {
-    return apiClient.get<{ company_name: string }>('/api/v1/company-profile/public')
+  async getPublicName(): Promise<{ company_name: string; country?: string | null; base_currency?: string | null }> {
+    return apiClient.get<{ company_name: string; country?: string | null; base_currency?: string | null }>(
+      '/api/v1/company-profile/public',
+    )
   },
 
   async get(): Promise<CompanyProfile> {
@@ -2558,5 +2578,188 @@ export const apiServices = {
   auditLogs: auditLogService,
   attachments: attachmentService,
 };
+
+export const companyService = {
+  mine: () => apiClient.get<import('../types').CompanyMembership[]>('/api/v1/companies/mine'),
+  list: () => apiClient.get<import('../types').Company[]>('/api/v1/companies'),
+  create: (body: {
+    code: string
+    name: string
+    country?: string | null
+    base_currency: string
+    parent_company_id?: string | null
+  }) => apiClient.post<import('../types').Company>('/api/v1/companies', body),
+  update: (
+    id: string,
+    body: { name?: string; country?: string | null; base_currency?: string; parent_company_id?: string | null },
+  ) => apiClient.patch<import('../types').Company>(`/api/v1/companies/${id}`, body),
+}
+
+export const exchangeRateService = {
+  list: () => apiClient.get<import('../types').ExchangeRate[]>('/api/v1/exchange-rates'),
+  create: (body: { quote_currency: string; rate_to_base: number; effective_date: string }) =>
+    apiClient.post<import('../types').ExchangeRate>('/api/v1/exchange-rates', body),
+  refresh: (effective_date: string) =>
+    apiClient.post<import('../types').ExchangeRate[]>('/api/v1/exchange-rates/refresh', { effective_date }),
+}
+
+export const productionOrderService = {
+  list: () => apiClient.get<import('../types').ProductionOrder[]>('/api/v1/production-orders'),
+  get: (id: string) => apiClient.get<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}`),
+  create: (body: {
+    item_id: string
+    qty_ordered: number
+    warehouse_id?: string | null
+    sales_order_id?: string | null
+    order_date: string
+    planned_start?: string | null
+    due_date?: string | null
+    transaction_currency: string
+    transaction_amount: number
+    notes?: string | null
+    explode_bom?: boolean
+  }) => apiClient.post<import('../types').ProductionOrder>('/api/v1/production-orders', body),
+  update: (id: string, body: {
+    item_id?: string
+    qty_ordered?: number
+    warehouse_id?: string | null
+    sales_order_id?: string | null
+    order_date?: string
+    planned_start?: string | null
+    due_date?: string | null
+    transaction_currency?: string
+    transaction_amount?: number
+    notes?: string | null
+    scrapped_qty?: number
+  }) => apiClient.patch<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}`, body),
+  setStatus: (id: string, status: string) =>
+    apiClient.patch<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}/status`, { status }),
+  cancel: (id: string) => apiClient.delete(`/api/v1/production-orders/${encodeURIComponent(id)}`),
+  setRoutingStatus: (id: string, operationId: number, status: string) =>
+    apiClient.patch<import('../types').ProductionOrder>(
+      `/api/v1/production-orders/${encodeURIComponent(id)}/routing/${operationId}`,
+      { status },
+    ),
+  startStep: (id: string, stepId: number) =>
+    apiClient.post<import('../types').ProductionOrder>(
+      `/api/v1/production-orders/${encodeURIComponent(id)}/steps/${stepId}/start`,
+      {},
+    ),
+  completeStep: (id: string, stepId: number, body: {
+    good_quantity: number
+    scrap_quantity: number
+    rework_quantity: number
+    scrap_reason_code?: string | null
+    defect_class?: string | null
+    setup_minutes_actual: number
+    run_minutes_actual: number
+    lot_number?: string | null
+    serial_number?: string | null
+    quality_checks: {
+      characteristic: string
+      specification?: string
+      measured_value?: string
+      passed: boolean
+      defect_class?: string | null
+    }[]
+    downtime: { reason_code: string; minutes: number; notes?: string | null }[]
+    parameters: { name: string; value: string; unit?: string | null }[]
+  }) =>
+    apiClient.post<import('../types').ProductionOrder>(
+      `/api/v1/production-orders/${encodeURIComponent(id)}/steps/${stepId}/complete`,
+      body,
+    ),
+  release: (id: string) =>
+    apiClient.post<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}/release`, {}),
+  close: (id: string) =>
+    apiClient.post<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}/close`, {}),
+  issue: (id: string, body: { issue_date?: string; notes?: string | null; lines: { material_id: number; quantity: number }[] }) =>
+    apiClient.post(`/api/v1/production-orders/${encodeURIComponent(id)}/issues`, body),
+  receive: (id: string, body: { quantity_received: number; receipt_date?: string; notes?: string | null }) =>
+    apiClient.post<import('../types').ProductionReceipt>(`/api/v1/production-orders/${encodeURIComponent(id)}/receipts`, body),
+}
+
+export const inspectionService = {
+  list: () => apiClient.get<import('../types').Inspection[]>('/api/v1/inspections'),
+  documents: (sourceType: 'production_receipt' | 'goods_receipt') =>
+    apiClient.get<{ id: string; label: string }[]>('/api/v1/inspections/documents', {
+      params: { source_type: sourceType },
+    }),
+  create: (body: { source_type: 'production_receipt' | 'goods_receipt'; source_id: string; notes?: string | null }) =>
+    apiClient.post<import('../types').Inspection>('/api/v1/inspections', body),
+  get: (id: string) => apiClient.get<import('../types').Inspection>(`/api/v1/inspections/${id}`),
+  accept: (id: string, body: { notes?: string | null; results: { characteristic: string; specification?: string; measured_value?: string; passed: boolean }[] }) =>
+    apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/accept`, body),
+  reject: (id: string, body: { notes?: string | null; results: { characteristic: string; specification?: string; measured_value?: string; passed: boolean }[] }) =>
+    apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/reject`, body),
+}
+
+export const bomRoutingService = {
+  list: (itemId: string, headerId: number) =>
+    apiClient.get<import('../types').BomRoutingOperation[]>(
+      `/api/v1/items/${encodeURIComponent(itemId)}/bom-headers/${headerId}/routing`,
+    ),
+  add: (itemId: string, headerId: number, body: {
+    sequence: number
+    name: string
+    work_center_id?: string | null
+    setup_minutes: number
+    run_minutes_per_unit: number
+  }) =>
+    apiClient.post<import('../types').BomRoutingOperation>(
+      `/api/v1/items/${encodeURIComponent(itemId)}/bom-headers/${headerId}/routing`,
+      body,
+    ),
+  remove: (itemId: string, headerId: number, operationId: number) =>
+    apiClient.delete<void>(
+      `/api/v1/items/${encodeURIComponent(itemId)}/bom-headers/${headerId}/routing/${operationId}`,
+    ),
+  applyTemplate: (itemId: string, headerId: number, masterRoutingId: number) =>
+    apiClient.post<import('../types').BomRoutingOperation[]>(
+      `/api/v1/items/${encodeURIComponent(itemId)}/bom-headers/${headerId}/routing/apply`,
+      { master_routing_id: masterRoutingId },
+    ),
+}
+
+export const masterRoutingService = {
+  listOperations: () => apiClient.get<import('../types').StandardOperation[]>('/api/v1/standard-operations'),
+  createOperation: (body: {
+    operation_code: string
+    name: string
+    work_center_id?: string | null
+    setup_minutes?: number
+    run_minutes_per_unit?: number
+  }) => apiClient.post<import('../types').StandardOperation>('/api/v1/standard-operations', body),
+  list: (status?: string) =>
+    apiClient.get<import('../types').MasterRouting[]>('/api/v1/master-routings', {
+      params: status ? { status } : undefined,
+    }),
+  create: (body: { routing_code: string; name: string; notes?: string | null }) =>
+    apiClient.post<import('../types').MasterRouting>('/api/v1/master-routings', body),
+  addStep: (routingId: number, body: {
+    sequence: number
+    standard_operation_id?: number | null
+    operation_name?: string | null
+    work_center_id?: string | null
+  }) => apiClient.post(`/api/v1/master-routings/${routingId}/operations`, body),
+  revise: (routingId: number) =>
+    apiClient.post<import('../types').MasterRouting>(`/api/v1/master-routings/${routingId}/versions`, {}),
+  activate: (routingId: number) =>
+    apiClient.post<import('../types').MasterRouting>(`/api/v1/master-routings/${routingId}/activate`, {}),
+}
+
+export type DocumentPrefix = {
+  doc_type: string
+  label: string
+  prefix: string
+  sample: string
+  next_number: string
+}
+
+export const documentPrefixService = {
+  list: () => apiClient.get<DocumentPrefix[]>('/api/v1/document-prefixes'),
+  save: (prefixes: { doc_type: string; prefix: string }[]) =>
+    apiClient.put<DocumentPrefix[]>('/api/v1/document-prefixes', { prefixes }),
+}
 
 export default apiServices;

@@ -23,7 +23,11 @@ sys.modules.setdefault("app.database", _database)
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models.entities import DocumentSequence
+from uuid import uuid4
+
+from fastapi import HTTPException
+
+from app.models.entities import CompanyDocumentPrefix, DocumentSequence
 from app.services.document_sequences import (
     DOC_BILL,
     DOC_FINISHED_GOODS_RECEIPT,
@@ -156,6 +160,39 @@ class DocumentRenamePlanTests(unittest.TestCase):
         self.assertEqual(
             invoice_id_candidates("US55-26090004"),
             ["US55-26090004", "USS5-26090004"],
+        )
+
+
+class CompanyPrefixTests(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        DocumentSequence.__table__.create(engine)
+        CompanyDocumentPrefix.__table__.create(engine)
+        self.db = sessionmaker(bind=engine)()
+        self.company_id = uuid4()
+
+    def test_saved_prefix_is_used_and_the_default_stays_available(self):
+        from app.services.document_prefixes import normalize_prefix
+
+        self.assertEqual(normalize_prefix("so"), "SO-")
+        with self.assertRaises(HTTPException):
+            normalize_prefix("SO PREFIX")
+        self.db.add(
+            CompanyDocumentPrefix(
+                company_id=self.company_id,
+                doc_type=DOC_SALES_ORDER,
+                prefix="SO-",
+            )
+        )
+        self.db.commit()
+        september = date(2026, 9, 14)
+        self.assertEqual(
+            generate_document_number(self.db, DOC_SALES_ORDER, september, self.company_id),
+            "SO-26090001",
+        )
+        self.assertEqual(
+            generate_document_number(self.db, DOC_SALES_ORDER, september),
+            "PU61-26090002",
         )
 
 

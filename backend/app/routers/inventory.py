@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
 
 from app.database import get_db
-from app.models import BinLocation, InventoryStock, Item, Warehouse
+from app.deps.company import get_current_company, require_company_row
+from app.models import BinLocation, Company, InventoryStock, Item, Warehouse
 from app.schemas import (
     BinLocationCreate,
     BinLocationRead,
@@ -37,18 +38,30 @@ def list_warehouses(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> list[Warehouse]:
-    inventory_service.ensure_default_warehouse(db)
-    rows = db.query(Warehouse).offset(skip).limit(limit).all()
+    inventory_service.ensure_default_warehouse(db, company_id=company.id)
+    rows = (
+        db.query(Warehouse)
+        .filter(Warehouse.company_id == company.id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     db.commit()
     return rows
 
 
 @router.post("/warehouses", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
-def create_warehouse(payload: WarehouseCreate, db: Session = Depends(get_db)) -> Warehouse:
+def create_warehouse(
+    payload: WarehouseCreate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> Warehouse:
     if db.get(Warehouse, payload.warehouse_id):
         raise HTTPException(status_code=409, detail="Warehouse already exists")
     warehouse = Warehouse(**payload.model_dump())
+    warehouse.company_id = company.id
     db.add(warehouse)
     db.flush()
     db.add(
@@ -70,11 +83,12 @@ def create_warehouse(payload: WarehouseCreate, db: Session = Depends(get_db)) ->
 
 
 @router.get("/warehouses/{warehouse_id}", response_model=WarehouseRead)
-def get_warehouse(warehouse_id: str, db: Session = Depends(get_db)) -> Warehouse:
-    warehouse = db.get(Warehouse, warehouse_id)
-    if not warehouse:
-        raise HTTPException(status_code=404, detail="Warehouse not found")
-    return warehouse
+def get_warehouse(
+    warehouse_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> Warehouse:
+    return require_company_row(db.get(Warehouse, warehouse_id), company, "Warehouse not found")
 
 
 @router.patch("/warehouses/{warehouse_id}", response_model=WarehouseRead)

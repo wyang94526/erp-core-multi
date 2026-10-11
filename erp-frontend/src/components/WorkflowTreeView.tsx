@@ -6,6 +6,7 @@
  */
 
 import type { RoleDetail, WorkflowDefinition, WorkflowStep } from '../types'
+import { primaryButtonStyle } from '../utils/documentPageStyles'
 
 export const WORKFLOW_MODULES = [
   'SALES_ORDER',
@@ -117,7 +118,7 @@ export function WorkflowTreeView({
           {canManage ? ' Click a node action to maintain bands and steps.' : ''}
         </p>
         {canManage && (
-          <button type="button" style={primaryBtn} onClick={() => onAddBand?.()}>
+          <button type="button" style={primaryButtonStyle} onClick={() => onAddBand?.()}>
             + Add amount band
           </button>
         )}
@@ -319,19 +320,6 @@ const legendStyle: React.CSSProperties = {
 const emptyStyle: React.CSSProperties = {
   color: 'var(--text)',
   fontStyle: 'italic',
-}
-
-const primaryBtn: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: '6px',
-  border: 'none',
-  background: '#1976d2',
-  color: '#fff',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontWeight: 600,
-  fontSize: '13px',
-  whiteSpace: 'nowrap',
 }
 
 const ghostBtn: React.CSSProperties = {

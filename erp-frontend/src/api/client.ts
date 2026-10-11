@@ -10,6 +10,7 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
 export const AUTH_TOKEN_KEY = 'erp.authToken';
+export const COMPANY_ID_KEY = 'erp.companyId';
 
 export interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | null | undefined>;
@@ -70,6 +71,17 @@ export function getStoredAuthToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY)
 }
 
+export function getStoredCompanyId(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  return localStorage.getItem(COMPANY_ID_KEY)
+}
+
+export function setStoredCompanyId(companyId: string | null): void {
+  if (typeof localStorage === 'undefined') return
+  if (companyId) localStorage.setItem(COMPANY_ID_KEY, companyId)
+  else localStorage.removeItem(COMPANY_ID_KEY)
+}
+
 export function setStoredAuthToken(token: string | null): void {
   if (typeof localStorage === 'undefined') return
   if (token) {
@@ -99,6 +111,10 @@ async function request<T>(
   const token = getStoredAuthToken();
   if (token) {
     (defaultHeaders as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  }
+  const companyId = getStoredCompanyId();
+  if (companyId) {
+    (defaultHeaders as Record<string, string>)['X-Company-Id'] = companyId;
   }
 
   const signal =

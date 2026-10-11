@@ -16,6 +16,7 @@ from app.security_questions import (
     normalize_security_answer,
 )
 from app.services.auth import decode_access_token, hash_password
+from app.services.companies import ensure_user_membership
 
 _PASSWORD_CHANGE_ALLOWED = {
     "/health",
@@ -65,6 +66,8 @@ def ensure_bootstrap_admin() -> None:
         )
         user.roles = [role]
         db.add(user)
+        db.flush()
+        ensure_user_membership(db, user)
         db.commit()
         print(f"created bootstrap administrator {name} with no email", flush=True)
     finally:

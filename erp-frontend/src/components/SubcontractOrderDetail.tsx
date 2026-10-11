@@ -468,7 +468,7 @@ export function SubcontractOrderDetail() {
           ? itemService.getItem(order.item_id).catch(() => null)
           : Promise.resolve(null),
       ])
-      generateMaterialIssueShippingPdf({
+      await generateMaterialIssueShippingPdf({
         sco: order,
         issue,
         supplier,

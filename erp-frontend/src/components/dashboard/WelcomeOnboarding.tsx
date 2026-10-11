@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react'
 import { HandHeart, ShieldCheck, UserRound } from 'lucide-react'
 import { containerStyle } from './dashboardStyles'
+import { useCompanyLetterhead } from '../../hooks/useCompanyProfile'
 import { PageHeader } from '../PageHeader'
 
 type WelcomeOnboardingProps = {
@@ -14,10 +15,12 @@ type WelcomeOnboardingProps = {
 
 export default function WelcomeOnboarding({ fullName }: WelcomeOnboardingProps) {
   const firstName = fullName.trim().split(/\s+/)[0] || fullName || 'there'
+  const { name, detail } = useCompanyLetterhead()
+  const subtitle = detail ? `Get started with ${name} · ${detail}` : `Get started with ${name}`
 
   return (
     <div style={containerStyle}>
-      <PageHeader title="Welcome" subtitle="Get started with Grand-Tek Technology USA" />
+      <PageHeader title="Welcome" subtitle={subtitle} />
 
       <section
         style={{

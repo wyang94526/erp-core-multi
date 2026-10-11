@@ -8,9 +8,10 @@
 import { useEffect, useState, type CSSProperties, type ChangeEvent, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ImagePlus, Loader2, Save, Trash2 } from 'lucide-react'
+import { getStoredCompanyId } from '../api/client'
 import { companyProfileService } from '../api/services'
 import { useAuth } from '../context/AuthContext'
-import { COMPANY_NAME_KEY, COMPANY_PROFILE_KEY, useCompanyProfile } from '../hooks/useCompanyProfile'
+import { companyNameKey, companyProfileKey, useCompanyProfile } from '../hooks/useCompanyProfile'
 import type { CompanyAddress, CompanyProfile } from '../types'
 import { emptyCompanyAddress } from '../utils/pdfLetterhead'
 import { PageHeader } from './PageHeader'
@@ -41,7 +42,6 @@ export function CompanyProfilePage() {
   const profileQuery = useCompanyProfile()
   const profile = profileQuery.data
 
-  const [companyName, setCompanyName] = useState('Grand-Tek Technology USA')
   const [contactName, setContactName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
@@ -53,7 +53,6 @@ export function CompanyProfilePage() {
 
   useEffect(() => {
     if (!profile) return
-    setCompanyName(profile.company_name || 'Grand-Tek Technology USA')
     setContactName(profile.contact_name || '')
     setContactEmail(profile.contact_email || '')
     setContactPhone(profile.contact_phone || '')
@@ -87,7 +86,6 @@ export function CompanyProfilePage() {
   const saveMutation = useMutation({
     mutationFn: () =>
       companyProfileService.update({
-        company_name: companyName.trim(),
         contact_name: contactName.trim() || null,
         contact_email: contactEmail.trim() || null,
         contact_phone: contactPhone.trim() || null,
@@ -95,8 +93,12 @@ export function CompanyProfilePage() {
         ship_to: shipTo,
       }),
     onSuccess: (next) => {
-      queryClient.setQueryData(COMPANY_PROFILE_KEY, next)
-      queryClient.setQueryData(COMPANY_NAME_KEY, { company_name: next.company_name })
+      queryClient.setQueryData(companyProfileKey(getStoredCompanyId()), next)
+      queryClient.setQueryData(companyNameKey(getStoredCompanyId()), {
+        company_name: next.company_name,
+        country: next.country,
+        base_currency: next.base_currency,
+      })
       setSuccess('Company profile saved. New Sales, Purchase, and Subcontract order PDFs will use this letterhead.')
       setError(null)
     },
@@ -109,7 +111,7 @@ export function CompanyProfilePage() {
   const logoMutation = useMutation({
     mutationFn: (file: File) => companyProfileService.uploadLogo(file),
     onSuccess: (next) => {
-      queryClient.setQueryData(COMPANY_PROFILE_KEY, next)
+      queryClient.setQueryData(companyProfileKey(getStoredCompanyId()), next)
       setSuccess('Logo uploaded. It will appear on Sales, Purchase, and Subcontract order PDFs.')
       setError(null)
     },
@@ -122,7 +124,7 @@ export function CompanyProfilePage() {
   const removeLogoMutation = useMutation({
     mutationFn: () => companyProfileService.removeLogo(),
     onSuccess: (next) => {
-      queryClient.setQueryData(COMPANY_PROFILE_KEY, next)
+      queryClient.setQueryData(companyProfileKey(getStoredCompanyId()), next)
       setLogoPreview(null)
       setSuccess('Company logo removed.')
       setError(null)
@@ -136,10 +138,6 @@ export function CompanyProfilePage() {
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!canManage || saveMutation.isPending) return
-    if (!companyName.trim()) {
-      setError('Company name is required')
-      return
-    }
     saveMutation.mutate()
   }
 
@@ -160,7 +158,7 @@ export function CompanyProfilePage() {
     <div style={pageStyle}>
       <PageHeader
         title="Company Profile"
-        subtitle="Letterhead for Sales Order, Purchase Order, and Subcontract Order PDFs. Upload a logo and maintain the company contact plus bill-to / ship-to locations."
+        subtitle="Letterhead for the active company. The name, country, and base currency follow that company. Contact, logo, and addresses are maintained here."
       >
         {canManage ? (
           <button type="submit" form="company-profile-form" style={primaryButtonStyle} disabled={saveMutation.isPending}>
@@ -233,15 +231,21 @@ export function CompanyProfilePage() {
         <section style={cardStyle}>
           <h2 style={sectionTitle}>Company contact</h2>
           <p style={hintStyle}>Printed in the PDF header next to the logo.</p>
-          <label style={fieldLabel}>
-            Company name
-            <input
-              style={inputStyle}
-              value={companyName}
-              disabled={!canManage}
-              onChange={(e) => setCompanyName(e.target.value)}
-            />
-          </label>
+          <div style={twoCol}>
+            <label style={fieldLabel}>
+              Company name
+              <input style={inputStyle} value={profile?.company_name || ''} readOnly />
+            </label>
+            <label style={fieldLabel}>
+              Country
+              <input style={inputStyle} value={profile?.country || ''} readOnly />
+            </label>
+            <label style={fieldLabel}>
+              Base currency
+              <input style={inputStyle} value={profile?.base_currency || ''} readOnly />
+            </label>
+          </div>
+          <p style={hintStyle}>Change the name, country, or base currency on Companies. This letterhead uses the company selected in the header.</p>
           <div style={twoCol}>
             <label style={fieldLabel}>
               Contact
@@ -315,7 +319,7 @@ function AddressCard({
   )
 }
 
-const pageStyle: CSSProperties = { padding: '8px 0 32px' }
+const pageStyle: CSSProperties = { padding: 24 }
 const cardStyle: CSSProperties = {
   background: '#fff',
   border: '1px solid var(--border, #ddd)',

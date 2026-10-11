@@ -22,6 +22,9 @@ class _Query:
     def __init__(self, row):
         self.row = row
 
+    def filter(self, *_args, **_kwargs):
+        return self
+
     def order_by(self, *_args, **_kwargs):
         return self
 
@@ -89,19 +92,33 @@ class CompanyProfileTests(unittest.TestCase):
         self.assertFalse(data["has_logo"])
         self.assertEqual(data["bill_to"], empty_address())
 
+    def test_letterhead_follows_company_country_and_currency(self):
+        company = SimpleNamespace(
+            name="Grand-Tek Technology Japan",
+            country="Japan",
+            base_currency="JPY",
+        )
+        data = serialize_profile(_profile(), company)
+        self.assertEqual(data["company_name"], "Grand-Tek Technology Japan")
+        self.assertEqual(data["country"], "Japan")
+        self.assertEqual(data["base_currency"], "JPY")
+
     def test_update_requires_company_name(self):
         db = _FakeDb(_profile())
         user = SimpleNamespace(id=uuid4())
+        company = SimpleNamespace(id=uuid4(), name="Grand-Tek Technology US", country="United States", base_currency="USD")
         with self.assertRaises(HTTPException) as ctx:
-            update_profile(db, user, {"company_name": "   "})
+            update_profile(db, user, company, {"company_name": "   "})
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_update_writes_contact_and_addresses(self):
         db = _FakeDb(_profile())
         user = SimpleNamespace(id=uuid4())
+        company = SimpleNamespace(id=uuid4(), name="Grand-Tek Technology US", country="United States", base_currency="USD")
         row = update_profile(
             db,
             user,
+            company,
             {
                 "contact_name": "AP Desk",
                 "contact_email": "ap@grand-tek.com",

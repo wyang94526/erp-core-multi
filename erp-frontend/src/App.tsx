@@ -8,6 +8,7 @@ import { CircleHelp } from 'lucide-react'
 import { Outlet, useLocation } from 'react-router-dom'
 import AiAssistant from './components/AiAssistant'
 import { CompanyBrand } from './components/CompanyBrand'
+import { CompanySwitcher } from './components/CompanySwitcher'
 import HelpDrawer from './components/help/HelpDrawer'
 import PageBreadcrumbs from './components/PageBreadcrumbs'
 import SidebarNav from './components/SidebarNav'
@@ -99,6 +100,7 @@ function App() {
             </span>
           </button>
           <CompanyBrand className="app-topbar-title" heading />
+          <CompanySwitcher />
           <div className="app-topbar-actions">
             <button
               type="button"

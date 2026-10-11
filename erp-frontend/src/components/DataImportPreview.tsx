@@ -21,6 +21,9 @@ import type {
   DataImportVendorMapping,
 } from '../api/services'
 import { useAuth } from '../context/AuthContext'
+import { PageHeader } from './PageHeader'
+import { adminErrorStyle, adminPageStyle } from '../utils/adminPageStyles'
+import { dangerButtonStyle, headerButtonStyle, primaryButtonStyle } from '../utils/documentPageStyles'
 
 type Tab = 'customers' | 'suppliers' | 'items' | 'bom' | 'accounts' | 'trial_balance'
 
@@ -362,45 +365,41 @@ export default function DataImportPreview() {
 
   if (!canView) {
     return (
-      <div style={pageStyle}>
-        <h2 style={headingStyle}>CSV Import</h2>
-        <p style={subStyle}>You need the admin:manage permission to view this utility.</p>
+      <div style={adminPageStyle}>
+        <PageHeader
+          title="CSV Import"
+          subtitle="You need the admin:manage permission to view this utility."
+        />
       </div>
     )
   }
 
   return (
-    <div style={pageStyle}>
-      <div style={headerRow}>
-        <div>
-          <h2 style={headingStyle}>CSV Import</h2>
-          <p style={subStyle}>
-            Upload TIPTOP CSVs onto this server, review the mapped records, then load them.
-            Live systems should use incremental upsert. Truncate is only for a first-time rebuild.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button type="button" style={secondaryBtn} onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? 'Refreshing…' : 'Refresh preview'}
-          </button>
-          <button
-            type="button"
-            style={dangerBtn}
-            onClick={() => handleApply(true)}
-            disabled={!data?.ready || apply.isPending}
-          >
-            {apply.isPending ? 'Working…' : 'Truncate & reload'}
-          </button>
-          <button
-            type="button"
-            style={primaryBtn}
-            onClick={() => handleApply(false)}
-            disabled={!data?.ready || apply.isPending}
-          >
-            {apply.isPending ? 'Writing…' : 'Incremental upsert'}
-          </button>
-        </div>
-      </div>
+    <div style={adminPageStyle}>
+      <PageHeader
+        title="CSV Import"
+        subtitle="Upload TIPTOP CSVs onto this server, review the mapped records, then load them. Live systems should use incremental upsert. Truncate is only for a first-time rebuild."
+      >
+        <button type="button" style={headerButtonStyle} onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? 'Refreshing…' : 'Refresh preview'}
+        </button>
+        <button
+          type="button"
+          style={dangerButtonStyle}
+          onClick={() => handleApply(true)}
+          disabled={!data?.ready || apply.isPending}
+        >
+          {apply.isPending ? 'Working…' : 'Truncate & reload'}
+        </button>
+        <button
+          type="button"
+          style={primaryButtonStyle}
+          onClick={() => handleApply(false)}
+          disabled={!data?.ready || apply.isPending}
+        >
+          {apply.isPending ? 'Writing…' : 'Incremental upsert'}
+        </button>
+      </PageHeader>
 
       <UploadPanel
         data={data}
@@ -419,11 +418,11 @@ export default function DataImportPreview() {
 
       {isLoading && <p style={muted}>Checking import folder…</p>}
       {isError && (
-        <p style={errorStyle}>{error instanceof Error ? error.message : 'Failed to load preview'}</p>
+        <p style={adminErrorStyle}>{error instanceof Error ? error.message : 'Failed to load preview'}</p>
       )}
 
       {apply.isError && (
-        <p style={errorStyle}>
+        <p style={adminErrorStyle}>
           {apply.error instanceof Error ? apply.error.message : 'Failed to apply CSV import'}
         </p>
       )}
@@ -537,7 +536,7 @@ function UploadPanel({
           onFiles(files)
         }}
       />
-      <button type="button" style={primaryBtn} onClick={onPick} disabled={busy}>
+      <button type="button" style={primaryButtonStyle} onClick={onPick} disabled={busy}>
         {busy ? 'Uploading…' : 'Upload CSVs or zip'}
       </button>
       {missing.length > 0 && (
@@ -565,7 +564,7 @@ function UploadPanel({
             </label>
             <button
               type="button"
-              style={primaryBtn}
+              style={primaryButtonStyle}
               onClick={onLoadTrialBalance}
               disabled={!endingPeriod || loadBusy}
             >
@@ -579,7 +578,7 @@ function UploadPanel({
           period.
         </p>
       )}
-      {error && <p style={errorStyle}>{error}</p>}
+      {error && <p style={adminErrorStyle}>{error}</p>}
     </div>
   )
 }
@@ -652,7 +651,7 @@ function PreviewBody({
           <button
             key={item.id}
             type="button"
-            style={{ ...tabBtn, ...(tab === item.id ? tabActive : {}) }}
+            style={tab === item.id ? primaryButtonStyle : headerButtonStyle}
             onClick={() => onTab(item.id)}
           >
             {item.label}
@@ -1079,20 +1078,13 @@ function StatusChip({ status }: { status: string }) {
   return <span style={{ ...chip, ...tone }}>{status}</span>
 }
 
-const pageStyle: React.CSSProperties = { maxWidth: '1400px' }
-const tableWrap: React.CSSProperties = { overflowX: 'auto' }
-const headingStyle: React.CSSProperties = { margin: '0 0 4px', color: 'var(--text-h)' }
-const subStyle: React.CSSProperties = {
-  margin: '0 0 16px',
-  color: 'var(--text)',
-  fontSize: '14px',
-}
-const headerRow: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: '16px',
-  alignItems: 'flex-start',
-  marginBottom: '8px',
+const tableWrap: React.CSSProperties = {
+  overflowX: 'auto',
+  background: '#fff',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 8,
+  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+  marginBottom: 16,
 }
 const banner: React.CSSProperties = {
   background: '#e3f2fd',
@@ -1103,11 +1095,12 @@ const banner: React.CSSProperties = {
   marginBottom: '16px',
 }
 const uploadBox: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: '8px',
-  padding: '14px 16px',
-  marginBottom: '16px',
-  background: 'var(--bg)',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 8,
+  padding: 24,
+  marginBottom: 16,
+  background: '#fff',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
 }
 const tbBox: React.CSSProperties = {
   marginTop: '14px',
@@ -1123,11 +1116,13 @@ const periodLabel: React.CSSProperties = {
   fontWeight: 600,
 }
 const periodInput: React.CSSProperties = {
-  padding: '6px 8px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: '1px solid #cfd8dc',
   fontFamily: 'inherit',
-  fontSize: '13px',
+  fontSize: 14,
+  background: 'var(--bg, #fff)',
+  color: 'var(--text-h, #212121)',
 }
 const fileList: React.CSSProperties = {
   margin: '0 0 12px',
@@ -1142,10 +1137,11 @@ const statRow: React.CSSProperties = {
   marginBottom: '12px',
 }
 const statCard: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: '8px',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 8,
   padding: '12px 14px',
-  background: 'var(--bg)',
+  background: '#fff',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
 }
 const statWarn: React.CSSProperties = { borderColor: '#ffcc80', background: '#fff8e1' }
 const statValue: React.CSSProperties = { fontSize: '22px', fontWeight: 700, color: 'var(--text-h)' }
@@ -1165,35 +1161,24 @@ const tabsStyle: React.CSSProperties = {
   marginBottom: '16px',
   flexWrap: 'wrap',
 }
-const tabBtn: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  color: 'var(--text-h)',
-}
-const tabActive: React.CSSProperties = {
-  background: 'var(--text-h)',
-  color: '#fff',
-  borderColor: 'transparent',
-}
 const tableStyle: React.CSSProperties = {
   width: '100%',
   borderCollapse: 'collapse',
   fontSize: '13px',
+  background: '#fff',
 }
 const th: React.CSSProperties = {
   textAlign: 'left',
-  padding: '8px',
-  color: 'var(--text-h)',
+  padding: '12px 10px',
+  color: 'var(--text-h, #212121)',
+  fontWeight: 'bold',
+  backgroundColor: 'var(--social-bg, #f5f5f5)',
 }
 const td: React.CSSProperties = {
-  borderBottom: '1px solid var(--divider)',
-  padding: '8px',
+  borderBottom: '1px solid var(--divider, #eee)',
+  padding: '12px 10px',
   verticalAlign: 'top',
-  color: 'var(--text)',
+  color: 'var(--text, #424242)',
 }
 const muted: React.CSSProperties = { color: 'var(--text)', fontSize: '12px' }
 const chip: React.CSSProperties = {
@@ -1202,28 +1187,6 @@ const chip: React.CSSProperties = {
   borderRadius: '10px',
   background: '#eceff1',
   color: '#37474f',
-}
-const primaryBtn: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: '6px',
-  border: 'none',
-  background: '#1976d2',
-  color: '#fff',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontWeight: 600,
-  fontSize: '13px',
-  whiteSpace: 'nowrap',
-}
-const secondaryBtn: React.CSSProperties = {
-  ...primaryBtn,
-  background: 'transparent',
-  color: 'var(--text-h)',
-  border: '1px solid var(--border)',
-}
-const dangerBtn: React.CSSProperties = {
-  ...primaryBtn,
-  background: '#c62828',
 }
 const successBox: React.CSSProperties = {
   border: '1px solid #a5d6a7',

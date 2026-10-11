@@ -200,7 +200,7 @@ def sync_certifications(
             customer.certifications.remove(cert)
 
 
-def create_customer(db: Session, payload: CustomerCreate) -> Customer:
+def create_customer(db: Session, payload: CustomerCreate, company_id=None) -> Customer:
     if db.get(Customer, payload.customer_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -209,6 +209,8 @@ def create_customer(db: Session, payload: CustomerCreate) -> Customer:
 
     header = payload.model_dump(exclude={"locations", "certifications", "customer_id"})
     customer = Customer(customer_id=payload.customer_id, **header)
+    if company_id is not None:
+        customer.company_id = company_id
     apply_payment_term_fields(
         db,
         customer,

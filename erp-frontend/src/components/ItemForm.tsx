@@ -6,13 +6,14 @@
  * Form for creating and editing items
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { itemService, itemBomService } from '../api/services'
 import type { ProductBOMComponent } from '../types'
 import { PageHeader } from './PageHeader'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
+import { BomRoutingPanel } from './BomRoutingPanel'
 import { BomVersionToolbar } from './BomVersionToolbar'
 import { ITEM_TYPE_OPTIONS, isStockItemType, normalizeItemType } from '../utils/itemTypes'
 
@@ -103,7 +104,13 @@ export function ItemForm() {
   // Bill of Materials component rows for this product
   const [bomComponents, setBomComponents] = useState<BomComponentRow[]>([])
   const [bomError, setBomError] = useState<string>('')
+  const [savingBom, setSavingBom] = useState(false)
   const [selectedBomHeaderId, setSelectedBomHeaderId] = useState<number | null>(null)
+  const bomComponentsRef = useRef<BomComponentRow[]>([])
+  const selectedBomHeaderRef = useRef<number | null>(null)
+  const bomSaveInflight = useRef(new Map<string, Promise<boolean>>())
+  bomComponentsRef.current = bomComponents
+  if (selectedBomHeaderId != null) selectedBomHeaderRef.current = selectedBomHeaderId
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -222,7 +229,10 @@ export function ItemForm() {
           yieldLossPercentage: String(bom.yield_loss_percentage ?? 0),
         }
       })
-      setBomComponents(rows)
+      setBomComponents((current) => {
+        const unsaved = current.filter((row) => row.bomId == null)
+        return [...rows, ...unsaved]
+      })
     }
   }, [existingBomComponents, allItems])
 
@@ -350,136 +360,158 @@ export function ItemForm() {
     }
   }
 
+  const withBomField = (
+    row: BomComponentRow,
+    field: keyof Omit<BomComponentRow, 'id' | 'bomId' | 'isSaving'>,
+    value: string,
+  ): BomComponentRow => {
+    if (field === 'componentPartNumber') {
+      const selected = allItems.find((p) => p.item_id === value)
+      return {
+        ...row,
+        componentPartNumber: value,
+        description: selected?.description || '',
+        uom: selected?.uom || row.uom,
+      }
+    }
+    if (field === 'componentCode') {
+      const codeInfo = LABOR_SERVICE_CODES[value]
+      return {
+        ...row,
+        componentCode: value,
+        description: codeInfo?.label || '',
+        uom: codeInfo?.uom || row.uom,
+      }
+    }
+    if (field === 'itemType') {
+      return {
+        ...row,
+        itemType: value as BomComponentRow['itemType'],
+        componentPartNumber: '',
+        componentCode: '',
+        description: '',
+        uom: 'Each',
+      }
+    }
+    return { ...row, [field]: value }
+  }
+
+  const replaceBomRow = (rowId: string, next: BomComponentRow) => {
+    setBomComponents((prev) => {
+      const updated = prev.map((row) => (row.id === rowId ? next : row))
+      bomComponentsRef.current = updated
+      return updated
+    })
+  }
+
   const handleBomFieldChange = (
     rowId: string,
     field: keyof Omit<BomComponentRow, 'id' | 'bomId' | 'isSaving'>,
     value: string
   ) => {
-    setBomComponents((prev) =>
-      prev.map((row) => {
-        if (row.id !== rowId) return row
-
-        // When the component part number changes, auto-fill description & uom
-        // from the selected product's catalog record.
-        if (field === 'componentPartNumber') {
-          const selected = allItems.find((p) => p.item_id === value)
-          return {
-            ...row,
-            componentPartNumber: value,
-            description: selected?.description || '',
-            uom: selected?.uom || row.uom,
-          }
-        }
-
-        // When a Labor/Outside Service code is selected, auto-fill description & uom
-        // from the predefined code list.
-        if (field === 'componentCode') {
-          const codeInfo = LABOR_SERVICE_CODES[value]
-          return {
-            ...row,
-            componentCode: value,
-            description: codeInfo?.label || '',
-            uom: codeInfo?.uom || row.uom,
-          }
-        }
-
-        // When itemType changes, reset the component reference fields since
-        // Material uses componentPartNumber while Labor/Outside Service use componentCode.
-        if (field === 'itemType') {
-          return {
-            ...row,
-            itemType: value as BomComponentRow['itemType'],
-            componentPartNumber: '',
-            componentCode: '',
-            description: '',
-            uom: 'Each',
-          }
-        }
-
-        return { ...row, [field]: value }
-      })
-    )
+    const current = bomComponentsRef.current.find((row) => row.id === rowId)
+    if (!current) return
+    replaceBomRow(rowId, withBomField(current, field, value))
   }
 
-  // Persist a single BOM row to the backend (create or update depending on whether
-  // it already has a bomId). Triggered onBlur of quantity, and immediately
-  // when a part number / code is first selected.
-  const persistBomRow = async (rowId: string) => {
-    if (!isEditMode || !id || bomReadOnly) return
+  // Persist a single BOM row. `snapshot` is the row after the edit that triggered
+  // the save, so a click on Update Item does not read a stale component list.
+  const persistBomRow = (rowId: string, snapshot?: BomComponentRow): Promise<boolean> => {
+    const inflight = bomSaveInflight.current.get(rowId)
+    if (inflight) return inflight
 
-    const row = bomComponents.find((r) => r.id === rowId)
-    if (!row) return
+    const job = (async () => {
+      if (!isEditMode || !id || bomReadOnly) return true
 
-    const isMaterial = row.itemType === 'Material'
-    const hasReference = isMaterial ? !!row.componentPartNumber : !!row.componentCode
-    if (!hasReference || !row.quantity) return
+      const row = snapshot ?? bomComponentsRef.current.find((r) => r.id === rowId)
+      if (!row) return true
 
-    setBomError('')
-    setBomComponents((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, isSaving: true } : r))
-    )
+      const isMaterial = row.itemType === 'Material'
+      const hasReference = isMaterial ? !!row.componentPartNumber : !!row.componentCode
+      if (!hasReference || !row.quantity) return true
 
-    try {
-      const basePayload = isMaterial
-        ? { component_item_id: row.componentPartNumber, component_code: null }
-        : { component_code: row.componentCode, component_item_id: null }
+      setBomError('')
+      replaceBomRow(rowId, { ...row, isSaving: true })
 
-      if (row.bomId) {
-        const updated = await itemBomService.updateBomComponent(id, row.bomId, {
-          ...basePayload,
-          quantity_per: Number(row.quantity),
-          item_type: row.itemType,
-          scrap_factor: Number(row.scrapFactor) || 0,
-          yield_loss_percentage: Number(row.yieldLossPercentage) || 0,
-        })
-        setBomComponents((prev) =>
-          prev.map((r) =>
-            r.id === rowId ? { ...r, bomId: updated.bom_id, isSaving: false } : r
-          )
-        )
-      } else {
-        const created = await itemBomService.addBomComponent(
-          id,
-          {
+      try {
+        const basePayload = isMaterial
+          ? { component_item_id: row.componentPartNumber, component_code: null }
+          : { component_code: row.componentCode, component_item_id: null }
+        const savedId = row.bomId ?? bomComponentsRef.current.find((r) => r.id === rowId)?.bomId
+
+        if (savedId) {
+          const updated = await itemBomService.updateBomComponent(id, savedId, {
             ...basePayload,
             quantity_per: Number(row.quantity),
             item_type: row.itemType,
             scrap_factor: Number(row.scrapFactor) || 0,
             yield_loss_percentage: Number(row.yieldLossPercentage) || 0,
-          },
-          selectedBomHeaderId,
-        )
-        if (created.bom_header_id) setSelectedBomHeaderId(created.bom_header_id)
-        await queryClient.invalidateQueries({ queryKey: ['itemBomHeaders', id] })
-        setBomComponents((prev) =>
-          prev.map((r) =>
-            r.id === rowId ? { ...r, bomId: created.bom_id, isSaving: false } : r
+          })
+          replaceBomRow(rowId, { ...row, bomId: updated.bom_id, isSaving: false })
+        } else {
+          const created = await itemBomService.addBomComponent(
+            id,
+            {
+              ...basePayload,
+              quantity_per: Number(row.quantity),
+              item_type: row.itemType,
+              scrap_factor: Number(row.scrapFactor) || 0,
+              yield_loss_percentage: Number(row.yieldLossPercentage) || 0,
+            },
+            selectedBomHeaderRef.current,
           )
-        )
+          if (created.bom_header_id) {
+            selectedBomHeaderRef.current = created.bom_header_id
+            setSelectedBomHeaderId(created.bom_header_id)
+          }
+          await queryClient.invalidateQueries({ queryKey: ['itemBomHeaders', id] })
+          replaceBomRow(rowId, { ...row, bomId: created.bom_id, isSaving: false })
+        }
+        queryClient.invalidateQueries({ queryKey: ['itemBom', id] })
+        return true
+      } catch (err: any) {
+        setBomError(err?.message || 'Failed to save BOM component')
+        replaceBomRow(rowId, { ...row, isSaving: false })
+        return false
       }
-      queryClient.invalidateQueries({ queryKey: ['itemBom', id] })
-    } catch (err: any) {
-      setBomError(err?.message || 'Failed to save BOM component')
-      setBomComponents((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, isSaving: false } : r))
-      )
+    })()
+
+    bomSaveInflight.current.set(rowId, job)
+    void job.finally(() => {
+      if (bomSaveInflight.current.get(rowId) === job) {
+        bomSaveInflight.current.delete(rowId)
+      }
+    })
+    return job
+  }
+
+  const flushBomComponents = async (): Promise<boolean> => {
+    if (!isEditMode || !id || bomReadOnly) return true
+    for (const row of bomComponentsRef.current) {
+      const isMaterial = row.itemType === 'Material'
+      const hasReference = isMaterial ? !!row.componentPartNumber : !!row.componentCode
+      if (!hasReference) continue
+      const latest = bomComponentsRef.current.find((candidate) => candidate.id === row.id) ?? row
+      const saved = await persistBomRow(row.id, latest)
+      if (!saved) return false
     }
+    return true
   }
 
   const handleComponentPartNumberSelect = (rowId: string, value: string) => {
-    handleBomFieldChange(rowId, 'componentPartNumber', value)
-    // Persist right away once a real part is selected (new row -> POST)
-    if (value) {
-      // Use a microtask delay so state update above has been applied first
-      setTimeout(() => persistBomRow(rowId), 0)
-    }
+    const current = bomComponentsRef.current.find((row) => row.id === rowId)
+    if (!current) return
+    const next = withBomField(current, 'componentPartNumber', value)
+    replaceBomRow(rowId, next)
+    if (value) void persistBomRow(rowId, next)
   }
 
   const handleComponentCodeSelect = (rowId: string, value: string) => {
-    handleBomFieldChange(rowId, 'componentCode', value)
-    if (value) {
-      setTimeout(() => persistBomRow(rowId), 0)
-    }
+    const current = bomComponentsRef.current.find((row) => row.id === rowId)
+    if (!current) return
+    const next = withBomField(current, 'componentCode', value)
+    replaceBomRow(rowId, next)
+    if (value) void persistBomRow(rowId, next)
   }
 
 
@@ -500,28 +532,18 @@ export function ItemForm() {
     return Object.keys(newErrors).length === 0
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!validateForm()) {
       return
     }
 
-    // Bundle main product fields + outside-processed flag + BOM components
-    // into a single payload ready to be dispatched to the backend API.
-    // (Note: BOM rows are already persisted individually via dedicated REST
-    // calls as they're added/edited/removed above; this payload is kept for
-    // logging/traceability and for the create-mode flow.)
-    const payload = {
-      ...formData,
-      is_outside_processed: formData.is_outside_processed,
-      bomComponents: bomComponents.map(({ id: _id, isSaving: _isSaving, ...rest }) => rest),
-    }
-
-    // eslint-disable-next-line no-console
-    console.log('Submitting product payload:', payload)
-
     if (isEditMode) {
+      setSavingBom(true)
+      const bomSaved = await flushBomComponents()
+      setSavingBom(false)
+      if (!bomSaved) return
       updateMutation.mutate(formData)
     } else {
       createMutation.mutate(formData)
@@ -551,7 +573,7 @@ export function ItemForm() {
     )
   }
 
-  const isSubmitting = createMutation.isPending || updateMutation.isPending
+  const isSubmitting = savingBom || createMutation.isPending || updateMutation.isPending
 
   return (
     <div style={containerStyle}>
@@ -1025,6 +1047,7 @@ export function ItemForm() {
           >
             + Add Component
           </button>
+          {isEditMode && id ? <BomRoutingPanel itemId={id} /> : null}
         </div>
 
         {/* Submit Error */}

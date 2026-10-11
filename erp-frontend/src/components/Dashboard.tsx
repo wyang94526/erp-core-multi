@@ -13,6 +13,7 @@ import {
 } from '../config/dashboardRoles'
 import { getMetricDestination } from '../config/metricRoutes'
 import { useDashboardData } from '../hooks/useDashboardData'
+import { useCompanyLetterhead } from '../hooks/useCompanyProfile'
 import type { MetricDrillKey } from '../types/dashboard'
 import GreetingBanner from './dashboard/GreetingBanner'
 import ExecutiveDashboard from './dashboard/ExecutiveDashboard'
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const view = resolveDashboardRole(user)
   const { data, isLoading, isError, error } = useDashboardData({ enabled: view !== 'onboarding' })
 
+  const { name: companyName, detail: companyDetail } = useCompanyLetterhead()
   const roleName = getDisplayRoleName(user, view)
   const actions = getQuickActions(view)
   const urgent = getUrgentSummary(view, data)
@@ -65,7 +67,7 @@ export default function Dashboard() {
     <div style={containerStyle}>
       <PageHeader
         title="Dashboard"
-        subtitle={`Personalized ${roleName} overview for Grand-Tek Technology USA`}
+        subtitle={`Personalized ${roleName} overview for ${companyName}${companyDetail ? ` · ${companyDetail}` : ''}`}
       />
 
       <GreetingBanner

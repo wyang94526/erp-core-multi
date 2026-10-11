@@ -7,8 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Item, ItemBOMComponent, ItemBOMHeader
+from app.deps.auth import require_permission
+from app.deps.company import get_current_company, require_company_row
+from app.models import BomRoutingOperation, Company, Item, ItemBOMComponent, ItemBOMHeader, User
+from app.services import production as production_service
 from app.schemas import (
+    BomRoutingOperationCreate,
+    BomRoutingOperationRead,
     ItemBOMComponentCreate,
     ItemBOMComponentRead,
     ItemBOMComponentUpdate,
@@ -20,16 +25,24 @@ from app.services import bom_versions
 router = APIRouter(tags=["item-bom"])
 
 
-def _ensure_parent(db: Session, item_id: str) -> Item:
-    parent = db.get(Item, item_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return parent
+def _ensure_parent(db: Session, item_id: str, company: Company) -> Item:
+    return require_company_row(db.get(Item, item_id), company, "Item not found")
+
+
+def _header_for_item(db: Session, item_id: str, header_id: int) -> ItemBOMHeader:
+    header = db.get(ItemBOMHeader, header_id)
+    if header is None or header.parent_item_id != item_id:
+        raise HTTPException(status_code=404, detail="BOM header not found")
+    return header
 
 
 @router.get("/items/{item_id}/bom-headers", response_model=list[ItemBOMHeaderRead])
-def list_bom_headers(item_id: str, db: Session = Depends(get_db)) -> list[ItemBOMHeader]:
-    _ensure_parent(db, item_id)
+def list_bom_headers(
+    item_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> list[ItemBOMHeader]:
+    _ensure_parent(db, item_id, company)
     return bom_versions.list_headers(db, item_id)
 
 
@@ -42,8 +55,9 @@ def create_bom_header(
     item_id: str,
     payload: ItemBOMHeaderCreate | None = None,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> ItemBOMHeader:
-    _ensure_parent(db, item_id)
+    _ensure_parent(db, item_id, company)
     body = payload or ItemBOMHeaderCreate()
     header = bom_versions.create_draft_version(
         db,
@@ -61,9 +75,12 @@ def create_bom_header(
     response_model=ItemBOMHeaderRead,
 )
 def activate_bom_header(
-    item_id: str, header_id: int, db: Session = Depends(get_db)
+    item_id: str,
+    header_id: int,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> ItemBOMHeader:
-    _ensure_parent(db, item_id)
+    _ensure_parent(db, item_id, company)
     header = bom_versions.activate_header(db, item_id, header_id)
     db.commit()
     db.refresh(header)
@@ -76,8 +93,9 @@ def list_bom_components(
     item_id: str,
     bom_header_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> list[ItemBOMComponent]:
-    _ensure_parent(db, item_id)
+    _ensure_parent(db, item_id, company)
     header = bom_versions.resolve_header(db, item_id, bom_header_id)
     if header is None:
         return []
@@ -105,8 +123,9 @@ def add_bom_component(
     payload: ItemBOMComponentCreate,
     bom_header_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> ItemBOMComponent:
-    _ensure_parent(db, item_id)
+    _ensure_parent(db, item_id, company)
 
     if payload.item_type == "Material":
         if payload.component_item_id == item_id:
@@ -152,8 +171,13 @@ def add_bom_component(
     deprecated=True,
 )
 def update_bom_component(
-    item_id: str, bom_id: int, payload: ItemBOMComponentUpdate, db: Session = Depends(get_db)
+    item_id: str,
+    bom_id: int,
+    payload: ItemBOMComponentUpdate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> ItemBOMComponent:
+    _ensure_parent(db, item_id, company)
     bom_line = (
         db.query(ItemBOMComponent)
         .filter(
@@ -178,7 +202,13 @@ def update_bom_component(
     status_code=status.HTTP_204_NO_CONTENT,
     deprecated=True,
 )
-def delete_bom_component(item_id: str, bom_id: int, db: Session = Depends(get_db)) -> None:
+def delete_bom_component(
+    item_id: str,
+    bom_id: int,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> None:
+    _ensure_parent(db, item_id, company)
     bom_line = (
         db.query(ItemBOMComponent)
         .filter(
@@ -191,4 +221,58 @@ def delete_bom_component(item_id: str, bom_id: int, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="BOM component not found")
     bom_versions.assert_line_writable(bom_line)
     db.delete(bom_line)
+    db.commit()
+
+
+@router.get(
+    "/items/{item_id}/bom-headers/{header_id}/routing",
+    response_model=list[BomRoutingOperationRead],
+)
+def list_routing(
+    item_id: str,
+    header_id: int,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> list[BomRoutingOperation]:
+    _ensure_parent(db, item_id, company)
+    _header_for_item(db, item_id, header_id)
+    return production_service.list_routing(db, header_id)
+
+
+@router.post(
+    "/items/{item_id}/bom-headers/{header_id}/routing",
+    response_model=BomRoutingOperationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_routing(
+    item_id: str,
+    header_id: int,
+    payload: BomRoutingOperationCreate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+    _user: User = Depends(require_permission("routing:edit")),
+) -> BomRoutingOperation:
+    _ensure_parent(db, item_id, company)
+    header = _header_for_item(db, item_id, header_id)
+    return production_service.add_routing_operation(db, header, payload)
+
+
+@router.delete(
+    "/items/{item_id}/bom-headers/{header_id}/routing/{operation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_routing(
+    item_id: str,
+    header_id: int,
+    operation_id: int,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+    _user: User = Depends(require_permission("routing:edit")),
+) -> None:
+    _ensure_parent(db, item_id, company)
+    _header_for_item(db, item_id, header_id)
+    row = db.get(BomRoutingOperation, operation_id)
+    if row is None or row.bom_header_id != header_id:
+        raise HTTPException(status_code=404, detail="Routing operation not found")
+    db.delete(row)
     db.commit()

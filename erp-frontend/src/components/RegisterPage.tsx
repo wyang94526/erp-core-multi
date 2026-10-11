@@ -5,7 +5,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { authService } from '../api/services'
+import { authService, type RegistrationCountry } from '../api/services'
 import { CompanyBrand } from './CompanyBrand'
 import { useAuth } from '../context/AuthContext'
 
@@ -17,6 +17,8 @@ export default function RegisterPage() {
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
+  const [country, setCountry] = useState('')
+  const [countries, setCountries] = useState<RegistrationCountry[]>([])
   const [password, setPassword] = useState('')
   const [questionOptions, setQuestionOptions] = useState<string[]>([])
   const [selectedQuestion, setSelectedQuestion] = useState('')
@@ -31,11 +33,16 @@ export default function RegisterPage() {
     ;(async () => {
       setQuestionsLoading(true)
       try {
-        const result = await authService.listSecurityQuestions()
+        const [result, countryRows] = await Promise.all([
+          authService.listSecurityQuestions(),
+          authService.listCountries(),
+        ])
         if (cancelled) return
         const questions = result.questions || []
         setQuestionOptions(questions)
         setSelectedQuestion(questions[0] || CUSTOM_OPTION)
+        setCountries(countryRows)
+        setCountry(countryRows[0]?.country || '')
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -76,11 +83,16 @@ export default function RegisterPage() {
       setError('Please provide an answer to your security question')
       return
     }
+    if (!country) {
+      setError('Please choose your country')
+      return
+    }
     setSubmitting(true)
     try {
       await register(
         fullName.trim(),
         email.trim(),
+        country,
         password,
         resolvedQuestion,
         securityAnswer.trim(),
@@ -99,8 +111,8 @@ export default function RegisterPage() {
         <CompanyBrand className="auth-brand" />
         <h1 className="auth-title">Create account</h1>
         <p className="auth-subtitle">
-          New accounts start as Unassigned. An admin can grant a role after registration.
-          Choose a security question for password recovery, or write your own.
+          Choose your country. Sign-in places you in that country's company.
+          New accounts start as Unassigned until an admin grants a role.
         </p>
 
         <form className="auth-form" onSubmit={onSubmit}>
@@ -125,6 +137,24 @@ export default function RegisterPage() {
               required
               disabled={submitting}
             />
+          </label>
+          <label className="auth-field">
+            <span>Country</span>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              required
+              disabled={submitting || questionsLoading || countries.length === 0}
+            >
+              {countries.length === 0 && (
+                <option value="">{questionsLoading ? 'Loading countries…' : 'No countries are set up'}</option>
+              )}
+              {countries.map((row) => (
+                <option key={row.country} value={row.country}>
+                  {row.country} — {row.company_code}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="auth-field">
             <span>Password</span>

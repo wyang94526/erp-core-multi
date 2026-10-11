@@ -95,7 +95,8 @@ export function drawPdfLetterhead(
   const pageWidth = doc.internal.pageSize.getWidth()
   const marginX = options?.marginX ?? 48
   const profile = branding?.profile
-  const companyName = (profile?.company_name || 'Grand-Tek Technology USA').trim()
+  const companyName = (profile?.company_name || 'Grand-Tek Technology').trim()
+  const placeLine = [profile?.country, profile?.base_currency].filter(Boolean).join(' · ')
   let y = options?.startY ?? 44
   let textX = marginX
   const rightX = pageWidth - marginX
@@ -125,6 +126,14 @@ export function drawPdfLetterhead(
   doc.setTextColor(90, 90, 90)
   doc.text(documentLabel, rightX, y, { align: 'right' })
   y += 13 * Math.max(nameLines.length, 1)
+
+  if (placeLine) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(70, 70, 70)
+    doc.text(placeLine, textX, y)
+    y += 12
+  }
 
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
@@ -184,5 +193,7 @@ export function drawBillShipBlocks(
 }
 
 export function companyFooterLine(profile: CompanyProfile | null | undefined): string {
-  return `${(profile?.company_name || 'Grand-Tek Technology USA').trim()} · Confidential`
+  const name = (profile?.company_name || 'Grand-Tek Technology').trim()
+  const place = [profile?.country, profile?.base_currency].filter(Boolean).join(' · ')
+  return [name, place, 'Confidential'].filter(Boolean).join(' · ')
 }

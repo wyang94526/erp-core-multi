@@ -1,8 +1,9 @@
 /**
- * Company name from Company Profile, used in the shell and sign-in screens.
+ * Letterhead for the shell and sign-in screens.
+ * Name, country, and base currency follow the active company.
  */
 
-import { useCompanyName } from '../hooks/useCompanyProfile'
+import { useCompanyLetterhead } from '../hooks/useCompanyProfile'
 
 export function CompanyBrand({
   className,
@@ -11,9 +12,11 @@ export function CompanyBrand({
   className: string
   heading?: boolean
 }) {
-  const name = useCompanyName()
-  if (heading) {
-    return <h1 className={className}>{name}</h1>
-  }
-  return <div className={className}>{name}</div>
+  const { name, detail } = useCompanyLetterhead()
+  return (
+    <div className={className}>
+      {heading ? <h1 className="app-letterhead-name">{name}</h1> : <div>{name}</div>}
+      {detail ? <div className="app-letterhead-meta">{detail}</div> : null}
+    </div>
+  )
 }

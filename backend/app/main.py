@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.company_context import bind_request_company, reset_document_company
 from app.services.bootstrap_admin import ensure_bootstrap_admin, password_change_required
 from app.routers import (
     accounts,
@@ -45,6 +46,12 @@ from app.routers import (
     attachments,
     work_centers,
     data_import,
+    companies,
+    document_prefixes,
+    exchange_rates,
+    production_orders,
+    master_routings,
+    inspections,
     payment_terms,
     posting_rules,
     finance_settings,
@@ -89,6 +96,16 @@ async def require_password_change(request: Request, call_next):
         )
     return await call_next(request)
 
+
+@app.middleware("http")
+async def bind_document_company(request: Request, call_next):
+    token = bind_request_company(request)
+    try:
+        return await call_next(request)
+    finally:
+        if token is not None:
+            reset_document_company(token)
+
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(ai_chat.router, prefix="/api/v1")
@@ -127,6 +144,12 @@ app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(admin_rbac.router, prefix="/api/v1")
 app.include_router(data_import.router, prefix="/api/v1")
+app.include_router(companies.router, prefix="/api/v1")
+app.include_router(document_prefixes.router, prefix="/api/v1")
+app.include_router(exchange_rates.router, prefix="/api/v1")
+app.include_router(production_orders.router, prefix="/api/v1")
+app.include_router(master_routings.router, prefix="/api/v1")
+app.include_router(inspections.router, prefix="/api/v1")
 
 
 

@@ -15,7 +15,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import CompanyProfile, User
+from app.models import Company, CompanyProfile, User
 
 SETTINGS_ID = UUID("00000000-0000-4000-8000-000000000002")
 DEFAULT_COMPANY_NAME = "Grand-Tek Technology USA"
@@ -53,32 +53,54 @@ def normalize_address(value: Any) -> dict[str, str]:
     return out
 
 
-def get_or_create_profile(db: Session) -> CompanyProfile:
-    row = db.get(CompanyProfile, SETTINGS_ID)
-    if row is not None:
-        return row
+def letterhead_for_company(company: Company) -> dict[str, str | None]:
+    """Name, country, and currency printed on the letterhead come from the company."""
+    return {
+        "company_name": (company.name or "").strip() or DEFAULT_COMPANY_NAME,
+        "country": (company.country or "").strip() or None,
+        "base_currency": (company.base_currency or "").strip() or None,
+    }
+
+
+def get_or_create_profile(db: Session, company: Company) -> CompanyProfile:
     row = (
         db.query(CompanyProfile)
+        .filter(CompanyProfile.company_id == company.id)
         .order_by(CompanyProfile.updated_at.desc())
         .first()
     )
     if row is not None:
         return row
+    identity = letterhead_for_company(company)
+    address = empty_address()
+    address["location_name"] = identity["company_name"] or ""
+    address["country"] = identity["country"] or ""
     row = CompanyProfile(
-        id=SETTINGS_ID,
-        company_name=DEFAULT_COMPANY_NAME,
-        bill_to=empty_address(),
-        ship_to=empty_address(),
+        company_id=company.id,
+        company_name=identity["company_name"] or DEFAULT_COMPANY_NAME,
+        bill_to=address,
+        ship_to=dict(address),
     )
     db.add(row)
     db.flush()
     return row
 
 
-def serialize_profile(row: CompanyProfile) -> dict[str, Any]:
+def serialize_profile(row: CompanyProfile, company: Company | None = None) -> dict[str, Any]:
+    identity = (
+        letterhead_for_company(company)
+        if company is not None
+        else {
+            "company_name": (row.company_name or "").strip() or DEFAULT_COMPANY_NAME,
+            "country": None,
+            "base_currency": None,
+        }
+    )
     return {
         "id": row.id,
-        "company_name": (row.company_name or "").strip() or DEFAULT_COMPANY_NAME,
+        "company_name": identity["company_name"],
+        "country": identity["country"],
+        "base_currency": identity["base_currency"],
         "contact_name": (row.contact_name or "").strip() or None,
         "contact_email": (row.contact_email or "").strip() or None,
         "contact_phone": (row.contact_phone or "").strip() or None,
@@ -92,8 +114,8 @@ def serialize_profile(row: CompanyProfile) -> dict[str, Any]:
     }
 
 
-def update_profile(db: Session, user: User, payload: dict[str, Any]) -> CompanyProfile:
-    row = get_or_create_profile(db)
+def update_profile(db: Session, user: User, company: Company, payload: dict[str, Any]) -> CompanyProfile:
+    row = get_or_create_profile(db, company)
     if "company_name" in payload:
         name = str(payload.get("company_name") or "").strip()
         if not name:
@@ -151,8 +173,8 @@ def _detect_logo(filename: str, header: bytes) -> tuple[str, str]:
     return ext, LOGO_TYPES[ext]
 
 
-async def save_logo(db: Session, user: User, file: UploadFile) -> CompanyProfile:
-    row = get_or_create_profile(db)
+async def save_logo(db: Session, user: User, company: Company, file: UploadFile) -> CompanyProfile:
+    row = get_or_create_profile(db, company)
     header = await file.read(16)
     await file.seek(0)
     ext, content_type = _detect_logo(file.filename or "logo.png", header)
@@ -181,8 +203,8 @@ async def save_logo(db: Session, user: User, file: UploadFile) -> CompanyProfile
     return row
 
 
-def delete_logo(db: Session, user: User) -> CompanyProfile:
-    row = get_or_create_profile(db)
+def delete_logo(db: Session, user: User, company: Company) -> CompanyProfile:
+    row = get_or_create_profile(db, company)
     path = logo_path(row)
     if path is not None and path.is_file():
         path.unlink()

@@ -18,6 +18,18 @@ import {
   WorkflowTreeView,
   humanModule,
 } from './WorkflowTreeView'
+import { PageHeader } from './PageHeader'
+import {
+  adminCardStyle,
+  adminErrorStyle,
+  adminInputStyle,
+  adminPageStyle,
+  adminTableStyle,
+  adminTdStyle,
+  adminThStyle,
+  adminTheadStyle,
+} from '../utils/adminPageStyles'
+import { dangerButtonStyle, headerButtonStyle, primaryButtonStyle, secondaryButtonStyle } from '../utils/documentPageStyles'
 
 type Tab = 'users' | 'roles' | 'permissions' | 'workflows'
 
@@ -509,19 +521,22 @@ export default function AdminRbacPage() {
   }
 
   return (
-    <div style={pageStyle}>
-      <h2 style={headingStyle}>Users, Roles & Workflows</h2>
-      <p style={subStyle}>
-        Manage RBAC assignments and multi-stage approval definitions.
-        {!canManage && ' (view only — need admin:manage to edit)'}
-      </p>
+    <div style={adminPageStyle}>
+      <PageHeader
+        title="Users & Roles"
+        subtitle={
+          canManage
+            ? 'Manage users, roles, permissions, and multi-stage approval definitions.'
+            : 'Manage users, roles, permissions, and multi-stage approval definitions. View only — admin:manage is required to edit.'
+        }
+      />
 
       <div style={tabsStyle}>
         {(['users', 'roles', 'permissions', 'workflows'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
-            style={{ ...tabBtn, ...(tab === t ? tabActive : {}) }}
+            style={tab === t ? primaryButtonStyle : headerButtonStyle}
             onClick={() => setTab(t)}
           >
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -529,31 +544,32 @@ export default function AdminRbacPage() {
         ))}
       </div>
 
-      {error && <p style={errorStyle}>{error}</p>}
+      {error ? <p style={adminErrorStyle}>{error}</p> : null}
 
       {tab === 'users' && (
-        <table style={tableStyle}>
+        <div style={adminCardStyle}>
+        <table style={adminTableStyle}>
           <thead>
-            <tr>
-              <th style={th}>Name</th>
-              <th style={th}>Email</th>
-              <th style={th}>Status</th>
-              <th style={th}>Roles</th>
-              <th style={th} />
+            <tr style={adminTheadStyle}>
+              <th style={adminThStyle}>Name</th>
+              <th style={adminThStyle}>Email</th>
+              <th style={adminThStyle}>Status</th>
+              <th style={adminThStyle}>Roles</th>
+              <th style={adminThStyle} />
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td style={td}>{u.full_name}</td>
-                <td style={td}>{u.email}</td>
-                <td style={td}>{u.status || 'ACTIVE'}</td>
-                <td style={td}>
+                <td style={adminTdStyle}>{u.full_name}</td>
+                <td style={adminTdStyle}>{u.email}</td>
+                <td style={adminTdStyle}>{u.status || 'ACTIVE'}</td>
+                <td style={adminTdStyle}>
                   {(u.roles || []).map((r) => r.role_name).join(', ') || '—'}
                 </td>
-                <td style={td}>
+                <td style={adminTdStyle}>
                   {canManage && (
-                    <button type="button" style={linkBtn} onClick={() => openAssign(u)}>
+                    <button type="button" style={headerButtonStyle} onClick={() => openAssign(u)}>
                       Assign roles
                     </button>
                   )}
@@ -562,14 +578,15 @@ export default function AdminRbacPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {tab === 'roles' && (
         <div>
           {canManage && (
             <div style={sectionToolbar}>
-              <button type="button" style={primaryBtn} onClick={openCreateRole}>
-                + Add role
+              <button type="button" style={primaryButtonStyle} onClick={openCreateRole}>
+                Add role
               </button>
             </div>
           )}
@@ -583,12 +600,12 @@ export default function AdminRbacPage() {
                   </div>
                   {canManage && (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="button" style={linkBtn} onClick={() => openEditRole(r)}>
+                      <button type="button" style={headerButtonStyle} onClick={() => openEditRole(r)}>
                         Edit
                       </button>
                       <button
                         type="button"
-                        style={{ ...linkBtn, color: '#c62828' }}
+                        style={dangerButtonStyle}
                         onClick={() => deleteRole(r)}
                       >
                         Delete
@@ -614,50 +631,54 @@ export default function AdminRbacPage() {
         <div>
           {canManage && (
             <div style={sectionToolbar}>
-              <button type="button" style={primaryBtn} onClick={openCreatePermission}>
-                + Add permission
+              <button type="button" style={primaryButtonStyle} onClick={openCreatePermission}>
+                Add permission
               </button>
             </div>
           )}
-          <table style={tableStyle}>
+          <div style={adminCardStyle}>
+          <table style={adminTableStyle}>
             <thead>
-              <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Module</th>
-                <th style={th}>Description</th>
-                {canManage && <th style={th} />}
+              <tr style={adminTheadStyle}>
+                <th style={adminThStyle}>Code</th>
+                <th style={adminThStyle}>Module</th>
+                <th style={adminThStyle}>Description</th>
+                {canManage && <th style={adminThStyle} />}
               </tr>
             </thead>
             <tbody>
               {permissions.map((p) => (
                 <tr key={p.id}>
-                  <td style={td}>
+                  <td style={adminTdStyle}>
                     <code>{p.code}</code>
                   </td>
-                  <td style={td}>{p.module}</td>
-                  <td style={td}>{p.description}</td>
+                  <td style={adminTdStyle}>{p.module}</td>
+                  <td style={adminTdStyle}>{p.description}</td>
                   {canManage && (
-                    <td style={td}>
+                    <td style={adminTdStyle}>
+                      <span style={{ display: 'inline-flex', gap: 8 }}>
                       <button
                         type="button"
-                        style={linkBtn}
+                        style={headerButtonStyle}
                         onClick={() => openEditPermission(p)}
                       >
                         Edit
-                      </button>{' '}
+                      </button>
                       <button
                         type="button"
-                        style={{ ...linkBtn, color: '#c62828' }}
+                        style={dangerButtonStyle}
                         onClick={() => deletePermission(p)}
                       >
                         Delete
                       </button>
+                      </span>
                     </td>
                   )}
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -698,10 +719,10 @@ export default function AdminRbacPage() {
               ))}
             </div>
             <div style={modalActions}>
-              <button type="button" onClick={() => setSelectedUser(null)} disabled={busy}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setSelectedUser(null)} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" onClick={saveUserRoles} disabled={busy}>
+              <button type="button" style={primaryButtonStyle} onClick={saveUserRoles} disabled={busy}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -765,11 +786,12 @@ export default function AdminRbacPage() {
               </div>
             </div>
             <div style={modalActions}>
-              <button type="button" onClick={() => setRoleModal(null)} disabled={busy}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setRoleModal(null)} disabled={busy}>
                 Cancel
               </button>
               <button
                 type="button"
+                style={primaryButtonStyle}
                 onClick={saveRole}
                 disabled={busy || !roleForm.role_name.trim()}
               >
@@ -829,11 +851,12 @@ export default function AdminRbacPage() {
               />
             </label>
             <div style={modalActions}>
-              <button type="button" onClick={() => setPermModal(null)} disabled={busy}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setPermModal(null)} disabled={busy}>
                 Cancel
               </button>
               <button
                 type="button"
+                style={primaryButtonStyle}
                 onClick={savePermission}
                 disabled={busy || !permForm.code.trim() || !permForm.module.trim()}
               >
@@ -939,10 +962,10 @@ export default function AdminRbacPage() {
               Active
             </label>
             <div style={modalActions}>
-              <button type="button" onClick={() => setBandModal(null)} disabled={busy}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setBandModal(null)} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" onClick={saveBand} disabled={busy}>
+              <button type="button" style={primaryButtonStyle} onClick={saveBand} disabled={busy}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -1041,6 +1064,7 @@ export default function AdminRbacPage() {
             <div style={modalActions}>
               <button
                 type="button"
+                style={secondaryButtonStyle}
                 onClick={() => {
                   setStepModal(null)
                   setStepWorkflow(null)
@@ -1049,7 +1073,7 @@ export default function AdminRbacPage() {
               >
                 Cancel
               </button>
-              <button type="button" onClick={saveStep} disabled={busy}>
+              <button type="button" style={primaryButtonStyle} onClick={saveStep} disabled={busy}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -1060,63 +1084,11 @@ export default function AdminRbacPage() {
   )
 }
 
-const pageStyle: React.CSSProperties = { maxWidth: '1100px' }
-const headingStyle: React.CSSProperties = { margin: '0 0 4px', color: 'var(--text-h)' }
-const subStyle: React.CSSProperties = {
-  margin: '0 0 16px',
-  color: 'var(--text)',
-  fontSize: '14px',
-}
 const tabsStyle: React.CSSProperties = {
   display: 'flex',
   gap: '8px',
   marginBottom: '16px',
   flexWrap: 'wrap',
-}
-const tabBtn: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-}
-const tabActive: React.CSSProperties = {
-  background: 'var(--text-h)',
-  color: '#fff',
-  borderColor: 'transparent',
-}
-const tableStyle: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  fontSize: '13px',
-}
-const th: React.CSSProperties = {
-  textAlign: 'left',
-  padding: '8px',
-}
-const td: React.CSSProperties = {
-  borderBottom: '1px solid var(--divider)',
-  padding: '8px',
-  verticalAlign: 'top',
-}
-const linkBtn: React.CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  color: '#1976d2',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-}
-const primaryBtn: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: '6px',
-  border: 'none',
-  background: '#1976d2',
-  color: '#fff',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontWeight: 600,
-  fontSize: '13px',
 }
 const sectionToolbar: React.CSSProperties = {
   display: 'flex',
@@ -1125,10 +1097,9 @@ const sectionToolbar: React.CSSProperties = {
 }
 const listWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '12px' }
 const cardStyle: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: '8px',
-  padding: '12px 14px',
-  background: 'var(--bg)',
+  ...adminCardStyle,
+  padding: '16px 18px',
+  marginBottom: 0,
 }
 const cardHeader: React.CSSProperties = {
   display: 'flex',
@@ -1150,7 +1121,6 @@ const chip: React.CSSProperties = {
   background: '#eceff1',
   color: '#37474f',
 }
-const errorStyle: React.CSSProperties = { color: '#c62828' }
 const overlay: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
@@ -1178,18 +1148,13 @@ const modalActions: React.CSSProperties = {
 const fieldLabel: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
-  fontSize: '13px',
-  marginBottom: '10px',
-  color: 'var(--text-h)',
+  gap: 6,
+  fontSize: 13,
+  fontWeight: 700,
+  marginBottom: 12,
+  color: '#424242',
 }
-const inputStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--border)',
-  fontFamily: 'inherit',
-  fontSize: '13px',
-}
+const inputStyle = adminInputStyle
 const permCheckGrid: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',

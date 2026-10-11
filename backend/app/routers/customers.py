@@ -6,7 +6,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Customer
+from app.deps.company import get_current_company, require_company_row
+from app.models import Company, Customer
 from app.schemas import (
     CustomerCreate,
     CustomerDetailRead,
@@ -28,8 +29,9 @@ def list_customers(
     status_filter: str | None = Query(default=None, alias="status"),
     response: Response = None,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> CustomerListPage:
-    query = db.query(Customer)
+    query = db.query(Customer).filter(Customer.company_id == company.id)
     if q and q.strip():
         term = f"%{q.strip()}%"
         query = query.filter(
@@ -53,21 +55,37 @@ def list_customers(
 
 
 @router.post("", response_model=CustomerDetailRead, status_code=status.HTTP_201_CREATED)
-def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> CustomerDetailRead:
-    customer = customer_service.create_customer(db, payload)
+def create_customer(
+    payload: CustomerCreate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> CustomerDetailRead:
+    customer = customer_service.create_customer(db, payload, company_id=company.id)
     return customer_service.to_detail(customer)
 
 
 @router.get("/{customer_id}", response_model=CustomerDetailRead)
-def get_customer(customer_id: str, db: Session = Depends(get_db)) -> CustomerDetailRead:
-    customer = customer_service.get_customer_detail(db, customer_id)
+def get_customer(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> CustomerDetailRead:
+    customer = require_company_row(
+        customer_service.get_customer_detail(db, customer_id),
+        company,
+        "Customer not found",
+    )
     return customer_service.to_detail(customer)
 
 
 @router.put("/{customer_id}", response_model=CustomerDetailRead)
 def replace_customer(
-    customer_id: str, payload: CustomerUpsert, db: Session = Depends(get_db)
+    customer_id: str,
+    payload: CustomerUpsert,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> CustomerDetailRead:
+    require_company_row(db.get(Customer, customer_id), company, "Customer not found")
     if payload.customer_id and payload.customer_id != customer_id:
         raise HTTPException(status_code=400, detail="customer_id in body must match the URL")
     customer = customer_service.replace_customer(db, customer_id, payload)
@@ -76,12 +94,21 @@ def replace_customer(
 
 @router.patch("/{customer_id}", response_model=CustomerDetailRead)
 def update_customer(
-    customer_id: str, payload: CustomerUpdate, db: Session = Depends(get_db)
+    customer_id: str,
+    payload: CustomerUpdate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> CustomerDetailRead:
+    require_company_row(db.get(Customer, customer_id), company, "Customer not found")
     customer = customer_service.patch_customer(db, customer_id, payload)
     return customer_service.to_detail(customer)
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_customer(customer_id: str, db: Session = Depends(get_db)) -> None:
+def delete_customer(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> None:
+    require_company_row(db.get(Customer, customer_id), company, "Customer not found")
     customer_service.delete_customer(db, customer_id)

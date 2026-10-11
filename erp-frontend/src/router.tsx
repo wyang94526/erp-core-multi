@@ -41,6 +41,8 @@ import GoodsReceiptList from './components/GoodsReceiptList'
 import ChartOfAccounts from './components/ChartOfAccounts'
 import PostingRules from './components/PostingRules'
 import PaymentTerms from './components/PaymentTerms'
+import WorkCentersPage from './components/WorkCentersPage'
+import WorkCenterDetail from './components/WorkCenterDetail'
 import ARInvoices from './components/ARInvoices'
 import APBills from './components/APBills'
 import SupplierInvoiceList from './components/SupplierInvoiceList'
@@ -64,6 +66,17 @@ import StockMovements from './components/StockMovements'
 import WarehousesBins from './components/WarehousesBins'
 import AdminRbacPage from './components/AdminRbacPage'
 import CompanyProfilePage from './components/CompanyProfilePage'
+import DocumentPrefixesPage from './components/DocumentPrefixesPage'
+import CompaniesPage from './components/CompaniesPage'
+import CompanyDetail from './components/CompanyDetail'
+import ExchangeRatesPage from './components/ExchangeRatesPage'
+import ProductionOrderList from './components/ProductionOrderList'
+import ProductionOrderForm from './components/ProductionOrderForm'
+import ProductionOrderDetail from './components/ProductionOrderDetail'
+import ProductionReceiptDetail from './components/ProductionReceiptDetail'
+import RouteLibraryPage from './components/RouteLibraryPage'
+import InspectionsPage from './components/InspectionsPage'
+import InspectionDetail from './components/InspectionDetail'
 import DataImportPreview from './components/DataImportPreview'
 import Dashboard from './components/Dashboard'
 import UserGuide from './components/help/UserGuide'
@@ -231,6 +244,22 @@ export const router = createBrowserRouter([
       {
         path: 'payment-terms',
         element: <PaymentTerms />,
+      },
+      {
+        path: 'work-centers',
+        element: <WorkCentersPage />,
+      },
+      {
+        path: 'work-centers/new',
+        element: <WorkCenterDetail />,
+      },
+      {
+        path: 'work-centers/:workCenterId/edit',
+        element: <WorkCenterDetail />,
+      },
+      {
+        path: 'work-centers/:workCenterId',
+        element: <WorkCenterDetail />,
       },
       {
         path: 'items',
@@ -404,6 +433,62 @@ export const router = createBrowserRouter([
       {
         path: 'admin/company-profile',
         element: <CompanyProfilePage />,
+      },
+      {
+        path: 'admin/document-numbers',
+        element: <DocumentPrefixesPage />,
+      },
+      {
+        path: 'admin/companies',
+        element: <CompaniesPage />,
+      },
+      {
+        path: 'admin/companies/new',
+        element: <CompanyDetail />,
+      },
+      {
+        path: 'admin/companies/:companyId/edit',
+        element: <CompanyDetail />,
+      },
+      {
+        path: 'admin/companies/:companyId',
+        element: <CompanyDetail />,
+      },
+      {
+        path: 'admin/exchange-rates',
+        element: <ExchangeRatesPage />,
+      },
+      {
+        path: 'production-orders',
+        element: <ProductionOrderList />,
+      },
+      {
+        path: 'route-library',
+        element: <RouteLibraryPage />,
+      },
+      {
+        path: 'production-orders/new',
+        element: <ProductionOrderForm />,
+      },
+      {
+        path: 'production-orders/:orderId/edit',
+        element: <ProductionOrderForm />,
+      },
+      {
+        path: 'production-orders/:orderId/receipts/:receiptId',
+        element: <ProductionReceiptDetail />,
+      },
+      {
+        path: 'production-orders/:orderId',
+        element: <ProductionOrderDetail />,
+      },
+      {
+        path: 'inspections',
+        element: <InspectionsPage />,
+      },
+      {
+        path: 'inspections/:inspectionId',
+        element: <InspectionDetail />,
       },
       {
         path: 'admin/rbac',

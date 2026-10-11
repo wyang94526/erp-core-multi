@@ -73,6 +73,7 @@ class UserUpdate(BaseModel):
 class AuthRegisterRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=255)
+    country: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=8, max_length=128)
     security_question: str = Field(min_length=1, max_length=255)
     security_answer: str = Field(min_length=1, max_length=128)
@@ -246,11 +247,15 @@ class CompanyAddress(BaseModel):
 
 class CompanyNameRead(BaseModel):
     company_name: str
+    country: str | None = None
+    base_currency: str | None = None
 
 
 class CompanyProfileRead(ORMModel):
     id: UUID
     company_name: str
+    country: str | None = None
+    base_currency: str | None = None
     contact_name: str | None = None
     contact_email: str | None = None
     contact_phone: str | None = None
@@ -976,6 +981,7 @@ class ItemCreate(BaseModel):
     is_purchase_item: bool = Field(default=False)
     is_subcontract_assembly: bool = Field(default=False)
     is_raw_material: bool = Field(default=False)
+    requires_inspection: bool = Field(default=False)
 
     @field_validator("uom", mode="before")
     @classmethod
@@ -997,6 +1003,7 @@ class ItemRead(ORMModel):
     is_purchase_item: bool = False
     is_subcontract_assembly: bool = False
     is_raw_material: bool = False
+    requires_inspection: bool = False
 
 
 class ItemListPage(ORMModel):
@@ -1015,6 +1022,7 @@ class ItemUpdate(BaseModel):
     is_purchase_item: bool | None = None
     is_subcontract_assembly: bool | None = None
     is_raw_material: bool | None = None
+    requires_inspection: bool | None = None
 
     @field_validator("uom", mode="before")
     @classmethod
@@ -1194,9 +1202,17 @@ def _normalize_tax_document_type(value: Any) -> Any:
 
 
 class WorkCenterCreate(BaseModel):
-    work_center_id: str = Field(max_length=50)
+    work_center_id: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=150)
     warehouse_id: str | None = Field(default=None, max_length=50)
+    hourly_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    is_active: bool = True
+
+
+class WorkCenterUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    warehouse_id: str | None = Field(default=None, max_length=50)
+    hourly_rate: Decimal = Field(default=Decimal("0"), ge=0)
     is_active: bool = True
 
 
@@ -1204,6 +1220,7 @@ class WorkCenterRead(ORMModel):
     work_center_id: str
     name: str
     warehouse_id: str | None = None
+    hourly_rate: Decimal = Decimal("0")
     is_active: bool = True
     created_at: datetime | None = None
 
@@ -2582,6 +2599,7 @@ class CurrentUserRead(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     has_security_question: bool = False
     must_change_password: bool = False
+    country: str | None = None
     # Legacy fields
     role_id: str | None = None
     role_name: str | None = None
@@ -2591,6 +2609,13 @@ class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = 'bearer'
     user: CurrentUserRead
+    company_id: UUID | None = None
+
+
+class RegistrationCountryRead(BaseModel):
+    country: str
+    company_code: str
+    company_name: str
 
 
 
@@ -3250,3 +3275,416 @@ class FinancialReportRead(BaseModel):
     rows: list[FinancialReportRow] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+
+
+class CompanyRead(ORMModel):
+    id: UUID
+    code: str
+    name: str
+    country: str | None = None
+    base_currency: str
+    is_active: bool
+    parent_company_id: UUID | None = None
+
+
+class CompanyCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=255)
+    country: str | None = Field(default=None, max_length=80)
+    base_currency: str = Field(default="USD", min_length=3, max_length=3)
+    parent_company_id: UUID | None = None
+
+
+class CompanyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    country: str | None = Field(default=None, max_length=80)
+    base_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    parent_company_id: UUID | None = None
+
+
+class CompanyMembershipRead(ORMModel):
+    company: CompanyRead
+    is_default: bool
+
+
+class ExchangeRateRead(ORMModel):
+    id: UUID
+    company_id: UUID
+    quote_currency: str
+    rate_to_base: Decimal
+    effective_date: date
+    source: str
+
+
+class ExchangeRateCreate(BaseModel):
+    quote_currency: str = Field(min_length=3, max_length=3)
+    rate_to_base: Decimal = Field(gt=0)
+    effective_date: date
+
+
+class ExchangeRateRefresh(BaseModel):
+    effective_date: date
+
+
+class BomRoutingOperationRead(ORMModel):
+    id: int
+    bom_header_id: int
+    sequence: int
+    work_center_id: str | None = None
+    name: str
+    setup_minutes: Decimal
+    run_minutes_per_unit: Decimal
+
+
+class BomRoutingOperationCreate(BaseModel):
+    sequence: int = Field(gt=0)
+    work_center_id: str | None = None
+    name: str = Field(min_length=1, max_length=150)
+    setup_minutes: Decimal = Field(default=Decimal("0"), ge=0)
+    run_minutes_per_unit: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class StandardOperationRead(ORMModel):
+    id: int
+    company_id: UUID
+    operation_code: str
+    name: str
+    work_center_id: str | None = None
+    setup_minutes: Decimal
+    run_minutes_per_unit: Decimal
+    description: str | None = None
+
+
+class StandardOperationCreate(BaseModel):
+    operation_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=150)
+    work_center_id: str | None = None
+    setup_minutes: Decimal = Field(default=Decimal("0"), ge=0)
+    run_minutes_per_unit: Decimal = Field(default=Decimal("0"), ge=0)
+    description: str | None = None
+
+
+class MasterRoutingOperationRead(ORMModel):
+    id: int
+    sequence: int
+    standard_operation_id: int | None = None
+    work_center_id: str | None = None
+    operation_name: str
+    setup_minutes: Decimal
+    run_minutes_per_unit: Decimal
+
+
+class MasterRoutingOperationCreate(BaseModel):
+    sequence: int = Field(gt=0)
+    standard_operation_id: int | None = None
+    operation_name: str | None = Field(default=None, max_length=150)
+    work_center_id: str | None = None
+    setup_minutes: Decimal | None = Field(default=None, ge=0)
+    run_minutes_per_unit: Decimal | None = Field(default=None, ge=0)
+
+
+class MasterRoutingRead(ORMModel):
+    id: int
+    company_id: UUID
+    routing_code: str
+    name: str
+    version_no: int
+    status: str
+    notes: str | None = None
+    operations: list[MasterRoutingOperationRead] = Field(default_factory=list)
+
+
+class MasterRoutingCreate(BaseModel):
+    routing_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=150)
+    notes: str | None = None
+
+
+class ApplyMasterRouting(BaseModel):
+    master_routing_id: int
+
+
+class ProductionOrderMaterialRead(ORMModel):
+    id: int
+    component_item_id: str | None = None
+    component_code: str | None = None
+    item_type: str
+    quantity_required: Decimal
+    quantity_issued: Decimal
+    warehouse_id: str | None = None
+    lot_serial_tracking_required: bool = False
+
+
+class StepLaborLogRead(ORMModel):
+    id: int
+    operator_user_id: UUID | None = None
+    started_at: datetime
+    stopped_at: datetime | None = None
+    labor_hours: Decimal
+
+
+class StepScrapRead(ORMModel):
+    id: int
+    quantity: int
+    reason_code: str
+    defect_class: str | None = None
+    notes: str | None = None
+
+
+class MaterialBackflushRead(ORMModel):
+    id: int
+    component_item_id: str | None = None
+    quantity: Decimal
+    lot_number: str | None = None
+    serial_number: str | None = None
+
+
+class StepQualityRead(ORMModel):
+    id: int
+    characteristic: str
+    specification: str | None = None
+    measured_value: str | None = None
+    passed: bool
+    defect_class: str | None = None
+
+
+class StepDowntimeRead(ORMModel):
+    id: int
+    reason_code: str
+    minutes: Decimal
+    notes: str | None = None
+
+
+class StepParameterRead(ORMModel):
+    id: int
+    name: str
+    value: str
+    unit: str | None = None
+
+
+class StepQualityCreate(BaseModel):
+    characteristic: str = Field(min_length=1, max_length=150)
+    specification: str | None = None
+    measured_value: str | None = None
+    passed: bool = False
+    defect_class: str | None = None
+
+
+class StepDowntimeCreate(BaseModel):
+    reason_code: str = Field(min_length=1, max_length=40)
+    minutes: Decimal = Field(gt=0)
+    notes: str | None = None
+
+
+class StepParameterCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    value: str = Field(min_length=1, max_length=80)
+    unit: str | None = Field(default=None, max_length=20)
+
+
+class StepComplete(BaseModel):
+    good_quantity: int = Field(ge=0)
+    scrap_quantity: int = Field(default=0, ge=0)
+    rework_quantity: int = Field(default=0, ge=0)
+    scrap_reason_code: str | None = None
+    defect_class: str | None = None
+    setup_minutes_actual: Decimal = Field(default=Decimal("0"), ge=0)
+    run_minutes_actual: Decimal = Field(default=Decimal("0"), ge=0)
+    lot_number: str | None = Field(default=None, max_length=80)
+    serial_number: str | None = Field(default=None, max_length=80)
+    quality_checks: list[StepQualityCreate] = Field(default_factory=list)
+    downtime: list[StepDowntimeCreate] = Field(default_factory=list)
+    parameters: list[StepParameterCreate] = Field(default_factory=list)
+
+
+class ProductionOrderRoutingRead(ORMModel):
+    id: int
+    operation_sequence: int
+    work_center_id: str | None = None
+    operation_name: str
+    setup_time: Decimal
+    run_time: Decimal
+    status: str
+    setup_minutes_actual: Decimal = Decimal("0")
+    run_minutes_actual: Decimal = Decimal("0")
+    good_quantity: int = 0
+    scrap_quantity: int = 0
+    rework_quantity: int = 0
+    scrap_reason_code: str | None = None
+    labor_hours: Decimal = Decimal("0")
+    operator_user_id: UUID | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    standard_minutes: Decimal | None = None
+    actual_minutes: Decimal | None = None
+    variance_minutes: Decimal | None = None
+    labor_logs: list[StepLaborLogRead] = Field(default_factory=list)
+    scrap_entries: list[StepScrapRead] = Field(default_factory=list)
+    backflushes: list[MaterialBackflushRead] = Field(default_factory=list)
+    quality_checks: list[StepQualityRead] = Field(default_factory=list)
+    downtime_logs: list[StepDowntimeRead] = Field(default_factory=list)
+    parameters: list[StepParameterRead] = Field(default_factory=list)
+
+
+class ProductionOrderRead(ORMModel):
+    production_order_id: str
+    company_id: UUID
+    item_id: str
+    sales_order_id: str | None = None
+    bom_header_id: int | None = None
+    warehouse_id: str | None = None
+    qty_ordered: int
+    qty_completed: int
+    scrapped_qty: int = 0
+    status: str
+    order_date: date
+    planned_start: date | None = None
+    planned_end: date | None = None
+    due_date: date | None = None
+    master_routing_id: int | None = None
+    routing_code: str | None = None
+    routing_version_no: int | None = None
+    transaction_currency: str
+    exchange_rate: Decimal | None = None
+    rate_date: date | None = None
+    transaction_amount: Decimal
+    base_amount: Decimal | None = None
+    backflushed_units: int = 0
+    notes: str | None = None
+    materials: list[ProductionOrderMaterialRead] = Field(default_factory=list)
+    operations: list[ProductionOrderRoutingRead] = Field(default_factory=list)
+    receipts: list["ProductionReceiptRead"] = Field(default_factory=list)
+
+
+class ProductionOrderCreate(BaseModel):
+    item_id: str = Field(min_length=1, max_length=50)
+    qty_ordered: int = Field(gt=0)
+    warehouse_id: str | None = None
+    sales_order_id: str | None = None
+    order_date: date
+    planned_start: date | None = None
+    planned_end: date | None = None
+    due_date: date | None = None
+    transaction_currency: str = "USD"
+    transaction_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    notes: str | None = None
+    explode_bom: bool = True
+
+
+class ProductionOrderUpdate(BaseModel):
+    item_id: str | None = Field(default=None, min_length=1, max_length=50)
+    qty_ordered: int | None = Field(default=None, gt=0)
+    warehouse_id: str | None = None
+    sales_order_id: str | None = None
+    order_date: date | None = None
+    planned_start: date | None = None
+    planned_end: date | None = None
+    due_date: date | None = None
+    transaction_currency: str | None = None
+    transaction_amount: Decimal | None = Field(default=None, ge=0)
+    notes: str | None = None
+    scrapped_qty: int | None = Field(default=None, ge=0)
+
+
+class ProductionOrderStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+
+
+class ProductionRoutingStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+
+
+class ProductionIssueLineCreate(BaseModel):
+    material_id: int
+    quantity: Decimal = Field(gt=0)
+
+
+class ProductionIssueCreate(BaseModel):
+    issue_date: date | None = None
+    notes: str | None = None
+    lines: list[ProductionIssueLineCreate]
+
+
+class ProductionIssueRead(ORMModel):
+    issue_id: str
+    production_order_id: str
+    issue_date: date
+    notes: str | None = None
+
+
+class ProductionReceiptCreate(BaseModel):
+    quantity_received: int = Field(gt=0)
+    receipt_date: date | None = None
+    notes: str | None = None
+
+
+class ProductionReceiptRead(ORMModel):
+    receipt_id: str
+    production_order_id: str
+    quantity_received: int
+    receipt_date: date
+    posted_to_stock: bool
+    notes: str | None = None
+
+
+ProductionOrderRead.model_rebuild()
+
+
+class InspectionResultCreate(BaseModel):
+    characteristic: str = Field(min_length=1, max_length=150)
+    specification: str | None = None
+    measured_value: str | None = None
+    passed: bool = False
+
+
+class InspectionResultRead(ORMModel):
+    id: int
+    characteristic: str
+    specification: str | None = None
+    measured_value: str | None = None
+    passed: bool
+
+
+class InspectionRead(ORMModel):
+    id: UUID
+    company_id: UUID
+    source_type: str
+    source_id: str
+    status: str
+    inspector_user_id: UUID | None = None
+    inspected_at: datetime | None = None
+    notes: str | None = None
+    results: list[InspectionResultRead] = Field(default_factory=list)
+
+
+class InspectionDocumentOption(BaseModel):
+    id: str
+    label: str
+
+
+class InspectionCreate(BaseModel):
+    source_type: Literal["production_receipt", "goods_receipt"]
+    source_id: str = Field(min_length=1, max_length=50)
+    notes: str | None = None
+
+
+class InspectionDecision(BaseModel):
+    notes: str | None = None
+    results: list[InspectionResultCreate] = Field(default_factory=list)
+
+
+class DocumentPrefixRead(BaseModel):
+    doc_type: str
+    label: str
+    prefix: str
+    sample: str
+    next_number: str
+
+
+class DocumentPrefixItem(BaseModel):
+    doc_type: str = Field(min_length=1, max_length=40)
+    prefix: str = Field(min_length=1, max_length=20)
+
+
+class DocumentPrefixUpdate(BaseModel):
+    prefixes: list[DocumentPrefixItem] = Field(min_length=1)

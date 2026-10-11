@@ -4,28 +4,37 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
+import { getStoredCompanyId } from '../api/client'
 import { companyProfileService } from '../api/services'
 
-export const COMPANY_PROFILE_KEY = ['companyProfile'] as const
-export const COMPANY_NAME_KEY = ['companyName'] as const
+export function companyProfileKey(companyId: string | null) {
+  return ['companyProfile', companyId] as const
+}
 
-/** Shown only when the public profile request has not returned a name. */
-export const FALLBACK_COMPANY_NAME = 'Grand-Tek Technology USA'
+export function companyNameKey(companyId: string | null) {
+  return ['companyName', companyId] as const
+}
+
+/** Shown only before the letterhead request returns. */
+export const FALLBACK_COMPANY_NAME = 'Grand-Tek Technology'
 
 export function useCompanyProfile() {
+  const companyId = getStoredCompanyId()
   return useQuery({
-    queryKey: COMPANY_PROFILE_KEY,
+    queryKey: companyProfileKey(companyId),
     queryFn: () => companyProfileService.get(),
     staleTime: 30_000,
   })
 }
 
-export function useCompanyName() {
+export function useCompanyLetterhead() {
+  const companyId = getStoredCompanyId()
   const query = useQuery({
-    queryKey: COMPANY_NAME_KEY,
+    queryKey: companyNameKey(companyId),
     queryFn: () => companyProfileService.getPublicName(),
     staleTime: 60_000,
   })
-  const name = query.data?.company_name?.trim()
-  return name || FALLBACK_COMPANY_NAME
+  const name = query.data?.company_name?.trim() || FALLBACK_COMPANY_NAME
+  const detail = [query.data?.country, query.data?.base_currency].filter(Boolean).join(' · ')
+  return { name, detail }
 }

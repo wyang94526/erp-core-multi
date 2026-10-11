@@ -155,25 +155,27 @@ def _resolve_stock_location(
     return _primary_stock_row(rows)
 
 
-def ensure_default_warehouse(db: Session) -> tuple[Warehouse, BinLocation]:
+def ensure_default_warehouse(db: Session, company_id=None) -> tuple[Warehouse, BinLocation]:
     """Return an active warehouse and bin, creating a receiving location if none exist."""
-    warehouse = (
-        db.query(Warehouse)
-        .filter(Warehouse.is_active.is_(True))
-        .order_by(Warehouse.code)
-        .first()
-    )
-    if warehouse is None:
+    query = db.query(Warehouse).filter(Warehouse.is_active.is_(True))
+    if company_id is not None:
+        query = query.filter(Warehouse.company_id == company_id)
+    warehouse = query.order_by(Warehouse.code).first()
+    if warehouse is None and company_id is None:
         warehouse = db.query(Warehouse).order_by(Warehouse.code).first()
     if warehouse is None:
         warehouse = db.get(Warehouse, DEFAULT_WAREHOUSE_ID)
+        if warehouse is not None and company_id is not None and warehouse.company_id != company_id:
+            warehouse = None
     if warehouse is None:
+        taken = db.get(Warehouse, DEFAULT_WAREHOUSE_ID) is not None
         warehouse = Warehouse(
-            warehouse_id=DEFAULT_WAREHOUSE_ID,
+            warehouse_id=f"WH-{uuid4().hex[:8].upper()}" if taken else DEFAULT_WAREHOUSE_ID,
             name=DEFAULT_WAREHOUSE_NAME,
-            code=DEFAULT_WAREHOUSE_CODE,
+            code=DEFAULT_WAREHOUSE_CODE if not taken else f"WH{uuid4().hex[:4].upper()}",
             address=None,
             is_active=True,
+            company_id=company_id,
         )
         db.add(warehouse)
         db.flush()

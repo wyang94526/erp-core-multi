@@ -98,6 +98,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=True)
     full_name = Column(String(255), nullable=False)
+    country = Column(String(80), nullable=True)
     password_hash = Column(String(255), nullable=False)
     security_question = Column(String(255), nullable=True)
     security_answer_hash = Column(String(255), nullable=True)
@@ -113,6 +114,11 @@ class User(Base):
 
     department = relationship("Department", back_populates="users")
     roles = relationship("Role", secondary="user_roles", back_populates="users")
+    company_memberships = relationship(
+        "UserCompany",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class SecurityQuestionOption(Base):
@@ -290,6 +296,7 @@ class CompanyProfile(Base):
     __tablename__ = "company_profile"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     company_name = Column(String(255), nullable=False, default="Grand-Tek Technology USA")
     contact_name = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True)
@@ -349,6 +356,7 @@ class JournalEntry(Base):
     __tablename__ = 'journal_entries'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True)
     journal_number = Column(String(50), unique=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
     description = Column(Text, nullable=False)
@@ -471,6 +479,7 @@ class Customer(Base):
     __tablename__ = 'customers'
 
     customer_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     customer_number_ext = Column(String(50))
     company_name = Column(String(255), nullable=False)
     tax_id_type = Column(String(16), nullable=True)
@@ -570,6 +579,7 @@ class Item(Base):
     __tablename__ = 'items'
 
     item_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     customer_part_number = Column(String(50), nullable=False)
     description = Column(Text)
     uom = Column(String(20), nullable=True, default='Each')
@@ -581,6 +591,7 @@ class Item(Base):
     is_purchase_item = Column(Boolean, nullable=False, server_default=text('false'))
     is_subcontract_assembly = Column(Boolean, nullable=False, server_default=text('false'))
     is_raw_material = Column(Boolean, nullable=False, server_default=text('false'))
+    requires_inspection = Column(Boolean, nullable=False, server_default=text('false'))
 
     vendor_mappings = relationship("VendorItemMapping", back_populates="item", cascade="all, delete-orphan")
     bom_headers = relationship(
@@ -601,6 +612,7 @@ class SalesOrder(Base):
     __tablename__ = 'salesorders'
 
     sales_order_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True)
     customer_id = Column(String(50), ForeignKey('customers.customer_id'))
     
     # Updated Foreign Keys mapping to the unified CustomerLocation table
@@ -698,14 +710,20 @@ class WorkCenter(Base):
     work_center_id = Column(String(50), primary_key=True)
     name = Column(String(150), nullable=False)
     warehouse_id = Column(String(50), ForeignKey('warehouses.warehouse_id'), nullable=True)
+    hourly_rate = Column(Numeric(12, 2), nullable=False, server_default=text('0'))
     is_active = Column(Boolean, nullable=False, server_default=text('true'))
     created_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+
+    __table_args__ = (
+        CheckConstraint("hourly_rate >= 0", name="chk_work_center_rate_nonneg"),
+    )
 
 
 class Supplier(Base):
     __tablename__ = 'suppliers'
 
     supplier_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     company_name = Column(String(255), nullable=False)
     contact_name = Column(String(100))
     contact_email = Column(String(255))
@@ -802,6 +820,9 @@ class ItemBOMHeader(Base):
     status = Column(String(20), nullable=False, server_default=text("'active'"))
     effective_from = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    applied_master_routing_id = Column(BigInteger, ForeignKey("master_routings.id", ondelete="SET NULL"), nullable=True)
+    applied_routing_code = Column(String(50), nullable=True)
+    applied_routing_version = Column(Integer, nullable=True)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
 
     __table_args__ = (
@@ -908,6 +929,7 @@ class SubcontractOrder(Base):
     __tablename__ = 'subcontractorders'
 
     sco_number = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
     # Parent Sales Order when this SCO is created from an SO (e.g. PU61-26060001).
     sales_order_id = Column(String(50), ForeignKey('salesorders.sales_order_id'), nullable=True)
@@ -1234,6 +1256,7 @@ class PurchaseOrder(Base):
     __tablename__ = 'purchaseorders'
 
     po_number = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True)
     supplier_id = Column(String(50), ForeignKey('suppliers.supplier_id'), nullable=False)
     po_type = Column(String(20), nullable=False, server_default=text("'MATERIAL'"))
     bom_header_id = Column(BigInteger, ForeignKey('itembomheaders.bom_header_id'), nullable=True)
@@ -1447,6 +1470,7 @@ class Warehouse(Base):
     __tablename__ = 'warehouses'
 
     warehouse_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     code = Column(String(20), unique=True, nullable=False)
     address = Column(String(255))
@@ -1659,6 +1683,7 @@ class GoodsReceipt(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     receipt_number = Column(String(50), unique=True, nullable=False)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True)
     source_type = Column(String(30), nullable=False)
     source_order_id = Column(String(50), nullable=False)
     vendor_id = Column(String(50), ForeignKey("suppliers.supplier_id"), nullable=False)
@@ -1866,6 +1891,20 @@ class DocumentSequence(Base):
     updated_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
 
+class CompanyDocumentPrefix(Base):
+    """Prefix each company uses when the next document number is issued."""
+
+    __tablename__ = "company_document_prefixes"
+
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True)
+    doc_type = Column(String(40), primary_key=True)
+    prefix = Column(String(20), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "prefix", name="uq_company_document_prefix"),
+    )
+
+
 class DocumentRevision(Base):
     """Frozen header + lines snapshot for one SO / PO / SCO revision."""
 
@@ -1908,3 +1947,687 @@ class DocumentChangeLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
 
     user = relationship("User")
+
+
+# ========================================================
+# MULTI-COMPANY, CURRENCY, PRODUCTION, AND QC
+# ========================================================
+
+class Company(Base):
+    """Legal entity used to isolate masters and new manufacturing documents."""
+
+    __tablename__ = "companies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(20), unique=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    country = Column(String(80), nullable=True)
+    base_currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    parent_company_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id"),
+        nullable=True,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    parent = relationship(
+        "Company",
+        remote_side=[id],
+        foreign_keys=[parent_company_id],
+        back_populates="subsidiaries",
+    )
+    subsidiaries = relationship(
+        "Company",
+        back_populates="parent",
+        foreign_keys=[parent_company_id],
+    )
+    memberships = relationship("UserCompany", back_populates="company", cascade="all, delete-orphan")
+
+
+class UserCompany(Base):
+    __tablename__ = "user_companies"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True)
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+
+    user = relationship("User", back_populates="company_memberships")
+    company = relationship("Company", back_populates="memberships")
+
+
+class ExchangeRate(Base):
+    """How many units of the company base currency equal one unit of quote_currency."""
+
+    __tablename__ = "exchange_rates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    quote_currency = Column(String(3), nullable=False)
+    rate_to_base = Column(Numeric(18, 8), nullable=False)
+    effective_date = Column(Date, nullable=False)
+    source = Column(String(20), nullable=False, server_default=text("'manual'"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "quote_currency",
+            "effective_date",
+            name="uq_exchange_rate_company_currency_date",
+        ),
+        CheckConstraint("rate_to_base > 0", name="chk_exchange_rate_positive"),
+        CheckConstraint("source IN ('manual', 'frankfurter')", name="chk_exchange_rate_source"),
+    )
+
+    company = relationship("Company")
+
+
+class BomRoutingOperation(Base):
+    """Work-center step on an existing BOM revision."""
+
+    __tablename__ = "bom_routing_operations"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    bom_header_id = Column(
+        BigInteger,
+        ForeignKey("itembomheaders.bom_header_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence = Column(Integer, nullable=False)
+    work_center_id = Column(
+        String(50),
+        ForeignKey("work_centers.work_center_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name = Column(String(150), nullable=False)
+    setup_minutes = Column(Numeric(10, 2), nullable=False, server_default=text("0"))
+    run_minutes_per_unit = Column(Numeric(10, 4), nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        UniqueConstraint("bom_header_id", "sequence", name="uq_bom_routing_sequence"),
+        CheckConstraint("sequence > 0", name="chk_bom_routing_sequence_pos"),
+        CheckConstraint("setup_minutes >= 0", name="chk_bom_routing_setup_nonneg"),
+        CheckConstraint("run_minutes_per_unit >= 0", name="chk_bom_routing_run_nonneg"),
+    )
+
+    header = relationship("ItemBOMHeader")
+    work_center = relationship("WorkCenter")
+
+
+class StandardOperation(Base):
+    """Reusable operation definition. It is not an item."""
+
+    __tablename__ = "standard_operations"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    operation_code = Column(String(50), nullable=False)
+    name = Column(String(150), nullable=False)
+    work_center_id = Column(String(50), ForeignKey("work_centers.work_center_id", ondelete="SET NULL"), nullable=True)
+    setup_minutes = Column(Numeric(10, 2), nullable=False, server_default=text("0"))
+    run_minutes_per_unit = Column(Numeric(10, 4), nullable=False, server_default=text("0"))
+    description = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "operation_code", name="uq_standard_operation_code"),
+        CheckConstraint("setup_minutes >= 0", name="chk_standard_operation_setup_nonneg"),
+        CheckConstraint("run_minutes_per_unit >= 0", name="chk_standard_operation_run_nonneg"),
+    )
+
+    company = relationship("Company")
+    work_center = relationship("WorkCenter")
+
+
+class MasterRouting(Base):
+    """Versioned route template, independent of any item."""
+
+    __tablename__ = "master_routings"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_code = Column(String(50), nullable=False)
+    name = Column(String(150), nullable=False)
+    version_no = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'draft'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "routing_code", "version_no", name="uq_master_routing_version"),
+        CheckConstraint("version_no > 0", name="chk_master_routing_version_pos"),
+        CheckConstraint("status IN ('draft', 'active', 'obsolete')", name="chk_master_routing_status"),
+        Index(
+            "uq_one_active_master_routing",
+            "company_id",
+            "routing_code",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    company = relationship("Company")
+    operations = relationship(
+        "MasterRoutingOperation",
+        back_populates="routing",
+        cascade="all, delete-orphan",
+        order_by="MasterRoutingOperation.sequence",
+    )
+
+
+class MasterRoutingOperation(Base):
+    __tablename__ = "master_routing_operations"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    master_routing_id = Column(
+        BigInteger,
+        ForeignKey("master_routings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence = Column(Integer, nullable=False)
+    standard_operation_id = Column(
+        BigInteger,
+        ForeignKey("standard_operations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    work_center_id = Column(String(50), ForeignKey("work_centers.work_center_id", ondelete="SET NULL"), nullable=True)
+    operation_name = Column(String(150), nullable=False)
+    setup_minutes = Column(Numeric(10, 2), nullable=False, server_default=text("0"))
+    run_minutes_per_unit = Column(Numeric(10, 4), nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        UniqueConstraint("master_routing_id", "sequence", name="uq_master_routing_sequence"),
+        CheckConstraint("sequence > 0", name="chk_master_routing_op_sequence_pos"),
+        CheckConstraint("setup_minutes >= 0", name="chk_master_routing_op_setup_nonneg"),
+        CheckConstraint("run_minutes_per_unit >= 0", name="chk_master_routing_op_run_nonneg"),
+    )
+
+    routing = relationship("MasterRouting", back_populates="operations")
+    standard_operation = relationship("StandardOperation")
+    work_center = relationship("WorkCenter")
+
+
+class ProductionOrder(Base):
+    __tablename__ = "production_orders"
+
+    production_order_id = Column(String(50), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    bom_header_id = Column(
+        BigInteger,
+        ForeignKey("itembomheaders.bom_header_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    warehouse_id = Column(String(50), ForeignKey("warehouses.warehouse_id"), nullable=True)
+    sales_order_id = Column(
+        String(50),
+        ForeignKey("salesorders.sales_order_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    qty_ordered = Column(Integer, nullable=False)
+    qty_completed = Column(Integer, nullable=False, server_default=text("0"))
+    scrapped_qty = Column(Integer, nullable=False, server_default=text("0"))
+    status = Column(String(20), nullable=False, server_default=text("'draft'"))
+    order_date = Column(Date, nullable=False)
+    planned_start = Column(Date, nullable=True)
+    planned_end = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)
+    master_routing_id = Column(BigInteger, ForeignKey("master_routings.id", ondelete="SET NULL"), nullable=True)
+    routing_code = Column(String(50), nullable=True)
+    routing_version_no = Column(Integer, nullable=True)
+    transaction_currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    exchange_rate = Column(Numeric(18, 8), nullable=True)
+    rate_date = Column(Date, nullable=True)
+    transaction_amount = Column(Numeric(14, 2), nullable=False, server_default=text("0"))
+    base_amount = Column(Numeric(14, 2), nullable=True)
+    backflushed_units = Column(Integer, nullable=False, server_default=text("0"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint("qty_ordered > 0", name="chk_production_order_qty_pos"),
+        CheckConstraint("qty_completed >= 0", name="chk_production_order_completed_nonneg"),
+        CheckConstraint("scrapped_qty >= 0", name="chk_production_order_scrapped_nonneg"),
+        CheckConstraint("backflushed_units >= 0", name="chk_production_order_backflush_nonneg"),
+        CheckConstraint(
+            "status IN ('draft', 'released', 'in_process', 'completed', 'closed', 'cancelled')",
+            name="chk_production_order_status",
+        ),
+    )
+
+    company = relationship("Company")
+    item = relationship("Item")
+    bom_header = relationship("ItemBOMHeader")
+    warehouse = relationship("Warehouse")
+    materials = relationship(
+        "ProductionOrderMaterial",
+        back_populates="order",
+        cascade="all, delete-orphan",
+    )
+    issues = relationship("ProductionIssue", back_populates="order", cascade="all, delete-orphan")
+    receipts = relationship("ProductionReceipt", back_populates="order", cascade="all, delete-orphan")
+    operations = relationship(
+        "ProductionOrderRouting",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="ProductionOrderRouting.operation_sequence",
+    )
+
+
+class ProductionOrderMaterial(Base):
+    __tablename__ = "production_order_materials"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    production_order_id = Column(
+        String(50),
+        ForeignKey("production_orders.production_order_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    component_item_id = Column(String(50), ForeignKey("items.item_id"), nullable=True)
+    component_code = Column(String(50), nullable=True)
+    item_type = Column(String(30), nullable=False, server_default=text("'Material'"))
+    quantity_required = Column(Numeric(12, 4), nullable=False)
+    quantity_issued = Column(Numeric(12, 4), nullable=False, server_default=text("0"))
+    warehouse_id = Column(String(50), ForeignKey("warehouses.warehouse_id"), nullable=True)
+    lot_serial_tracking_required = Column(Boolean, nullable=False, server_default=text("false"))
+
+    order = relationship("ProductionOrder", back_populates="materials")
+    component_item = relationship("Item")
+    warehouse = relationship("Warehouse")
+
+
+class ProductionOrderRouting(Base):
+    """Routing step copied onto a production order, plus shop-floor actuals.
+
+    The sequence and standard times stay as they were when the order was created.
+    Actual quantities, labor, and completion time are recorded here as the step runs.
+    """
+
+    __tablename__ = "production_order_routing"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    production_order_id = Column(
+        String(50),
+        ForeignKey("production_orders.production_order_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation_sequence = Column(Integer, nullable=False)
+    work_center_id = Column(String(50), ForeignKey("work_centers.work_center_id"), nullable=True)
+    operation_name = Column(String(150), nullable=False)
+    setup_time = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    run_time = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    setup_minutes_actual = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    run_minutes_actual = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    good_quantity = Column(Integer, nullable=False, server_default=text("0"))
+    scrap_quantity = Column(Integer, nullable=False, server_default=text("0"))
+    rework_quantity = Column(Integer, nullable=False, server_default=text("0"))
+    scrap_reason_code = Column(String(40), nullable=True)
+    labor_hours = Column(Numeric(12, 4), nullable=False, server_default=text("0"))
+    operator_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("operation_sequence > 0", name="chk_production_routing_sequence_pos"),
+        CheckConstraint("setup_time >= 0", name="chk_production_routing_setup_nonneg"),
+        CheckConstraint("run_time >= 0", name="chk_production_routing_run_nonneg"),
+        CheckConstraint("setup_minutes_actual >= 0", name="chk_production_routing_setup_actual_nonneg"),
+        CheckConstraint("run_minutes_actual >= 0", name="chk_production_routing_run_actual_nonneg"),
+        CheckConstraint("good_quantity >= 0", name="chk_production_routing_good_nonneg"),
+        CheckConstraint("scrap_quantity >= 0", name="chk_production_routing_scrap_nonneg"),
+        CheckConstraint("rework_quantity >= 0", name="chk_production_routing_rework_nonneg"),
+        CheckConstraint("labor_hours >= 0", name="chk_production_routing_labor_nonneg"),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed')",
+            name="chk_production_routing_status",
+        ),
+    )
+
+    order = relationship("ProductionOrder", back_populates="operations")
+    work_center = relationship("WorkCenter")
+    operator = relationship("User")
+    company = relationship("Company")
+    labor_logs = relationship(
+        "ProductionStepLaborLog",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionStepLaborLog.id",
+    )
+    scrap_entries = relationship(
+        "ProductionStepScrap",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionStepScrap.id",
+    )
+    backflushes = relationship(
+        "ProductionMaterialBackflush",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionMaterialBackflush.id",
+    )
+    quality_checks = relationship(
+        "ProductionStepQuality",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionStepQuality.id",
+    )
+    downtime_logs = relationship(
+        "ProductionStepDowntime",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionStepDowntime.id",
+    )
+    parameters = relationship(
+        "ProductionStepParameter",
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="ProductionStepParameter.id",
+    )
+
+    @property
+    def processed_quantity(self) -> int:
+        return int(self.good_quantity or 0) + int(self.scrap_quantity or 0)
+
+    @property
+    def standard_minutes(self):
+        if self.status != "completed":
+            return None
+        units = Decimal(self.processed_quantity)
+        return (Decimal(self.setup_time or 0) + Decimal(self.run_time or 0) * units).quantize(Decimal("0.01"))
+
+    @property
+    def actual_minutes(self):
+        if self.status != "completed":
+            return None
+        return (Decimal(self.setup_minutes_actual or 0) + Decimal(self.run_minutes_actual or 0)).quantize(Decimal("0.01"))
+
+    @property
+    def variance_minutes(self):
+        if self.standard_minutes is None or self.actual_minutes is None:
+            return None
+        return (self.actual_minutes - self.standard_minutes).quantize(Decimal("0.01"))
+
+
+class ProductionStepLaborLog(Base):
+    """Direct labor interval for one routing step."""
+
+    __tablename__ = "production_step_labor_logs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    production_order_id = Column(String(50), nullable=False)
+    operator_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    stopped_at = Column(DateTime(timezone=True), nullable=True)
+    labor_hours = Column(Numeric(12, 4), nullable=False, server_default=text("0"))
+    notes = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("labor_hours >= 0", name="chk_step_labor_hours_nonneg"),
+    )
+
+    step = relationship("ProductionOrderRouting", back_populates="labor_logs")
+    operator = relationship("User")
+    company = relationship("Company")
+
+
+class ProductionStepScrap(Base):
+    __tablename__ = "production_step_scrap"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quantity = Column(Integer, nullable=False)
+    reason_code = Column(String(40), nullable=False)
+    defect_class = Column(String(40), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="chk_step_scrap_qty_pos"),
+    )
+
+    step = relationship("ProductionOrderRouting", back_populates="scrap_entries")
+    company = relationship("Company")
+
+
+class ProductionMaterialBackflush(Base):
+    """Component quantity consumed when a routing step reports good and scrap output."""
+
+    __tablename__ = "production_material_backflushes"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    production_order_id = Column(
+        String(50),
+        ForeignKey("production_orders.production_order_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    material_id = Column(
+        BigInteger,
+        ForeignKey("production_order_materials.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    component_item_id = Column(String(50), ForeignKey("items.item_id"), nullable=True)
+    quantity = Column(Numeric(12, 4), nullable=False)
+    lot_number = Column(String(80), nullable=True)
+    serial_number = Column(String(80), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="chk_backflush_qty_pos"),
+    )
+
+    step = relationship("ProductionOrderRouting", back_populates="backflushes")
+    material = relationship("ProductionOrderMaterial")
+    component_item = relationship("Item")
+    company = relationship("Company")
+
+
+class ProductionStepQuality(Base):
+    """In-process check recorded at a routing step."""
+
+    __tablename__ = "production_step_quality"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    characteristic = Column(String(150), nullable=False)
+    specification = Column(String(255), nullable=True)
+    measured_value = Column(String(255), nullable=True)
+    passed = Column(Boolean, nullable=False, server_default=text("false"))
+    defect_class = Column(String(40), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    step = relationship("ProductionOrderRouting", back_populates="quality_checks")
+    company = relationship("Company")
+
+
+class ProductionStepDowntime(Base):
+    __tablename__ = "production_step_downtime"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reason_code = Column(String(40), nullable=False)
+    minutes = Column(Numeric(12, 2), nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint("minutes > 0", name="chk_step_downtime_minutes_pos"),
+    )
+
+    step = relationship("ProductionOrderRouting", back_populates="downtime_logs")
+    company = relationship("Company")
+
+
+class ProductionStepParameter(Base):
+    """Machine setting or reading logged for a routing step."""
+
+    __tablename__ = "production_step_parameters"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    routing_step_id = Column(
+        BigInteger,
+        ForeignKey("production_order_routing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(80), nullable=False)
+    value = Column(String(80), nullable=False)
+    unit = Column(String(20), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    step = relationship("ProductionOrderRouting", back_populates="parameters")
+    company = relationship("Company")
+
+
+class ProductionIssue(Base):
+    __tablename__ = "production_issues"
+
+    issue_id = Column(String(50), primary_key=True)
+    production_order_id = Column(
+        String(50),
+        ForeignKey("production_orders.production_order_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    issue_date = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    order = relationship("ProductionOrder", back_populates="issues")
+    lines = relationship("ProductionIssueLine", back_populates="issue", cascade="all, delete-orphan")
+
+
+class ProductionIssueLine(Base):
+    __tablename__ = "production_issue_lines"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    issue_id = Column(
+        String(50),
+        ForeignKey("production_issues.issue_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    material_id = Column(
+        BigInteger,
+        ForeignKey("production_order_materials.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    component_item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
+    quantity_issued = Column(Numeric(12, 4), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("quantity_issued > 0", name="chk_production_issue_qty_pos"),
+    )
+
+    issue = relationship("ProductionIssue", back_populates="lines")
+    material = relationship("ProductionOrderMaterial")
+    component_item = relationship("Item")
+
+
+class ProductionReceipt(Base):
+    __tablename__ = "production_receipts"
+
+    receipt_id = Column(String(50), primary_key=True)
+    production_order_id = Column(
+        String(50),
+        ForeignKey("production_orders.production_order_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quantity_received = Column(Integer, nullable=False)
+    receipt_date = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
+    posted_to_stock = Column(Boolean, nullable=False, server_default=text("false"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint("quantity_received > 0", name="chk_production_receipt_qty_pos"),
+    )
+
+    order = relationship("ProductionOrder", back_populates="receipts")
+
+
+class Inspection(Base):
+    __tablename__ = "inspections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    source_type = Column(String(30), nullable=False)
+    source_id = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    inspector_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    inspected_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('production_receipt', 'goods_receipt')",
+            name="chk_inspection_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'rejected')",
+            name="chk_inspection_status",
+        ),
+    )
+
+    company = relationship("Company")
+    inspector = relationship("User")
+    results = relationship("InspectionResult", back_populates="inspection", cascade="all, delete-orphan")
+
+
+class InspectionResult(Base):
+    __tablename__ = "inspection_results"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    inspection_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("inspections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    characteristic = Column(String(150), nullable=False)
+    specification = Column(String(255), nullable=True)
+    measured_value = Column(String(255), nullable=True)
+    passed = Column(Boolean, nullable=False, server_default=text("false"))
+
+    inspection = relationship("Inspection", back_populates="results")

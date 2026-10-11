@@ -129,6 +129,31 @@ export const NAV_CATEGORIES: NavCategory[] = [
         to: '/subcontract-orders',
         permission: 'subcontract:view',
       },
+      {
+        kind: 'link',
+        label: 'Production Orders',
+        to: '/production-orders',
+        permission: 'production:view',
+      },
+      {
+        kind: 'link',
+        label: 'Route library',
+        to: '/route-library',
+        permission: 'routing:view',
+      },
+    ],
+  },
+  {
+    id: 'quality',
+    label: 'Quality',
+    roles: ['ROLE-SCO-SUP', 'ROLE-ADMIN'],
+    entries: [
+      {
+        kind: 'link',
+        label: 'Inspections',
+        to: '/inspections',
+        permission: 'inspection:view',
+      },
     ],
   },
   {
@@ -149,6 +174,9 @@ export const NAV_CATEGORIES: NavCategory[] = [
     entries: [
       { kind: 'link', label: 'Customers', to: '/customers' },
       { kind: 'link', label: 'Vendors', to: '/vendors' },
+      { kind: 'link', label: 'Work Centers', to: '/work-centers' },
+      { kind: 'link', label: 'Items', to: '/items' },
+      { kind: 'link', label: 'Warehouses', to: '/inventory/warehouses' },
       { kind: 'link', label: 'Payment Terms', to: '/payment-terms' },
     ],
   },
@@ -323,6 +351,9 @@ export const NAV_CATEGORIES: NavCategory[] = [
     roles: ['ROLE-ADMIN'],
     entries: [
       { kind: 'link', label: 'Company Profile', to: '/admin/company-profile', permission: 'admin:manage' },
+      { kind: 'link', label: 'Document numbers', to: '/admin/document-numbers', permission: 'admin:manage' },
+      { kind: 'link', label: 'Companies', to: '/admin/companies', permission: 'admin:manage' },
+      { kind: 'link', label: 'Exchange Rates', to: '/admin/exchange-rates', permission: 'admin:manage' },
       { kind: 'link', label: 'Users & Roles', to: '/admin/rbac', permission: 'admin:manage' },
       {
         kind: 'link',
@@ -496,7 +527,41 @@ export function getBreadcrumbs(pathname: string, hash = ''): BreadcrumbCrumb[] {
     for (const entry of category.entries) {
       if (entry.kind === 'link' && isNavLinkActive(pathname, entry, hash)) {
         if (splitNavTo(entry.to).path === '/') return [{ label: entry.label }]
-        return [{ label: stripLeadingEmoji(category.label) }, { label: entry.label }]
+        const crumbs: BreadcrumbCrumb[] = [
+          { label: stripLeadingEmoji(category.label) },
+          { label: entry.label },
+        ]
+        if (pathname.startsWith('/admin/companies/') && pathname !== '/admin/companies') {
+          crumbs[1] = { label: entry.label, to: '/admin/companies' }
+          if (pathname === '/admin/companies/new') crumbs.push({ label: 'New company' })
+          else if (pathname.endsWith('/edit')) crumbs.push({ label: 'Edit company' })
+          else crumbs.push({ label: 'Company' })
+        }
+        if (pathname.startsWith('/production-orders/') && pathname !== '/production-orders') {
+          crumbs[1] = { label: entry.label, to: '/production-orders' }
+          const receiptMatch = pathname.match(/^\/production-orders\/([^/]+)\/receipts\/([^/]+)/)
+          if (receiptMatch) {
+            crumbs.push({
+              label: decodeURIComponent(receiptMatch[1]),
+              to: `/production-orders/${receiptMatch[1]}`,
+            })
+            crumbs.push({ label: decodeURIComponent(receiptMatch[2]) })
+          } else if (pathname.endsWith('/edit')) {
+            crumbs.push({ label: 'Edit' })
+          } else if (pathname.endsWith('/new')) {
+            crumbs.push({ label: 'New' })
+          } else {
+            const orderMatch = pathname.match(/^\/production-orders\/([^/]+)/)
+            crumbs.push({ label: orderMatch ? decodeURIComponent(orderMatch[1]) : 'Production order' })
+          }
+        }
+        if (pathname.startsWith('/work-centers/') && pathname !== '/work-centers') {
+          crumbs[1] = { label: entry.label, to: '/work-centers' }
+          if (pathname === '/work-centers/new') crumbs.push({ label: 'New work center' })
+          else if (pathname.endsWith('/edit')) crumbs.push({ label: 'Edit work center' })
+          else crumbs.push({ label: 'Work center' })
+        }
+        return crumbs
       }
       if (entry.kind === 'group') {
         const groupLabel = stripLeadingEmoji(entry.label)

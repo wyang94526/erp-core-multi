@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { itemService, itemBomService } from '../api/services'
 import type { Item } from '../types'
+import { BomRoutingPanel } from './BomRoutingPanel'
 import { VendorItemMappingSection } from './VendorItemMappingSection'
 import { BomVersionToolbar } from './BomVersionToolbar'
 import { itemTypeLabel, normalizeItemType } from '../utils/itemTypes'
@@ -443,6 +444,7 @@ export function ItemDetail() {
           </p>
         )}
       </div>
+      <BomRoutingPanel itemId={item.item_id} />
     </div>
   )
 }

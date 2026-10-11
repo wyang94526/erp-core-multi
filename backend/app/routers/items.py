@@ -8,7 +8,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Item, Supplier, VendorItemMapping
+from app.deps.company import get_current_company, require_company_row
+from app.models import Company, Item, Supplier, VendorItemMapping
 from app.services import inventory
 from app.services.item_types import validate_item_master_fields
 from app.schemas import (
@@ -23,6 +24,10 @@ from app.schemas import (
 from app.services.pagination import paginate_query, set_total_count_header
 
 router = APIRouter(prefix="/items", tags=["items"])
+
+
+def _company_items(db: Session, company: Company):
+    return db.query(Item).filter(Item.company_id == company.id)
 
 
 def _apply_item_query(query, *, search: str | None = None, catalog: str | None = None):
@@ -79,8 +84,9 @@ def list_purchase_items(
     limit: int = 100,
     q: str | None = Query(default=None, description="Search item_id, customer P/N, description"),
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> list[Item]:
-    query = _apply_item_query(db.query(Item), search=q, catalog="purchase")
+    query = _apply_item_query(_company_items(db, company), search=q, catalog="purchase")
     items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
     inventory.apply_live_on_hand(db, items)
     return items
@@ -92,8 +98,9 @@ def list_raw_materials(
     limit: int = 100,
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> list[Item]:
-    query = _apply_item_query(db.query(Item), search=q, catalog="raw")
+    query = _apply_item_query(_company_items(db, company), search=q, catalog="raw")
     items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
     inventory.apply_live_on_hand(db, items)
     return items
@@ -105,8 +112,9 @@ def list_subcontract_assemblies(
     limit: int = 100,
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> list[Item]:
-    query = _apply_item_query(db.query(Item), search=q, catalog="assembly")
+    query = _apply_item_query(_company_items(db, company), search=q, catalog="assembly")
     items = query.order_by(Item.item_id).offset(skip).limit(limit).all()
     inventory.apply_live_on_hand(db, items)
     return items
@@ -124,9 +132,10 @@ def list_items(
     ),
     response: Response = None,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> ItemListPage:
     kind = catalog or ("purchase" if purchase_only else None)
-    query = _apply_item_query(db.query(Item), search=q, catalog=kind)
+    query = _apply_item_query(_company_items(db, company), search=q, catalog=kind)
     items, pagination = paginate_query(query, skip=skip, limit=limit, order_by=Item.item_id)
     inventory.apply_live_on_hand(db, items)
     set_total_count_header(response, pagination.total)
@@ -134,16 +143,22 @@ def list_items(
 
 
 @router.get("/{item_id}", response_model=ItemRead)
-def get_item(item_id: str, db: Session = Depends(get_db)) -> Item:
-    item = db.get(Item, item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+def get_item(
+    item_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> Item:
+    item = require_company_row(db.get(Item, item_id), company, "Item not found")
     inventory.apply_live_on_hand(db, [item])
     return item
 
 
 @router.post("", response_model=ItemRead, status_code=201)
-def create_item(payload: ItemCreate, db: Session = Depends(get_db)) -> Item:
+def create_item(
+    payload: ItemCreate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> Item:
     if db.get(Item, payload.item_id) is not None:
         raise HTTPException(status_code=400, detail="Item ID already exists")
     data = _sync_assembly_flags(payload.model_dump())
@@ -151,6 +166,7 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db)) -> Item:
     data["item_type"] = kind
     data["uom"] = unit
     item = Item(**data)
+    item.company_id = company.id
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -159,11 +175,12 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db)) -> Item:
 
 @router.patch("/{item_id}", response_model=ItemRead)
 def update_item(
-    item_id: str, payload: ItemUpdate, db: Session = Depends(get_db)
+    item_id: str,
+    payload: ItemUpdate,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> Item:
-    item = db.get(Item, item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    item = require_company_row(db.get(Item, item_id), company, "Item not found")
     data = _sync_assembly_flags(payload.model_dump(exclude_unset=True))
     if "item_type" in data or "uom" in data:
         kind, unit = validate_item_master_fields(
@@ -182,18 +199,23 @@ def update_item(
 
 
 @router.delete("/{item_id}", status_code=204)
-def delete_item(item_id: str, db: Session = Depends(get_db)) -> None:
-    item = db.get(Item, item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+def delete_item(
+    item_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> None:
+    item = require_company_row(db.get(Item, item_id), company, "Item not found")
     db.delete(item)
     db.commit()
 
 
 @router.get("/{item_id}/vendors", response_model=list[VendorItemMappingRead])
-def list_item_vendors(item_id: str, db: Session = Depends(get_db)) -> list[VendorItemMappingRead]:
-    if db.get(Item, item_id) is None:
-        raise HTTPException(status_code=404, detail="Item not found")
+def list_item_vendors(
+    item_id: str,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> list[VendorItemMappingRead]:
+    require_company_row(db.get(Item, item_id), company, "Item not found")
     rows = (
         db.query(VendorItemMapping)
         .options(joinedload(VendorItemMapping.supplier), joinedload(VendorItemMapping.item))
@@ -213,13 +235,12 @@ def add_item_vendor(
     item_id: str,
     payload: VendorItemMappingCreate,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> VendorItemMappingRead:
     if item_id != payload.item_id:
         raise HTTPException(status_code=400, detail="URL item_id must match payload.item_id")
-    if db.get(Item, item_id) is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    if db.get(Supplier, payload.supplier_id) is None:
-        raise HTTPException(status_code=400, detail="Supplier not found")
+    require_company_row(db.get(Item, item_id), company, "Item not found")
+    require_company_row(db.get(Supplier, payload.supplier_id), company, "Supplier not found")
 
     existing = (
         db.query(VendorItemMapping)
@@ -259,7 +280,9 @@ def update_item_vendor(
     mapping_id: int,
     payload: VendorItemMappingUpdate,
     db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
 ) -> VendorItemMappingRead:
+    require_company_row(db.get(Item, item_id), company, "Item not found")
     row = db.get(VendorItemMapping, mapping_id)
     if not row or row.item_id != item_id:
         raise HTTPException(status_code=404, detail="Vendor mapping not found")
@@ -282,7 +305,13 @@ def update_item_vendor(
 
 
 @router.delete("/{item_id}/vendors/{mapping_id}", status_code=204)
-def delete_item_vendor(item_id: str, mapping_id: int, db: Session = Depends(get_db)) -> None:
+def delete_item_vendor(
+    item_id: str,
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company),
+) -> None:
+    require_company_row(db.get(Item, item_id), company, "Item not found")
     row = db.get(VendorItemMapping, mapping_id)
     if not row or row.item_id != item_id:
         raise HTTPException(status_code=404, detail="Vendor mapping not found")

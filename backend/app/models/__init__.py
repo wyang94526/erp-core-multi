@@ -1,6 +1,9 @@
 # @author: Wendy Yang
 # @date: 2026-09-19
 
+from sqlalchemy import event
+
+from app.company_ids import DEFAULT_COMPANY_ID
 from app.models.entities import (
     APBill,
     ARInvoice,
@@ -10,8 +13,13 @@ from app.models.entities import (
     BankAccount,
     BankTransfer,
     BinLocation,
+    BomRoutingOperation,
+    MasterRouting,
+    MasterRoutingOperation,
+    StandardOperation,
     CashTransaction,
     ChartOfAccount,
+    Company,
     CompanyProfile,
     ComponentIssueLog,
     Customer,
@@ -20,6 +28,8 @@ from app.models.entities import (
     Department,
     FinishedGoodsReceipt,
     GoodsReceipt,
+    Inspection,
+    InspectionResult,
     GoodsReceiptLine,
     InventoryStock,
     Item,
@@ -34,13 +44,27 @@ from app.models.entities import (
     DocumentAttachment,
     DocumentChangeLog,
     DocumentRevision,
+    CompanyDocumentPrefix,
     DocumentSequence,
+    ExchangeRate,
     FinancePeriodSettings,
     FinancialBudget,
     GlAccountBalance,
     PaymentTerm,
     Permission,
     PostingRule,
+    ProductionIssue,
+    ProductionIssueLine,
+    ProductionMaterialBackflush,
+    ProductionOrder,
+    ProductionOrderMaterial,
+    ProductionOrderRouting,
+    ProductionReceipt,
+    ProductionStepDowntime,
+    ProductionStepLaborLog,
+    ProductionStepParameter,
+    ProductionStepQuality,
+    ProductionStepScrap,
     PurchaseOrder,
     PurchaseOrderDeliverySchedule,
     PurchaseOrderItem,
@@ -62,6 +86,7 @@ from app.models.entities import (
     SupplierInvoiceDistribution,
     SupplierInvoiceLine,
     User,
+    UserCompany,
     UserRole,
     Supplier,
     VendorItemMapping,
@@ -84,8 +109,13 @@ __all__ = [
     "BankAccount",
     "BankTransfer",
     "BinLocation",
+    "BomRoutingOperation",
+    "MasterRouting",
+    "MasterRoutingOperation",
+    "StandardOperation",
     "CashTransaction",
     "ChartOfAccount",
+    "Company",
     "CompanyProfile",
     "ComponentIssueLog",
     "Customer",
@@ -94,6 +124,8 @@ __all__ = [
     "Department",
     "FinishedGoodsReceipt",
     "GoodsReceipt",
+    "Inspection",
+    "InspectionResult",
     "GoodsReceiptLine",
     "InventoryStock",
     "Item",
@@ -108,13 +140,27 @@ __all__ = [
     "DocumentAttachment",
     "DocumentChangeLog",
     "DocumentRevision",
+    "CompanyDocumentPrefix",
     "DocumentSequence",
+    "ExchangeRate",
     "FinancePeriodSettings",
     "FinancialBudget",
     "GlAccountBalance",
     "PaymentTerm",
     "Permission",
     "PostingRule",
+    "ProductionIssue",
+    "ProductionIssueLine",
+    "ProductionMaterialBackflush",
+    "ProductionOrder",
+    "ProductionOrderMaterial",
+    "ProductionOrderRouting",
+    "ProductionReceipt",
+    "ProductionStepDowntime",
+    "ProductionStepLaborLog",
+    "ProductionStepParameter",
+    "ProductionStepQuality",
+    "ProductionStepScrap",
     "Product",
     "ProductBOMComponent",
     "PurchaseOrder",
@@ -138,6 +184,7 @@ __all__ = [
     "SupplierInvoiceDistribution",
     "SupplierInvoiceLine",
     "User",
+    "UserCompany",
     "UserRole",
     "Supplier",
     "VendorItemMapping",
@@ -146,3 +193,25 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowStep",
 ]
+
+_COMPANY_STAMPED = (
+    Item,
+    Customer,
+    Supplier,
+    Warehouse,
+    SalesOrder,
+    PurchaseOrder,
+    SubcontractOrder,
+    GoodsReceipt,
+    JournalEntry,
+    CompanyProfile,
+)
+
+
+def _stamp_default_company(_mapper, _connection, target) -> None:
+    if getattr(target, "company_id", None) is None:
+        target.company_id = DEFAULT_COMPANY_ID
+
+
+for _model in _COMPANY_STAMPED:
+    event.listen(_model, "before_insert", _stamp_default_company)

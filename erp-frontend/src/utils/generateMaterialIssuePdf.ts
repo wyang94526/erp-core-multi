@@ -8,7 +8,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { downloadPdf } from './pdfDownload'
-import { PDF_BRAND_ALT_RGB, PDF_BRAND_RGB, PDF_RULE_RGB } from './pdfLetterhead'
+import { loadCompanyPdfBranding, PDF_BRAND_ALT_RGB, PDF_BRAND_RGB, PDF_RULE_RGB } from './pdfLetterhead'
 import type {
   CalculatedComponentLine,
   MaterialIssue,
@@ -75,8 +75,11 @@ export function buildMaterialIssuePdfFilename(scoNumber: string, issueId: string
   return `SCO-${sco}-Issue-${issue}-Shipping.pdf`
 }
 
-export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdfInput): void {
+export async function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdfInput): Promise<void> {
   const { sco, issue, supplier, productName, kitLines } = input
+  const branding = await loadCompanyPdfBranding().catch(() => null)
+  const companyName = branding?.profile.company_name?.trim() || 'Grand-Tek Technology'
+  const placeLine = [branding?.profile.country, branding?.profile.base_currency].filter(Boolean).join(' · ')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -86,13 +89,21 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
   doc.setTextColor(40, 40, 40)
-  doc.text('Grand-Tek Technology USA', marginX, y)
+  doc.text(companyName, marginX, y)
 
   doc.setFontSize(11)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(90, 90, 90)
   doc.text('MATERIAL ISSUE / SHIPPING DOCUMENT', pageWidth - marginX, y, { align: 'right' })
-  y += 22
+  y += 16
+  if (placeLine) {
+    doc.setFontSize(9)
+    doc.setTextColor(70, 70, 70)
+    doc.text(placeLine, marginX, y)
+    y += 14
+  } else {
+    y += 6
+  }
 
   doc.setDrawColor(...PDF_RULE_RGB)
   doc.setLineWidth(1.5)
@@ -122,9 +133,10 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   const fromLines = [
-    'Grand-Tek Technology USA',
+    companyName,
+    placeLine,
     'Kit shipment for outside processing',
-  ]
+  ].filter(Boolean)
   const toLines = [
     ...supplierAddress(supplier),
     supplier?.supplier_id ? `Vendor ID: ${supplier.supplier_id}` : '',
@@ -237,7 +249,7 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   const terms = doc.splitTextToSize(
-    'The subcontractor acknowledges receipt of the kit listed above for outside processing against the subcontract order. Report any shortage or damage to Grand-Tek Technology USA before starting work.',
+    `The subcontractor acknowledges receipt of the kit listed above for outside processing against the subcontract order. Report any shortage or damage to ${companyName} before starting work.`,
     pageWidth - marginX * 2,
   )
   doc.text(terms, marginX, y)
@@ -258,7 +270,7 @@ export function generateMaterialIssueShippingPdf(input: MaterialIssueShippingPdf
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(
-      `Grand-Tek Technology USA · Kit shipping document · Page ${i} of ${pageCount}`,
+      `${[companyName, placeLine, 'Kit shipping document'].filter(Boolean).join(' · ')} · Page ${i} of ${pageCount}`,
       pageWidth / 2,
       pageHeight - 24,
       { align: 'center' },
