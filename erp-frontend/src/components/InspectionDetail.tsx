@@ -8,6 +8,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { inspectionService } from '../api/services'
+import { useAuth } from '../context/AuthContext'
+import type { CurrentUser, InspectionPlan } from '../types'
 import {
   actionRowStyle,
   badgeStyle,
@@ -30,13 +32,45 @@ function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+function ownsRole(user: CurrentUser | null, roleId: string) {
+  return Boolean(user?.roles?.some((role) => role.role_id === roleId))
+}
+
+function dispositionLabel(value: string | null | undefined) {
+  if (value === 'unrestricted') return 'Unrestricted stock'
+  if (value === 'quarantine') return 'Quarantine'
+  if (value === 'scrap') return 'Scrap'
+  if (value === 'rework') return 'Rework'
+  if (value === 'unposted') return 'Not posted'
+  return '—'
+}
+
+function planHint(plan: InspectionPlan) {
+  if (plan.method === 'numeric') {
+    const unit = plan.unit ? ` ${plan.unit}` : ''
+    return `${plan.min_value ?? '—'} to ${plan.max_value ?? '—'}${unit}`
+  }
+  return plan.options || 'Pass, Fail'
+}
+
 export default function InspectionDetail() {
   const { inspectionId = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [characteristic, setCharacteristic] = useState('Visual')
+  const { user } = useAuth()
+  const [characteristic, setCharacteristic] = useState('')
   const [specification, setSpecification] = useState('')
   const [measured, setMeasured] = useState('')
+  const [measurements, setMeasurements] = useState<Record<string, string>>({})
+  const [planName, setPlanName] = useState('')
+  const [planMethod, setPlanMethod] = useState<'numeric' | 'attribute'>('attribute')
+  const [planMin, setPlanMin] = useState('')
+  const [planMax, setPlanMax] = useState('')
+  const [planUnit, setPlanUnit] = useState('')
+  const [planOptions, setPlanOptions] = useState('Pass,Fail,Scratch,Dent')
+  const [planPass, setPlanPass] = useState('Pass')
+  const [reopenReason, setReopenReason] = useState('')
+  const [overrideReason, setOverrideReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -46,28 +80,46 @@ export default function InspectionDetail() {
     enabled: Boolean(inspectionId),
   })
 
-  const decide = async (decision: 'accept' | 'reject') => {
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['inspections'] })
+  }
+
+  const run = async (action: () => Promise<unknown>, fallback: string) => {
     setError(null)
     setBusy(true)
-    const body = {
-      results: [
-        {
-          characteristic: characteristic.trim() || 'Visual',
-          specification: specification.trim() || undefined,
-          measured_value: measured,
-          passed: decision === 'accept',
-        },
-      ],
-    }
     try {
-      if (decision === 'accept') await inspectionService.accept(inspectionId, body)
-      else await inspectionService.reject(inspectionId, body)
-      await queryClient.invalidateQueries({ queryKey: ['inspections'] })
+      await action()
+      await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not record inspection')
+      setError(err instanceof Error ? err.message : fallback)
     } finally {
       setBusy(false)
     }
+  }
+
+  const decide = (decision: 'accept' | 'reject') => {
+    const plans = inspection?.plans ?? []
+    const results = plans.length
+      ? plans.map((plan) => ({
+          characteristic: plan.characteristic,
+          measured_value: measurements[plan.characteristic] || '',
+          passed: false,
+        }))
+      : [
+          {
+            characteristic: characteristic.trim(),
+            specification: specification.trim() || undefined,
+            measured_value: measured,
+            passed: decision === 'accept',
+          },
+        ]
+    return run(
+      () =>
+        decision === 'accept'
+          ? inspectionService.accept(inspectionId, { results })
+          : inspectionService.reject(inspectionId, { results }),
+      'Could not record inspection',
+    )
   }
 
   if (isLoading) {
@@ -96,6 +148,19 @@ export default function InspectionDetail() {
   }
 
   const colors = inspectionStatusColors(inspection.status)
+  const plans = inspection.plans ?? []
+  const isQc = ownsRole(user, 'ROLE-QC-INSP') || ownsRole(user, 'ROLE-QC-MGR')
+  const isQcManager = ownsRole(user, 'ROLE-QC-MGR')
+  const isAdmin = ownsRole(user, 'ROLE-ADMIN')
+  const isReceiver = Boolean(user?.id && inspection.received_by_user_id && user.id === inspection.received_by_user_id)
+  const canSignOff = isQc && !isReceiver
+  const productionLot = inspection.source_type === 'production_receipt'
+  const request = inspection.reinspection_request
+  const signoffMessage = !isQc
+    ? 'Accept and Reject are limited to a Quality Inspector or Quality Manager.'
+    : isReceiver
+      ? 'The person who received this lot cannot sign off the inspection.'
+      : null
 
   return (
     <div style={containerStyle}>
@@ -131,12 +196,17 @@ export default function InspectionDetail() {
           <MetaRow label="Document">{inspection.document_no || inspection.source_id}</MetaRow>
           <MetaRow label="Reference">{inspection.reference_document || '—'}</MetaRow>
           <MetaRow label="Inspector">{inspection.inspector_name || '—'}</MetaRow>
+          <MetaRow label="Received by">{inspection.received_by_name || '—'}</MetaRow>
           </div>
           <div style={metaColumnStyle}>
             <MetaRow label="Inspected">
               {inspection.inspected_at ? new Date(inspection.inspected_at).toLocaleString() : '—'}
             </MetaRow>
+            <MetaRow label="Stock">{dispositionLabel(inspection.stock_disposition)}</MetaRow>
             <MetaRow label="Notes">{inspection.notes || '—'}</MetaRow>
+            {(inspection.audit_notes ?? []).some((note) => note.note_code === 'Legacy_Stock_Override') ? (
+              <MetaRow label="Audit">Legacy_Stock_Override</MetaRow>
+            ) : null}
           </div>
         </dl>
       </section>
@@ -181,6 +251,104 @@ export default function InspectionDetail() {
         )}
       </section>
 
+      {productionLot && inspection.item_id ? (
+        <section style={cardStyle}>
+          <h2 style={sectionHeadingStyle}>Inspection plan</h2>
+          {plans.length === 0 ? (
+            <p style={hintStyle}>A Quality Manager defines the characteristics before this lot can be accepted or rejected.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr style={theadStyle}>
+                    <th style={thStyle}>Characteristic</th>
+                    <th style={thStyle}>Method</th>
+                    <th style={thStyle}>Criteria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {plans.map((plan) => (
+                    <tr key={plan.id} style={rowStyle}>
+                      <td style={tdStyle}>{plan.characteristic}</td>
+                      <td style={tdStyle}>{plan.method === 'numeric' ? 'Numeric' : 'Attribute'}</td>
+                      <td style={tdStyle}>{planHint(plan)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {isQcManager ? (
+            <form
+              style={{ marginTop: 16 }}
+              onSubmit={(event) => {
+                event.preventDefault()
+                void run(
+                  () =>
+                    inspectionService.addPlan({
+                      item_id: inspection.item_id || '',
+                      characteristic: planName.trim(),
+                      method: planMethod,
+                      min_value: planMethod === 'numeric' && planMin !== '' ? Number(planMin) : null,
+                      max_value: planMethod === 'numeric' && planMax !== '' ? Number(planMax) : null,
+                      unit: planUnit.trim() || null,
+                      options: planMethod === 'attribute' ? planOptions.trim() : null,
+                      pass_options: planMethod === 'attribute' ? planPass.trim() : null,
+                    }),
+                  'Could not save the inspection plan',
+                )
+              }}
+            >
+              <div style={gridStyle}>
+                <label style={fieldStyle}>
+                  Characteristic
+                  <input style={inputStyle} value={planName} onChange={(e) => setPlanName(e.target.value)} required />
+                </label>
+                <label style={fieldStyle}>
+                  Method
+                  <select style={inputStyle} value={planMethod} onChange={(e) => setPlanMethod(e.target.value as 'numeric' | 'attribute')}>
+                    <option value="attribute">Attribute</option>
+                    <option value="numeric">Numeric</option>
+                  </select>
+                </label>
+                {planMethod === 'numeric' ? (
+                  <>
+                    <label style={fieldStyle}>
+                      Minimum
+                      <input style={inputStyle} value={planMin} onChange={(e) => setPlanMin(e.target.value)} />
+                    </label>
+                    <label style={fieldStyle}>
+                      Maximum
+                      <input style={inputStyle} value={planMax} onChange={(e) => setPlanMax(e.target.value)} />
+                    </label>
+                    <label style={fieldStyle}>
+                      Unit
+                      <input style={inputStyle} value={planUnit} onChange={(e) => setPlanUnit(e.target.value)} />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label style={fieldStyle}>
+                      Choices
+                      <input style={inputStyle} value={planOptions} onChange={(e) => setPlanOptions(e.target.value)} />
+                    </label>
+                    <label style={fieldStyle}>
+                      Passing values
+                      <input style={inputStyle} value={planPass} onChange={(e) => setPlanPass(e.target.value)} />
+                    </label>
+                  </>
+                )}
+              </div>
+              <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+                <button type="submit" style={primaryButtonStyle} disabled={busy || !planName.trim()}>
+                  Add characteristic
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </section>
+      ) : null}
+
       {inspection.status === 'pending' ? (
         <form
           style={cardStyle}
@@ -190,33 +358,200 @@ export default function InspectionDetail() {
         >
           <h2 style={sectionHeadingStyle}>Record result</h2>
           <p style={hintStyle}>
-            Accept posts a production receipt into on-hand stock. Reject keeps that quantity out of available stock.
+            {productionLot
+              ? 'Accept moves this receipt into unrestricted stock. Reject moves it to quarantine, where it is not available for production.'
+              : 'This goods-receipt inspection records the decision and does not change stock.'}
           </p>
-          <div style={gridStyle}>
-            <label style={fieldStyle}>
-              Characteristic
-              <input style={inputStyle} value={characteristic} onChange={(e) => setCharacteristic(e.target.value)} required />
-            </label>
-            <label style={fieldStyle}>
-              Specification
-              <input style={inputStyle} value={specification} onChange={(e) => setSpecification(e.target.value)} />
-            </label>
-            <label style={fieldStyle}>
-              Measured value
-              <input style={inputStyle} value={measured} onChange={(e) => setMeasured(e.target.value)} />
-            </label>
-          </div>
-          <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
-            <button type="button" style={primaryButtonStyle} disabled={busy} onClick={() => void decide('accept')}>
-              <CheckCircle2 size={15} />
-              Accept
-            </button>
-            <button type="button" style={dangerButtonStyle} disabled={busy} onClick={() => void decide('reject')}>
-              <XCircle size={15} />
-              Reject
-            </button>
-          </div>
+          {plans.length > 0 ? (
+            <div style={gridStyle}>
+              {plans.map((plan) => (
+                <label key={plan.id} style={fieldStyle}>
+                  {plan.characteristic}
+                  <span style={{ fontWeight: 400, color: '#757575' }}>{planHint(plan)}</span>
+                  {plan.method === 'attribute' ? (
+                    <select
+                      style={inputStyle}
+                      value={measurements[plan.characteristic] || ''}
+                      onChange={(e) => setMeasurements((current) => ({ ...current, [plan.characteristic]: e.target.value }))}
+                    >
+                      <option value="">Select</option>
+                      {(plan.options || 'Pass,Fail').split(',').map((option) => (
+                        <option key={option.trim()} value={option.trim()}>
+                          {option.trim()}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      style={inputStyle}
+                      value={measurements[plan.characteristic] || ''}
+                      onChange={(e) => setMeasurements((current) => ({ ...current, [plan.characteristic]: e.target.value }))}
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          ) : productionLot ? null : (
+            <div style={gridStyle}>
+              <label style={fieldStyle}>
+                Characteristic
+                <input style={inputStyle} value={characteristic} onChange={(e) => setCharacteristic(e.target.value)} required />
+              </label>
+              <label style={fieldStyle}>
+                Specification
+                <input style={inputStyle} value={specification} onChange={(e) => setSpecification(e.target.value)} />
+              </label>
+              <label style={fieldStyle}>
+                Measured value
+                <input style={inputStyle} value={measured} onChange={(e) => setMeasured(e.target.value)} />
+              </label>
+            </div>
+          )}
+          {signoffMessage ? <p style={{ ...hintStyle, marginTop: 16 }}>{signoffMessage}</p> : null}
+          {canSignOff && (!productionLot || plans.length > 0) ? (
+            <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+              <button type="button" style={primaryButtonStyle} disabled={busy} onClick={() => void decide('accept')}>
+                <CheckCircle2 size={15} />
+                Accept
+              </button>
+              <button type="button" style={dangerButtonStyle} disabled={busy} onClick={() => void decide('reject')}>
+                <XCircle size={15} />
+                Reject
+              </button>
+            </div>
+          ) : null}
         </form>
+      ) : (
+        <section style={cardStyle}>
+          <h2 style={sectionHeadingStyle}>Re-inspection</h2>
+          <p style={hintStyle}>
+            This lot is closed. Another inspection opens only after a Quality Manager approves a re-inspection request.
+          </p>
+          {request ? (
+            <p style={{ ...hintStyle, marginTop: 12 }}>
+              Request is {request.status}. {request.reason}
+            </p>
+          ) : null}
+          {request?.status === 'pending' && isQcManager && user?.id !== request.requested_by_user_id ? (
+            <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                disabled={busy}
+                onClick={() => void run(() => inspectionService.decideReinspection(request.id, true), 'Could not approve the re-inspection')}
+              >
+                Approve re-inspection
+              </button>
+              <button
+                type="button"
+                style={dangerButtonStyle}
+                disabled={busy}
+                onClick={() => void run(() => inspectionService.decideReinspection(request.id, false), 'Could not reject the re-inspection')}
+              >
+                Deny
+              </button>
+            </div>
+          ) : null}
+          {!request || request.status === 'rejected' || request.status === 'consumed' ? (
+            <form
+              style={{ marginTop: 16 }}
+              onSubmit={(event) => {
+                event.preventDefault()
+                void run(
+                  () => inspectionService.requestReinspection(inspection.id, reopenReason.trim()),
+                  'Could not request a re-inspection',
+                )
+              }}
+            >
+              <label style={fieldStyle}>
+                Reason
+                <input style={inputStyle} value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} required />
+              </label>
+              <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+                <button type="submit" style={headerButtonStyle} disabled={busy || !reopenReason.trim()}>
+                  Request re-inspection
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </section>
+      )}
+
+      {(inspection.audit_notes ?? []).length > 0 ? (
+        <section style={cardStyle}>
+          <h2 style={sectionHeadingStyle}>Audit notes</h2>
+          {inspection.audit_notes?.map((note) => (
+            <p key={note.id} style={{ ...hintStyle, marginBottom: 8 }}>
+              <strong>{note.note_code}</strong>
+              {note.alerted ? ' · plant leadership alerted' : ''}. {note.message}
+            </p>
+          ))}
+        </section>
+      ) : null}
+
+      {productionLot && inspection.status === 'rejected' && inspection.stock_disposition === 'quarantine' && isQcManager && !isReceiver ? (
+        <section style={cardStyle}>
+          <h2 style={sectionHeadingStyle}>Quarantine disposition</h2>
+          <p style={hintStyle}>Scrap and rework are terminal. The quantity stays out of unrestricted stock.</p>
+          <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+            <button
+              type="button"
+              style={dangerButtonStyle}
+              disabled={busy}
+              onClick={() => void run(() => inspectionService.dispose(inspection.id, 'scrap'), 'Could not scrap this lot')}
+            >
+              Scrap
+            </button>
+            <button
+              type="button"
+              style={headerButtonStyle}
+              disabled={busy}
+              onClick={() => void run(() => inspectionService.dispose(inspection.id, 'rework'), 'Could not send this lot to rework')}
+            >
+              Rework
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {isAdmin ? (
+        <section style={cardStyle}>
+          <h2 style={sectionHeadingStyle}>Emergency admin override</h2>
+          <p style={hintStyle}>
+            This bypasses the quality sign-off. The justification is audited and an alert is sent to plant leadership.
+          </p>
+          <label style={{ ...fieldStyle, marginTop: 16 }}>
+            Justification
+            <input style={inputStyle} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
+          </label>
+          <div style={{ ...actionRowStyle, justifyContent: 'flex-start', marginTop: 16 }}>
+            {inspection.status === 'pending' ? (
+              <>
+                <button type="button" style={primaryButtonStyle} disabled={busy || overrideReason.trim().length < 20} onClick={() => void run(() => inspectionService.emergencyOverride(inspection.id, { action: 'accept', justification: overrideReason.trim() }), 'Could not apply the override')}>
+                  Override accept
+                </button>
+                <button type="button" style={dangerButtonStyle} disabled={busy || overrideReason.trim().length < 20} onClick={() => void run(() => inspectionService.emergencyOverride(inspection.id, { action: 'reject', justification: overrideReason.trim() }), 'Could not apply the override')}>
+                  Override reject
+                </button>
+              </>
+            ) : null}
+            {inspection.status === 'rejected' && inspection.stock_disposition === 'unrestricted' ? (
+              <button type="button" style={headerButtonStyle} disabled={busy || overrideReason.trim().length < 20} onClick={() => void run(() => inspectionService.emergencyOverride(inspection.id, { action: 'quarantine', justification: overrideReason.trim() }), 'Could not move this lot to quarantine')}>
+                Move rejected quantity to quarantine
+              </button>
+            ) : null}
+            {inspection.stock_disposition === 'quarantine' ? (
+              <>
+                <button type="button" style={dangerButtonStyle} disabled={busy || overrideReason.trim().length < 20} onClick={() => void run(() => inspectionService.emergencyOverride(inspection.id, { action: 'scrap', justification: overrideReason.trim() }), 'Could not scrap this lot')}>
+                  Emergency scrap
+                </button>
+                <button type="button" style={headerButtonStyle} disabled={busy || overrideReason.trim().length < 20} onClick={() => void run(() => inspectionService.emergencyOverride(inspection.id, { action: 'rework', justification: overrideReason.trim() }), 'Could not send this lot to rework')}>
+                  Emergency rework
+                </button>
+              </>
+            ) : null}
+          </div>
+        </section>
       ) : null}
     </div>
   )

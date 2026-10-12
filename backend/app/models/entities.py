@@ -1474,8 +1474,16 @@ class Warehouse(Base):
     name = Column(String(255), nullable=False)
     code = Column(String(20), unique=True, nullable=False)
     address = Column(String(255))
+    stock_class = Column(String(20), nullable=False, server_default=text("'unrestricted'"))
     is_active = Column(Boolean, nullable=False, server_default=text('true'))
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    __table_args__ = (
+        CheckConstraint(
+            "stock_class IN ('unrestricted', 'quarantine', 'scrap', 'rework')",
+            name="chk_warehouse_stock_class",
+        ),
+    )
 
     bins = relationship("BinLocation", back_populates="warehouse", cascade="all, delete-orphan")
 
@@ -2576,14 +2584,22 @@ class ProductionReceipt(Base):
     quantity_received = Column(Integer, nullable=False)
     receipt_date = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
     posted_to_stock = Column(Boolean, nullable=False, server_default=text("false"))
+    stock_disposition = Column(String(20), nullable=False, server_default=text("'unposted'"))
+    completion_counted = Column(Boolean, nullable=False, server_default=text("false"))
+    received_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 
     __table_args__ = (
         CheckConstraint("quantity_received > 0", name="chk_production_receipt_qty_pos"),
+        CheckConstraint(
+            "stock_disposition IN ('unposted', 'unrestricted', 'quarantine', 'scrap', 'rework')",
+            name="chk_production_receipt_disposition",
+        ),
     )
 
     order = relationship("ProductionOrder", back_populates="receipts")
+    received_by = relationship("User")
 
 
 class Inspection(Base):
@@ -2598,6 +2614,7 @@ class Inspection(Base):
     inspected_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text, nullable=True)
     reference_document = Column(String(50), nullable=True)
+    prior_inspection_id = Column(UUID(as_uuid=True), ForeignKey("inspections.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     updated_at = Column(
         DateTime(timezone=True),
@@ -2645,6 +2662,109 @@ class InspectionResult(Base):
     characteristic = Column(String(150), nullable=False)
     specification = Column(String(255), nullable=True)
     measured_value = Column(String(255), nullable=True)
+    method = Column(String(20), nullable=True)
+    min_value = Column(Numeric(14, 4), nullable=True)
+    max_value = Column(Numeric(14, 4), nullable=True)
+    unit = Column(String(20), nullable=True)
     passed = Column(Boolean, nullable=False, server_default=text("false"))
 
     inspection = relationship("Inspection", back_populates="results")
+
+
+class InspectionPlan(Base):
+    """Standard characteristic and pass limits for a finished item."""
+
+    __tablename__ = "inspection_plans"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False, server_default=text("10"))
+    characteristic = Column(String(150), nullable=False)
+    method = Column(String(20), nullable=False)
+    min_value = Column(Numeric(14, 4), nullable=True)
+    max_value = Column(Numeric(14, 4), nullable=True)
+    unit = Column(String(20), nullable=True)
+    options = Column(String(255), nullable=True)
+    pass_options = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "item_id", "characteristic", name="uq_inspection_plan_characteristic"),
+        CheckConstraint("method IN ('numeric', 'attribute')", name="chk_inspection_plan_method"),
+        CheckConstraint("sequence > 0", name="chk_inspection_plan_sequence_pos"),
+    )
+
+
+class ReinspectionRequest(Base):
+    """Formal request to open another inspection after a lot is closed."""
+
+    __tablename__ = "reinspection_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    inspection_id = Column(UUID(as_uuid=True), ForeignKey("inspections.id"), nullable=False)
+    source_type = Column(String(30), nullable=False)
+    source_id = Column(String(50), nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    decided_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'consumed')",
+            name="chk_reinspection_status",
+        ),
+    )
+
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
+    decided_by = relationship("User", foreign_keys=[decided_by_user_id])
+
+
+class QualityAuditNote(Base):
+    """Audited quality event, including legacy stock mismatches and emergency bypasses."""
+
+    __tablename__ = "quality_audit_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    source_type = Column(String(30), nullable=False)
+    source_id = Column(String(50), nullable=False, index=True)
+    note_code = Column(String(40), nullable=False)
+    message = Column(Text, nullable=False)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "note_code IN ('Legacy_Stock_Override', 'Emergency_Override', 'Scrap', 'Rework')",
+            name="chk_quality_audit_note_code",
+        ),
+    )
+
+    created_by = relationship("User")
+    alerts = relationship("QualityAlert", back_populates="audit_note", cascade="all, delete-orphan")
+
+
+class QualityAlert(Base):
+    """Notice sent to plant leadership when an emergency quality bypass is used."""
+
+    __tablename__ = "quality_alerts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    audit_note_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("quality_audit_notes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recipient_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    recipient_role_id = Column(String(50), nullable=False, server_default=text("'ROLE-MANAGER'"))
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+
+    audit_note = relationship("QualityAuditNote", back_populates="alerts")
+    recipient = relationship("User")

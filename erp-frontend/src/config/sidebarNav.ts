@@ -146,7 +146,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
   {
     id: 'quality',
     label: 'Quality',
-    roles: ['ROLE-SCO-SUP', 'ROLE-ADMIN'],
+    roles: ['ROLE-SCO-SUP', 'ROLE-QC-INSP', 'ROLE-QC-MGR', 'ROLE-ADMIN'],
     entries: [
       {
         kind: 'link',

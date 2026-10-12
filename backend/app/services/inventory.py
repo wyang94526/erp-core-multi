@@ -32,15 +32,25 @@ def derive_status(on_hand: int, reorder_point: int) -> str:
     return "In Stock"
 
 
-def available_on_hand(db: Session, item_id: str) -> int:
-    """Warehouse stock first; item-master cache only when no stock rows exist."""
+def _unrestricted_on_hand(db: Session, item_id: str) -> tuple[bool, int]:
+    """Return whether any stock row exists, and the usable quantity outside quarantine and scrap."""
     rows = (
-        db.query(InventoryStock.on_hand_quantity)
+        db.query(InventoryStock.on_hand_quantity, Warehouse.stock_class)
+        .join(Warehouse, InventoryStock.warehouse_id == Warehouse.warehouse_id)
         .filter(InventoryStock.item_id == item_id)
         .all()
     )
-    if rows:
-        return int(sum(int(row[0] or 0) for row in rows))
+    if not rows:
+        return False, 0
+    usable = sum(int(qty or 0) for qty, stock_class in rows if (stock_class or "unrestricted") == "unrestricted")
+    return True, int(usable)
+
+
+def available_on_hand(db: Session, item_id: str) -> int:
+    """Warehouse stock first; item-master cache only when no stock rows exist."""
+    has_stock, usable = _unrestricted_on_hand(db, item_id)
+    if has_stock:
+        return usable
     item = db.get(Item, item_id)
     return int(item.on_hand_quantity or 0) if item is not None else 0
 
@@ -48,14 +58,10 @@ def available_on_hand(db: Session, item_id: str) -> int:
 def sync_item_on_hand(db: Session, item_id: str) -> None:
     # Session autoflush is off; persist pending warehouse qty before summing.
     db.flush()
-    total = (
-        db.query(func.coalesce(func.sum(InventoryStock.on_hand_quantity), 0))
-        .filter(InventoryStock.item_id == item_id)
-        .scalar()
-    )
+    has_stock, usable = _unrestricted_on_hand(db, item_id)
     item = db.get(Item, item_id)
-    if item:
-        item.on_hand_quantity = int(total or 0)
+    if item and has_stock:
+        item.on_hand_quantity = usable
 
 
 def apply_live_on_hand(db: Session, items: list[Item]) -> None:
@@ -69,7 +75,11 @@ def apply_live_on_hand(db: Session, items: list[Item]) -> None:
             InventoryStock.item_id,
             func.coalesce(func.sum(InventoryStock.on_hand_quantity), 0),
         )
-        .filter(InventoryStock.item_id.in_(ids))
+        .join(Warehouse, InventoryStock.warehouse_id == Warehouse.warehouse_id)
+        .filter(
+            InventoryStock.item_id.in_(ids),
+            Warehouse.stock_class == "unrestricted",
+        )
         .group_by(InventoryStock.item_id)
         .all()
     )
@@ -495,3 +505,48 @@ def list_movements(
     if item_id:
         query = query.filter(StockMovement.item_id == item_id)
     return query.offset(skip).limit(limit).all()
+
+
+def ensure_classified_location(db: Session, company, stock_class: str) -> tuple[Warehouse, BinLocation]:
+    """Restricted warehouse for quantity that is not unrestricted stock."""
+    prefixes = {"quarantine": "WH-Q", "scrap": "WH-S", "rework": "WH-R"}
+    bin_codes = {"quarantine": "QUARANTINE", "scrap": "SCRAP", "rework": "REWORK"}
+    if stock_class not in prefixes:
+        raise HTTPException(status_code=400, detail="Unknown stock class")
+    code = f"{prefixes[stock_class]}-{(company.code or 'CO')[:14]}"
+    warehouse = db.query(Warehouse).filter(Warehouse.code == code).first()
+    if warehouse is None:
+        warehouse = Warehouse(
+            warehouse_id=f"{prefixes[stock_class]}-{uuid4().hex[:8].upper()}",
+            company_id=company.id,
+            name=f"{company.code} {stock_class.title()}",
+            code=code,
+            stock_class=stock_class,
+            is_active=True,
+        )
+        db.add(warehouse)
+        db.flush()
+    elif warehouse.stock_class != stock_class:
+        warehouse.stock_class = stock_class
+    bin_code = bin_codes[stock_class]
+    bin_row = (
+        db.query(BinLocation)
+        .filter(BinLocation.warehouse_id == warehouse.warehouse_id, BinLocation.bin_code == bin_code)
+        .first()
+    )
+    if bin_row is None:
+        bin_row = BinLocation(
+            bin_id=f"BIN-{bin_code[:1]}-{uuid4().hex[:8].upper()}",
+            warehouse_id=warehouse.warehouse_id,
+            bin_code=bin_code,
+            description=f"{stock_class.title()} production quantity",
+            is_active=True,
+        )
+        db.add(bin_row)
+        db.flush()
+    return warehouse, bin_row
+
+
+def ensure_quarantine_location(db: Session, company) -> tuple[Warehouse, BinLocation]:
+    """Restricted warehouse for rejected production quantity. It is not usable stock."""
+    return ensure_classified_location(db, company, "quarantine")

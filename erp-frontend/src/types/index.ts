@@ -1862,7 +1862,50 @@ export interface InspectionResult {
   characteristic: string
   specification: string | null
   measured_value: string | null
+  method?: string | null
+  min_value?: string | number | null
+  max_value?: string | number | null
+  unit?: string | null
   passed: boolean
+}
+
+export interface InspectionPlan {
+  id: number
+  item_id: string
+  sequence: number
+  characteristic: string
+  method: 'numeric' | 'attribute'
+  min_value?: string | number | null
+  max_value?: string | number | null
+  unit?: string | null
+  options?: string | null
+  pass_options?: string | null
+}
+
+export interface QualityAuditNote {
+  id: string
+  note_code: string
+  message: string
+  created_at?: string | null
+  alerted?: boolean
+}
+
+export interface QualityAlert {
+  id: string
+  message: string
+  recipient_role_id: string
+  created_at?: string | null
+}
+
+export interface ReinspectionRequest {
+  id: string
+  inspection_id: string
+  source_type: string
+  source_id: string
+  reason: string
+  status: 'pending' | 'approved' | 'rejected' | 'consumed'
+  requested_by_user_id: string
+  decided_by_user_id?: string | null
 }
 
 export interface Inspection {
@@ -1872,6 +1915,7 @@ export interface Inspection {
   source_id: string
   document_no: string
   reference_document: string | null
+  prior_inspection_id?: string | null
   status: string
   inspector_user_id: string | null
   inspector_name: string | null
@@ -1879,5 +1923,12 @@ export interface Inspection {
   notes: string | null
   created_at: string | null
   updated_at: string | null
+  item_id?: string | null
+  received_by_user_id?: string | null
+  received_by_name?: string | null
+  stock_disposition?: string | null
+  plans?: InspectionPlan[]
+  audit_notes?: QualityAuditNote[]
+  reinspection_request?: ReinspectionRequest | null
   results: InspectionResult[]
 }

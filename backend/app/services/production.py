@@ -461,6 +461,9 @@ def _post_finished_goods(db: Session, order: ProductionOrder, quantity: int, ref
         parent.on_hand_quantity = int(parent.on_hand_quantity or 0) + quantity
     parent.wip_quantity = max(int(parent.wip_quantity or 0) - quantity, 0)
     order.qty_completed = int(order.qty_completed or 0) + quantity
+    receipt_row = db.get(ProductionReceipt, reference) if reference else None
+    if receipt_row is not None:
+        receipt_row.completion_counted = True
     if production_is_covered(order.qty_ordered, order.qty_completed, order.scrapped_qty):
         order.status = "completed"
     elif order.status == "released":
@@ -498,6 +501,7 @@ def receive_finished_goods(db: Session, company: Company, order_id: str, payload
     if receipt_posts_immediately(bool(parent and parent.requires_inspection)):
         _post_finished_goods(db, order, quantity, receipt.receipt_id, payload.notes)
         receipt.posted_to_stock = True
+        receipt.stock_disposition = "unrestricted"
     else:
         db.add(
             Inspection(
@@ -510,6 +514,7 @@ def receive_finished_goods(db: Session, company: Company, order_id: str, payload
                 notes="Opened from production receipt",
             )
         )
+    receipt.received_by_user_id = _user_id
     db.commit()
     db.refresh(receipt)
     return receipt

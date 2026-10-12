@@ -3642,7 +3642,79 @@ class InspectionResultRead(ORMModel):
     characteristic: str
     specification: str | None = None
     measured_value: str | None = None
+    method: str | None = None
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    unit: str | None = None
     passed: bool
+
+
+class InspectionPlanRead(ORMModel):
+    id: int
+    item_id: str
+    sequence: int
+    characteristic: str
+    method: str
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    unit: str | None = None
+    options: str | None = None
+    pass_options: str | None = None
+
+
+class InspectionPlanCreate(BaseModel):
+    item_id: str = Field(min_length=1, max_length=50)
+    characteristic: str = Field(min_length=1, max_length=150)
+    method: Literal["numeric", "attribute"]
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    unit: str | None = None
+    options: str | None = None
+    pass_options: str | None = None
+
+
+class ReinspectionRequestRead(ORMModel):
+    id: UUID
+    inspection_id: UUID
+    source_type: str
+    source_id: str
+    reason: str
+    status: str
+    requested_by_user_id: UUID
+    decided_by_user_id: UUID | None = None
+
+
+class ReinspectionRequestCreate(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ReinspectionDecision(BaseModel):
+    approved: bool
+
+
+class QualityAuditNoteRead(ORMModel):
+    id: UUID
+    note_code: str
+    message: str
+    created_at: datetime | None = None
+    alerted: bool = False
+
+
+class QualityAlertRead(ORMModel):
+    id: UUID
+    message: str
+    recipient_role_id: str
+    created_at: datetime | None = None
+
+
+class DispositionRequest(BaseModel):
+    disposition: Literal["scrap", "rework"]
+
+
+class EmergencyOverride(BaseModel):
+    action: Literal["accept", "reject", "quarantine", "scrap", "rework"]
+    justification: str = Field(min_length=20, max_length=2000)
+    results: list[InspectionResultCreate] = Field(default_factory=list)
 
 
 class InspectionRead(ORMModel):
@@ -3652,6 +3724,7 @@ class InspectionRead(ORMModel):
     source_id: str
     document_no: str
     reference_document: str | None = None
+    prior_inspection_id: UUID | None = None
     status: str
     inspector_user_id: UUID | None = None
     inspector_name: str | None = None
@@ -3659,6 +3732,13 @@ class InspectionRead(ORMModel):
     notes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    item_id: str | None = None
+    received_by_user_id: UUID | None = None
+    received_by_name: str | None = None
+    stock_disposition: str | None = None
+    plans: list[InspectionPlanRead] = Field(default_factory=list)
+    audit_notes: list[QualityAuditNoteRead] = Field(default_factory=list)
+    reinspection_request: ReinspectionRequestRead | None = None
     results: list[InspectionResultRead] = Field(default_factory=list)
 
 

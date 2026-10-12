@@ -2693,6 +2693,27 @@ export const inspectionService = {
     apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/accept`, body),
   reject: (id: string, body: { notes?: string | null; results: { characteristic: string; specification?: string; measured_value?: string; passed: boolean }[] }) =>
     apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/reject`, body),
+  addPlan: (body: {
+    item_id: string
+    characteristic: string
+    method: 'numeric' | 'attribute'
+    min_value?: number | null
+    max_value?: number | null
+    unit?: string | null
+    options?: string | null
+    pass_options?: string | null
+  }) => apiClient.post<import('../types').InspectionPlan>('/api/v1/inspections/plans', body),
+  requestReinspection: (id: string, reason: string) =>
+    apiClient.post<import('../types').ReinspectionRequest>(`/api/v1/inspections/${id}/reinspection-requests`, { reason }),
+  decideReinspection: (requestId: string, approved: boolean) =>
+    apiClient.post<import('../types').ReinspectionRequest>(`/api/v1/inspections/reinspection-requests/${requestId}/decision`, { approved }),
+  dispose: (id: string, disposition: 'scrap' | 'rework') =>
+    apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/disposition`, { disposition }),
+  emergencyOverride: (
+    id: string,
+    body: { action: 'accept' | 'reject' | 'quarantine' | 'scrap' | 'rework'; justification: string; results?: { characteristic: string; measured_value?: string; passed: boolean }[] },
+  ) => apiClient.post<import('../types').Inspection>(`/api/v1/inspections/${id}/emergency-override`, body),
+  alerts: () => apiClient.get<import('../types').QualityAlert[]>('/api/v1/inspections/alerts'),
 }
 
 export const bomRoutingService = {

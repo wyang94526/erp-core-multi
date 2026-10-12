@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
 import { inspectionService } from '../api/services'
+import { useAuth } from '../context/AuthContext'
 import type { Inspection } from '../types'
 import { useSortableData } from '../hooks/useSortableData'
 import SortableTh from './SortableTh'
@@ -67,6 +68,8 @@ export default function InspectionsPage() {
   const [skip, setSkip] = useState(0)
   const limit = 10
   const { values } = useListFilterParams(FILTERS)
+  const { user } = useAuth()
+  const seesAlerts = Boolean(user?.roles?.some((role) => role.role_id === 'ROLE-MANAGER' || role.role_id === 'ROLE-ADMIN'))
   const [sourceType, setSourceType] = useState<'goods_receipt' | 'production_receipt'>('goods_receipt')
   const [sourceId, setSourceId] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
@@ -76,6 +79,12 @@ export default function InspectionsPage() {
     queryKey: ['inspection-documents', sourceType],
     queryFn: () => inspectionService.documents(sourceType),
     enabled: opening,
+  })
+
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['inspection-alerts'],
+    queryFn: () => inspectionService.alerts(),
+    enabled: seesAlerts,
   })
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
@@ -150,13 +159,19 @@ export default function InspectionsPage() {
     <div style={containerStyle}>
       <PageHeader
         title="Inspections"
-        subtitle="Accepting a production receipt posts finished goods. Rejecting it leaves the quantity out of available stock. Goods-receipt inspections are tracking only."
+        subtitle="A receipt has one inspection. Accept posts production quantity to unrestricted stock. Reject moves it to quarantine. A closed lot needs a Quality Manager to approve a re-inspection."
       >
         <button type="button" onClick={() => setOpening((open) => !open)} style={opening ? secondaryButtonStyle : primaryButtonStyle}>
           {opening ? <X size={15} /> : <Plus size={15} />}
           {opening ? 'Cancel' : 'Open Inspection'}
         </button>
       </PageHeader>
+
+      {alerts.length > 0 ? (
+        <p style={errorStyle} role="alert">
+          Plant leadership alert: {alerts[0].message}
+        </p>
+      ) : null}
 
       {opening ? (
         <form onSubmit={openInspection} style={cardStyle}>
