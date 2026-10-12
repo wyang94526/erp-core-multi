@@ -13,7 +13,7 @@ from app.deps.company import resolve_membership_company_id
 from app.services.catalog import required_quantity
 from app.services.companies import pick_company_for_country
 from app.services.exchange_rates import pick_rate
-from app.services.inspections import apply_inspection_decision
+from app.services.inspections import apply_inspection_decision, canonical_inspection_status
 from app.services.production import build_material_requirements, receipt_posts_immediately
 
 
@@ -100,6 +100,9 @@ class InspectionDecisionTests(unittest.TestCase):
     def test_accept_posts_and_reject_holds_stock(self):
         self.assertEqual(apply_inspection_decision("accepted"), "post")
         self.assertEqual(apply_inspection_decision("rejected"), "hold")
+        self.assertEqual(canonical_inspection_status("Accepted"), "accepted")
+        self.assertEqual(canonical_inspection_status("Rejected"), "rejected")
+        self.assertEqual(apply_inspection_decision(canonical_inspection_status("Accepted")), "post")
 
     def test_inspection_flag_holds_the_receipt(self):
         self.assertTrue(receipt_posts_immediately(False))

@@ -127,8 +127,10 @@ export default function InspectionDetail() {
         <h2 style={sectionHeadingStyle}>Inspection</h2>
         <dl style={metaGridStyle}>
           <div style={metaColumnStyle}>
-            <MetaRow label="Source">{sourceLabel(inspection.source_type)}</MetaRow>
-            <MetaRow label="Document">{inspection.source_id}</MetaRow>
+          <MetaRow label="Source">{sourceLabel(inspection.source_type)}</MetaRow>
+          <MetaRow label="Document">{inspection.document_no || inspection.source_id}</MetaRow>
+          <MetaRow label="Reference">{inspection.reference_document || '—'}</MetaRow>
+          <MetaRow label="Inspector">{inspection.inspector_name || '—'}</MetaRow>
           </div>
           <div style={metaColumnStyle}>
             <MetaRow label="Inspected">

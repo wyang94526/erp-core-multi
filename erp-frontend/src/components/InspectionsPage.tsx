@@ -79,15 +79,27 @@ export default function InspectionsPage() {
   })
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
-    queryKey: ['inspections'],
-    queryFn: () => inspectionService.list(),
+    queryKey: ['inspections', values.status, values.source, values.q],
+    queryFn: () =>
+      inspectionService.list({
+        status: values.status !== 'ALL' ? values.status : undefined,
+        source: values.source !== 'ALL' ? values.source : undefined,
+        q: values.q || undefined,
+      }),
   })
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
       if (values.status !== 'ALL' && row.status !== values.status) return false
       if (values.source !== 'ALL' && row.source_type !== values.source) return false
-      return matchesSearch(values.q, row.source_id, sourceLabel(row.source_type), row.status)
+      return matchesSearch(
+        values.q,
+        row.document_no || row.source_id,
+        row.reference_document,
+        row.inspector_name,
+        sourceLabel(row.source_type),
+        row.status,
+      )
     })
   }, [rows, values.status, values.source, values.q])
 
@@ -97,7 +109,7 @@ export default function InspectionsPage() {
 
   const pageRows = filtered.slice(skip, skip + limit)
   const { items: sorted, requestSort, sortConfig } = useSortableData(pageRows, {
-    columnTypes: { inspected_at: 'date' },
+    columnTypes: { created_at: 'date' },
   })
 
   const openInspection = async (event: FormEvent) => {
@@ -168,6 +180,12 @@ export default function InspectionsPage() {
               </select>
             </label>
             <label style={fieldStyle}>
+              Status
+              <select aria-label="Inspection status" style={inputStyle} value="pending" disabled>
+                <option value="pending">Pending</option>
+              </select>
+            </label>
+            <label style={fieldStyle}>
               Document
               <select
                 aria-label="Document"
@@ -203,8 +221,15 @@ export default function InspectionsPage() {
         onExport={() =>
           downloadCsv(
             csvFilename('inspections'),
-            ['Source', 'Document', 'Status', 'Inspected'],
-            filtered.map((row) => [sourceLabel(row.source_type), row.source_id, row.status, row.inspected_at || '']),
+            ['Document', 'Source', 'Reference', 'Status', 'Inspector', 'Date'],
+            filtered.map((row) => [
+              row.document_no || row.source_id,
+              sourceLabel(row.source_type),
+              row.reference_document || '',
+              row.status,
+              row.inspector_name || '',
+              row.created_at || row.inspected_at || '',
+            ]),
           )
         }
       />
@@ -218,10 +243,12 @@ export default function InspectionsPage() {
               <table style={tableStyle}>
                 <thead>
                   <tr style={theadStyle}>
-                    <SortableTh label="Source" columnKey="source_type" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Document" columnKey="source_id" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Source" columnKey="source_type" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Reference" columnKey="reference_document" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <SortableTh label="Status" columnKey="status" sortConfig={sortConfig} onRequestSort={requestSort} align="center" />
-                    <SortableTh label="Inspected" columnKey="inspected_at" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Inspector" columnKey="inspector_name" sortConfig={sortConfig} onRequestSort={requestSort} />
+                    <SortableTh label="Date" columnKey="created_at" sortConfig={sortConfig} onRequestSort={requestSort} />
                     <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
@@ -230,14 +257,16 @@ export default function InspectionsPage() {
                     const colors = inspectionStatusColors(row.status)
                     return (
                       <tr key={row.id} style={rowStyle}>
+                        <td style={tdStyle}>{row.document_no || row.source_id}</td>
                         <td style={tdStyle}>{sourceLabel(row.source_type)}</td>
-                        <td style={tdStyle}>{row.source_id}</td>
+                        <td style={tdStyle}>{row.reference_document || '—'}</td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <span style={{ ...badgeStyle, backgroundColor: colors.bg, color: colors.text }}>
                             {inspectionStatusLabel(row.status)}
                           </span>
                         </td>
-                        <td style={tdStyle}>{row.inspected_at ? new Date(row.inspected_at).toLocaleString() : '—'}</td>
+                        <td style={tdStyle}>{row.inspector_name || '—'}</td>
+                        <td style={tdStyle}>{row.created_at ? new Date(row.created_at).toLocaleDateString() : '—'}</td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <button type="button" style={viewButtonStyle} onClick={() => navigate(`/inspections/${row.id}`)}>
                             View

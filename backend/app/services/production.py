@@ -504,6 +504,7 @@ def receive_finished_goods(db: Session, company: Company, order_id: str, payload
                 company_id=company.id,
                 source_type="production_receipt",
                 source_id=receipt.receipt_id,
+                reference_document=order.production_order_id,
                 status="pending",
                 inspector_user_id=None,
                 notes="Opened from production receipt",

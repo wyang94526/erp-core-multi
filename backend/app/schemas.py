@@ -3650,10 +3650,15 @@ class InspectionRead(ORMModel):
     company_id: UUID
     source_type: str
     source_id: str
+    document_no: str
+    reference_document: str | None = None
     status: str
     inspector_user_id: UUID | None = None
+    inspector_name: str | None = None
     inspected_at: datetime | None = None
     notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     results: list[InspectionResultRead] = Field(default_factory=list)
 
 
@@ -3671,6 +3676,11 @@ class InspectionCreate(BaseModel):
 class InspectionDecision(BaseModel):
     notes: str | None = None
     results: list[InspectionResultCreate] = Field(default_factory=list)
+
+
+class InspectionStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+    notes: str | None = None
 
 
 class DocumentPrefixRead(BaseModel):

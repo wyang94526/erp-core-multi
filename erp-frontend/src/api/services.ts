@@ -2680,7 +2680,8 @@ export const productionOrderService = {
 }
 
 export const inspectionService = {
-  list: () => apiClient.get<import('../types').Inspection[]>('/api/v1/inspections'),
+  list: (params?: { status?: string; source?: string; q?: string }) =>
+    apiClient.get<import('../types').Inspection[]>('/api/v1/inspections', { params }),
   documents: (sourceType: 'production_receipt' | 'goods_receipt') =>
     apiClient.get<{ id: string; label: string }[]>('/api/v1/inspections/documents', {
       params: { source_type: sourceType },

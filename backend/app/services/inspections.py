@@ -8,11 +8,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import exists, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import Company, GoodsReceipt, Inspection, InspectionResult, ProductionOrder, ProductionReceipt, User
 from app.services.production import post_accepted_receipt
+
+
+def canonical_inspection_status(status: str) -> str:
+    """Accept the stored codes and the labels shown on the inspection list."""
+    value = (status or "").strip().lower().replace(" ", "_")
+    if value in {"accept"}:
+        value = "accepted"
+    if value in {"reject"}:
+        value = "rejected"
+    if value not in {"pending", "accepted", "rejected"}:
+        raise HTTPException(status_code=400, detail="Inspection status must be Pending, Accepted, or Rejected")
+    return value
 
 
 def apply_inspection_decision(status: str) -> str:
@@ -27,12 +39,97 @@ def apply_inspection_decision(status: str) -> str:
 def _load(db: Session, company: Company, inspection_id) -> Inspection:
     row = (
         db.query(Inspection)
-        .options(joinedload(Inspection.results))
+        .options(selectinload(Inspection.results), joinedload(Inspection.inspector))
         .filter(Inspection.id == inspection_id, Inspection.company_id == company.id)
         .first()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    return row
+
+
+def _reference_for(db: Session, source_type: str, source_id: str) -> str | None:
+    if source_type == "production_receipt":
+        receipt = db.get(ProductionReceipt, source_id)
+        return receipt.production_order_id if receipt is not None else None
+    if source_type == "goods_receipt":
+        receipt = (
+            db.query(GoodsReceipt)
+            .filter(GoodsReceipt.receipt_number == source_id)
+            .first()
+        )
+        return receipt.source_order_id if receipt is not None else None
+    return None
+
+
+def list_inspections(
+    db: Session,
+    company: Company,
+    *,
+    status: str | None = None,
+    source: str | None = None,
+    q: str | None = None,
+) -> list[Inspection]:
+    query = (
+        db.query(Inspection)
+        .options(selectinload(Inspection.results), joinedload(Inspection.inspector))
+        .filter(Inspection.company_id == company.id)
+    )
+    if status and status.strip().lower() not in {"", "all"}:
+        query = query.filter(Inspection.status == canonical_inspection_status(status))
+    if source and source.strip().lower() not in {"", "all"}:
+        source_type = source.strip().lower().replace(" ", "_")
+        if source_type not in {"goods_receipt", "production_receipt"}:
+            raise HTTPException(status_code=400, detail="Unknown inspection source")
+        query = query.filter(Inspection.source_type == source_type)
+    text = (q or "").strip()
+    if text:
+        like = f"%{text}%"
+        query = query.filter(
+            or_(
+                Inspection.source_id.ilike(like),
+                Inspection.reference_document.ilike(like),
+                Inspection.notes.ilike(like),
+                Inspection.status.ilike(like),
+                exists().where(User.id == Inspection.inspector_user_id, User.full_name.ilike(like)),
+            )
+        )
+    return query.order_by(Inspection.created_at.desc()).all()
+
+
+def ensure_pending_inspection(
+    db: Session,
+    company_id,
+    source_type: str,
+    source_id: str,
+    notes: str | None = None,
+    reference_document: str | None = None,
+) -> Inspection | None:
+    """Open one pending inspection for a receipt. Goods receipts stay tracking-only."""
+    if company_id is None or not (source_id or "").strip():
+        return None
+    source_id = source_id.strip()
+    existing = (
+        db.query(Inspection)
+        .filter(
+            Inspection.company_id == company_id,
+            Inspection.source_type == source_type,
+            Inspection.source_id == source_id,
+            Inspection.status == "pending",
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    row = Inspection(
+        company_id=company_id,
+        source_type=source_type,
+        source_id=source_id,
+        reference_document=reference_document or _reference_for(db, source_type, source_id),
+        status="pending",
+        notes=notes,
+    )
+    db.add(row)
     return row
 
 
@@ -115,6 +212,7 @@ def open_inspection(db: Session, company: Company, payload) -> Inspection:
         company_id=company.id,
         source_type=source_type,
         source_id=source_id,
+        reference_document=_reference_for(db, source_type, source_id),
         status="pending",
         notes=payload.notes,
     )
@@ -145,12 +243,13 @@ def decide(
     results,
     notes: str | None,
 ) -> Inspection:
-    effect = apply_inspection_decision(decision)
+    effect = apply_inspection_decision(canonical_inspection_status(decision))
     inspection = _load(db, company, inspection_id)
     if inspection.status != "pending":
         raise HTTPException(status_code=400, detail="This inspection is already complete")
     _record_results(inspection, results)
-    inspection.status = decision
+    inspection.status = canonical_inspection_status(decision)
+    inspection.updated_at = datetime.now(timezone.utc)
     inspection.inspector_user_id = user.id
     inspection.inspected_at = datetime.now(timezone.utc)
     if notes:

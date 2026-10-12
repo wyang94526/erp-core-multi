@@ -2597,7 +2597,13 @@ class Inspection(Base):
     inspector_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     inspected_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text, nullable=True)
+    reference_document = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -2613,6 +2619,17 @@ class Inspection(Base):
     company = relationship("Company")
     inspector = relationship("User")
     results = relationship("InspectionResult", back_populates="inspection", cascade="all, delete-orphan")
+
+    @property
+    def document_no(self) -> str:
+        return self.source_id
+
+    @property
+    def inspector_name(self) -> str | None:
+        inspector = self.inspector
+        if inspector is None:
+            return None
+        return inspector.full_name
 
 
 class InspectionResult(Base):

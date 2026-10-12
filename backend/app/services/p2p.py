@@ -1663,7 +1663,23 @@ def receive_purchase_order(
         )
 
     receipt = _receipt_query(db).filter(GoodsReceipt.id == receipt.id).first()
+    _open_goods_receipt_inspection(db, receipt)
     return serialize_goods_receipt(receipt, db, detail=True)
+
+
+def _open_goods_receipt_inspection(db: Session, receipt: GoodsReceipt) -> None:
+    """Track incoming goods. Accepting this inspection does not change on-hand stock."""
+    from app.company_context import current_document_company_id
+    from app.services.inspections import ensure_pending_inspection
+
+    ensure_pending_inspection(
+        db,
+        receipt.company_id or current_document_company_id(),
+        "goods_receipt",
+        receipt.receipt_number,
+        notes="Opened from goods receipt",
+        reference_document=receipt.source_order_id,
+    )
 
 
 def _can_adjust_receipt_quantities(row: GoodsReceipt) -> bool:
@@ -2170,6 +2186,7 @@ def accrue_subcontract_receipt(
         )
 
     receipt = _receipt_query(db).filter(GoodsReceipt.id == receipt.id).first()
+    _open_goods_receipt_inspection(db, receipt)
     return serialize_goods_receipt(receipt, db, detail=True)
 
 

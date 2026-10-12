@@ -1870,9 +1870,14 @@ export interface Inspection {
   company_id: string
   source_type: 'production_receipt' | 'goods_receipt'
   source_id: string
+  document_no: string
+  reference_document: string | null
   status: string
   inspector_user_id: string | null
+  inspector_name: string | null
   inspected_at: string | null
   notes: string | null
+  created_at: string | null
+  updated_at: string | null
   results: InspectionResult[]
 }
