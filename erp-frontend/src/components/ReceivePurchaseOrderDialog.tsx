@@ -14,6 +14,7 @@ export type ReceivePoLinePayload = {
   source_line_id: number
   quantity_received: number
   unit_cost?: number | null
+  lot_number?: string | null
 }
 
 type ReceivePurchaseOrderDialogProps = {
@@ -54,6 +55,7 @@ export function ReceivePurchaseOrderDialog({
   const [receiptDate, setReceiptDate] = useState(todayIso)
   const [notes, setNotes] = useState('')
   const [qtyByLine, setQtyByLine] = useState<Record<string, string>>({})
+  const [lotByLine, setLotByLine] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -64,6 +66,7 @@ export function ReceivePurchaseOrderDialog({
     setQtyByLine(
       Object.fromEntries(receivable.map((item) => [qtyKey(item), String(remainingReceiveQty(item))])),
     )
+    setLotByLine({})
     // Reset only when the dialog opens for a PO, not on each parent rerender.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, poNumber])
@@ -98,10 +101,17 @@ export function ReceivePurchaseOrderDialog({
         setFormError(overReceiveDetail(item.sku, qty, remaining))
         return
       }
+      const amountOnly = isAmountOnlyLine(item.item_type, item.quantity, item.sku)
+      const lot = (lotByLine[qtyKey(item)] || '').trim()
+      if (!amountOnly && !lot) {
+        setFormError(`Record the lot for ${item.sku} before this receipt can be posted.`)
+        return
+      }
       lines.push({
         source_line_id: Number(item.id),
         quantity_received: qty,
         unit_cost: item.unit_price,
+        lot_number: lot || null,
       })
     }
     if (lines.length === 0) {
@@ -168,6 +178,7 @@ export function ReceivePurchaseOrderDialog({
                 <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Remaining</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>This receipt</th>
+                <th style={thStyle}>Lot</th>
               </tr>
             </thead>
             <tbody>
@@ -197,6 +208,20 @@ export function ReceivePurchaseOrderDialog({
                         onChange={(e) => setQty(item, e.target.value)}
                         style={qtyInputStyle}
                       />
+                    </td>
+                    <td style={tdStyle}>
+                      {amountOnly ? (
+                        '—'
+                      ) : (
+                        <input
+                          aria-label={`Lot for ${item.sku}`}
+                          value={lotByLine[qtyKey(item)] ?? ''}
+                          onChange={(e) =>
+                            setLotByLine((prev) => ({ ...prev, [qtyKey(item)]: e.target.value }))
+                          }
+                          style={qtyInputStyle}
+                        />
+                      )}
                     </td>
                   </tr>
                 )

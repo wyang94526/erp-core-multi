@@ -28,6 +28,7 @@ from app.models import (
     ProductionStepQuality,
     ProductionStepScrap,
 )
+from app.services.compliance import component_lot_block, quality_gate_block
 from app.services.item_types import skip_inventory_movement
 from app.services.production import _consume_component, _order_for_company
 
@@ -242,6 +243,14 @@ def apply_backflush(
     created: list[ProductionMaterialBackflush] = []
     if delta <= 0:
         return created
+    consumes_material = any(
+        Decimal(material.quantity_required or 0) > Decimal(material.quantity_issued or 0)
+        and material.component_item_id
+        for material in order.materials
+    )
+    blocked = component_lot_block(lot_number, consumes_material=consumes_material)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
     for material in order.materials:
         remaining = Decimal(material.quantity_required or 0) - Decimal(material.quantity_issued or 0)
         if remaining <= 0 or not material.component_item_id:
@@ -301,6 +310,9 @@ def complete_step(db: Session, company, order_id: str, step_id: int, payload) ->
         payload.scrap_reason_code,
         _failed_quality(step),
     )
+    gate = quality_gate_block(good, [bool(row.passed) for row in step.quality_checks])
+    if gate:
+        raise HTTPException(status_code=400, detail=gate)
     now = datetime.now(timezone.utc)
     _close_open_labor(step, now)
     step.good_quantity = good

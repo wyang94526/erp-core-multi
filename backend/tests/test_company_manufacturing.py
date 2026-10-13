@@ -105,7 +105,7 @@ class InspectionDecisionTests(unittest.TestCase):
         self.assertEqual(apply_inspection_decision(canonical_inspection_status("Accepted")), "post")
 
     def test_inspection_flag_holds_the_receipt(self):
-        self.assertTrue(receipt_posts_immediately(False))
+        self.assertFalse(receipt_posts_immediately(False))
         self.assertFalse(receipt_posts_immediately(True))
 
 

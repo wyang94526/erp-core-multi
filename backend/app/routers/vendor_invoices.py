@@ -12,6 +12,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps.auth import get_current_user
+from app.models import User
+from app.services.compliance import write_document_audit
 from app.schemas import (
     DepartmentRead,
     GoodsReceiptRead,
@@ -90,7 +93,11 @@ def get_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SupplierInvoiceRead, status_code=201)
-def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(get_db)):
+def create_vendor_invoice(
+    payload: SupplierInvoiceCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = p2p.create_supplier_invoice(
         db,
         invoice_type=payload.invoice_type,
@@ -114,13 +121,24 @@ def create_vendor_invoice(payload: SupplierInvoiceCreate, db: Session = Depends(
         payment_terms=payload.payment_terms,
         allocate_to_goods_receipt_id=payload.allocate_to_goods_receipt_id,
     )
+    write_document_audit(
+        db,
+        "supplier_invoices",
+        "CREATE",
+        user.id,
+        "Supplier invoice created",
+        document_key=result["invoice_number"],
+    )
     db.commit()
     return result
 
 
 @router.patch("/{invoice_id}", response_model=SupplierInvoiceRead)
 def update_vendor_invoice(
-    invoice_id: int, payload: SupplierInvoiceUpdate, db: Session = Depends(get_db)
+    invoice_id: int,
+    payload: SupplierInvoiceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     result = p2p.update_supplier_invoice(
         db,
@@ -141,6 +159,14 @@ def update_vendor_invoice(
         payment_term_id=payload.payment_term_id,
         payment_terms=payload.payment_terms,
         allocate_to_goods_receipt_id=payload.allocate_to_goods_receipt_id,
+    )
+    write_document_audit(
+        db,
+        "supplier_invoices",
+        "UPDATE",
+        user.id,
+        "Supplier invoice edited",
+        document_key=result["invoice_number"],
     )
     db.commit()
     return result
@@ -168,8 +194,20 @@ def submit_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{invoice_id}/approve", response_model=SupplierInvoiceRead)
-def approve_vendor_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def approve_vendor_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = p2p.approve_supplier_invoice(db, invoice_id)
+    write_document_audit(
+        db,
+        "supplier_invoices",
+        "UPDATE",
+        user.id,
+        "Supplier invoice approved",
+        document_key=result["invoice_number"],
+    )
     db.commit()
     return result
 
@@ -186,6 +224,7 @@ def pay_vendor_invoice(
     invoice_id: int,
     payload: SupplierInvoicePayRequest | None = None,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     body = payload or SupplierInvoicePayRequest()
     result = p2p.pay_supplier_invoice(
@@ -196,6 +235,7 @@ def pay_vendor_invoice(
         payment_method=body.payment_method,
         instrument_ref_no=body.instrument_ref_no,
         payment_date=body.payment_date,
+        user_id=user.id,
     )
     db.commit()
     return result

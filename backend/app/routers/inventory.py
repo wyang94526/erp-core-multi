@@ -3,14 +3,19 @@
 
 """Inventory & Warehouse Management API routes."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
 
 from app.database import get_db
+from app.deps.auth import get_current_user
 from app.deps.company import get_current_company, require_company_row
-from app.models import BinLocation, Company, InventoryStock, Item, Warehouse
+from app.models import BinLocation, Company, InventoryStock, Item, User, Warehouse
+from app.services.compliance import inventory_lot_block, write_document_audit
+from app.services.period_close import assert_transaction_date_open
 from app.schemas import (
     BinLocationCreate,
     BinLocationRead,
@@ -221,6 +226,7 @@ def list_movements(
             bin_code=m.bin_location.bin_code if m.bin_location else None,
             reference=m.reference,
             notes=m.notes,
+            lot_number=m.lot_number,
             movement_date=m.movement_date,
             created_at=m.created_at,
         )
@@ -232,6 +238,7 @@ def list_movements(
 def create_movement(
     payload: StockMovementCreate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StockMovementRead:
     from app.models import StockMovement
 
@@ -243,12 +250,27 @@ def create_movement(
     bin_loc = db.get(BinLocation, payload.bin_id)
     if not warehouse or not bin_loc:
         raise HTTPException(status_code=404, detail="Warehouse or bin not found")
+    blocked = inventory_lot_block(payload.lot_number)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
+    assert_transaction_date_open(
+        db, payload.movement_date or date.today(), document="inventory movement"
+    )
 
     data = payload.model_dump()
     if data.get("movement_date") is None:
         data.pop("movement_date", None)
     movement = StockMovement(**data)
     db.add(movement)
+    write_document_audit(
+        db,
+        "stockmovements",
+        "CREATE",
+        user.id,
+        payload.notes or "Manual inventory movement",
+        document_key=movement.movement_id,
+        detail={"item_id": movement.item_id, "lot_number": movement.lot_number},
+    )
     db.commit()
     db.refresh(movement)
     return StockMovementRead(
@@ -262,13 +284,18 @@ def create_movement(
         bin_code=bin_loc.bin_code,
         reference=movement.reference,
         notes=movement.notes,
+        lot_number=movement.lot_number,
         movement_date=movement.movement_date,
         created_at=movement.created_at,
     )
 
 
 @router.post("/adjust", response_model=InventoryStockItemRead)
-def adjust_stock(payload: StockAdjustRequest, db: Session = Depends(get_db)) -> InventoryStockItemRead:
+def adjust_stock(
+    payload: StockAdjustRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> InventoryStockItemRead:
     item = inventory_service.adjust_stock(
         db,
         item_id=payload.item_id,
@@ -276,6 +303,8 @@ def adjust_stock(payload: StockAdjustRequest, db: Session = Depends(get_db)) -> 
         notes=payload.notes,
         warehouse_id=payload.warehouse_id,
         bin_id=payload.bin_id,
+        lot_number=payload.lot_number,
+        user_id=user.id,
     )
     db.commit()
     return item
@@ -285,6 +314,7 @@ def adjust_stock(payload: StockAdjustRequest, db: Session = Depends(get_db)) -> 
 def transfer_stock(
     payload: StockTransferRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> InventoryStockItemRead:
     item = inventory_service.transfer_stock(
         db,
@@ -295,6 +325,8 @@ def transfer_stock(
         from_warehouse_id=payload.from_warehouse_id,
         from_bin_id=payload.from_bin_id,
         notes=payload.notes,
+        lot_number=payload.lot_number,
+        user_id=user.id,
     )
     db.commit()
     return item

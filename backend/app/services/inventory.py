@@ -238,6 +238,7 @@ def issue_stock(
     warehouse_id: str | None = None,
     bin_id: str | None = None,
     movement_date: date | None = None,
+    lot_number: str | None = None,
 ) -> InventoryStockItemRead:
     """Deduct on-hand quantity and write an Issue stock movement."""
     if quantity <= 0:
@@ -269,6 +270,7 @@ def issue_stock(
         bin_id=stock.bin_id,
         reference=reference,
         notes=notes or f"Stock issue for {reference}",
+        lot_number=(lot_number or "").strip() or None,
         movement_date=movement_date or date.today(),
     )
     db.add(movement)
@@ -285,6 +287,7 @@ def receive_stock(
     notes: str | None = None,
     warehouse_id: str | None = None,
     bin_id: str | None = None,
+    lot_number: str | None = None,
 ) -> InventoryStockItemRead:
     """Increase on-hand quantity and write a Receipt stock movement."""
     if quantity <= 0:
@@ -356,12 +359,24 @@ def receive_stock(
         bin_id=stock.bin_id,
         reference=reference,
         notes=notes or f"Stock receipt for {reference}",
+        lot_number=(lot_number or "").strip() or None,
         movement_date=date.today(),
     )
     db.add(movement)
     sync_item_on_hand(db, item_id)
     db.flush()
     return next(item for item in list_stock_overview(db) if item.item_id == item_id)
+
+
+def _require_lot_in_open_period(db: Session, lot_number: str | None, movement_date: date, document: str) -> str:
+    from app.services.compliance import inventory_lot_block
+    from app.services.period_close import assert_transaction_date_open
+
+    blocked = inventory_lot_block(lot_number)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
+    assert_transaction_date_open(db, movement_date, document=document)
+    return lot_number.strip()
 
 
 def adjust_stock(
@@ -372,9 +387,12 @@ def adjust_stock(
     warehouse_id: str | None = None,
     bin_id: str | None = None,
     reference: str | None = None,
+    lot_number: str | None = None,
+    user_id=None,
 ) -> InventoryStockItemRead:
     if quantity_delta == 0:
         raise HTTPException(status_code=400, detail="quantity_delta must be non-zero")
+    lot = _require_lot_in_open_period(db, lot_number, date.today(), "inventory adjustment")
 
     stock = _resolve_stock_location(db, item_id, warehouse_id, bin_id)
     new_qty = stock.on_hand_quantity + quantity_delta
@@ -391,9 +409,21 @@ def adjust_stock(
         bin_id=stock.bin_id,
         reference=reference or f"ADJ-{uuid4().hex[:8].upper()}",
         notes=notes or "Manual stock adjustment",
+        lot_number=lot,
         movement_date=date.today(),
     )
     db.add(movement)
+    from app.services.compliance import write_document_audit
+
+    write_document_audit(
+        db,
+        "stockmovements",
+        "CREATE",
+        user_id,
+        notes or "Manual stock adjustment",
+        document_key=movement.movement_id,
+        detail={"item_id": item_id, "quantity_delta": quantity_delta, "lot_number": lot},
+    )
     sync_item_on_hand(db, item_id)
     db.flush()
     return next(item for item in list_stock_overview(db) if item.item_id == item_id)
@@ -408,9 +438,12 @@ def transfer_stock(
     from_warehouse_id: str | None = None,
     from_bin_id: str | None = None,
     notes: str | None = None,
+    lot_number: str | None = None,
+    user_id=None,
 ) -> InventoryStockItemRead:
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
+    lot = _require_lot_in_open_period(db, lot_number, date.today(), "inventory transfer")
 
     source = _resolve_stock_location(db, item_id, from_warehouse_id, from_bin_id)
     if quantity > source.on_hand_quantity:
@@ -466,6 +499,7 @@ def transfer_stock(
             bin_id=source.bin_id,
             reference=ref,
             notes=note_text,
+            lot_number=lot,
             movement_date=today,
         )
     )
@@ -479,8 +513,20 @@ def transfer_stock(
             bin_id=to_bin_id,
             reference=ref,
             notes=note_text,
+            lot_number=lot,
             movement_date=today,
         )
+    )
+    from app.services.compliance import write_document_audit
+
+    write_document_audit(
+        db,
+        "stockmovements",
+        "CREATE",
+        user_id,
+        note_text,
+        document_key=ref,
+        detail={"item_id": item_id, "quantity": quantity, "lot_number": lot},
     )
 
     sync_item_on_hand(db, item_id)

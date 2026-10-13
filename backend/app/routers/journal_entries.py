@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.deps.auth import require_permission
-from app.models import ChartOfAccount, JournalEntry, LedgerPosting, User
+from app.models import AuditLog, ChartOfAccount, JournalEntry, LedgerPosting, User
 from app.schemas import (
     JournalBulkImportRequest,
     JournalBulkImportResponse,
@@ -33,6 +33,7 @@ from app.services import month_end_close, year_end_close
 from app.services.document_sequences import DOC_JOURNAL, generate_document_number
 from app.services.journal_list import apply_journal_list_filters
 from app.services.journal_source import assert_journal_editable, assert_journal_mutable
+from app.services.compliance import historical_journal_block, journal_audit_fields
 from app.services.period_close import KIND_ADJUSTMENT, assert_transaction_date_open
 
 router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
@@ -231,6 +232,7 @@ def _create_journal_entry(db: Session, payload: JournalEntryCreate, user: User) 
 
     db.add(entry)
     db.flush()
+    db.add(AuditLog(**journal_audit_fields(entry.id, user.id, "CREATE", entry.journal_number, "Manual journal created")))
     return entry
 
 
@@ -300,6 +302,9 @@ def update_journal_entry(
 
     approval = (entry.approval_status or "DRAFT").upper()
     posting = (entry.posting_status or "").lower()
+    immutable = historical_journal_block(entry.posting_status)
+    if immutable:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=immutable)
     if posting == "posted" or approval not in _EDITABLE_APPROVAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -336,6 +341,7 @@ def update_journal_entry(
             entry.postings.append(LedgerPosting(entry_id=entry.id, **row))
         validate_journal_balance(entry.postings)
 
+    db.add(AuditLog(**journal_audit_fields(entry.id, user.id, "UPDATE", entry.journal_number, "Manual journal edited")))
     db.commit()
     updated = _load_entry(db, entry.id)
     return updated or entry
@@ -357,6 +363,9 @@ def delete_journal_entry(
 
     posting = entry.posting_status or ""
     approval = entry.approval_status or ""
+    immutable = historical_journal_block(entry.posting_status)
+    if immutable:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=immutable)
     assert_journal_mutable(entry)
     if not _is_draft_status(posting) or not _is_draft_status(approval):
         raise HTTPException(
@@ -368,6 +377,7 @@ def delete_journal_entry(
             ),
         )
 
+    db.add(AuditLog(**journal_audit_fields(entry.id, _user.id, "DELETE", entry.journal_number, "Manual journal deleted")))
     # ledger_postings.entry_id is ON DELETE RESTRICT — remove lines first.
     for posting_row in list(entry.postings):
         db.delete(posting_row)

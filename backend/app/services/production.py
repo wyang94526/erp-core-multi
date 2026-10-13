@@ -60,8 +60,9 @@ def build_material_requirements(lines: list, qty_ordered: int) -> list[dict]:
 
 
 def receipt_posts_immediately(requires_inspection: bool) -> bool:
-    """Inspected items stay out of available stock until the inspection is accepted."""
-    return not requires_inspection
+    """Finished goods stay out of inventory until a quality inspection is accepted."""
+    del requires_inspection
+    return False
 
 
 def open_receipt_quantity(qty_ordered: int, qty_completed: int, scrapped_qty: int) -> int:
@@ -488,11 +489,20 @@ def receive_finished_goods(db: Session, company: Company, order_id: str, payload
             )
         raise HTTPException(status_code=400, detail="Receipt quantity exceeds the open production quantity")
     parent = db.get(Item, order.item_id)
+    from app.services.compliance import inventory_lot_block
+    from app.services.item_types import skip_inventory_movement
+
+    lot = (getattr(payload, "lot_number", None) or "").strip() or None
+    if not skip_inventory_movement(parent):
+        blocked = inventory_lot_block(lot)
+        if blocked:
+            raise HTTPException(status_code=400, detail=blocked)
     receipt = ProductionReceipt(
         receipt_id=next_document_number(db, DOC_PRODUCTION_RECEIPT, payload.receipt_date or date.today()),
         production_order_id=order.production_order_id,
         quantity_received=quantity,
         receipt_date=payload.receipt_date or date.today(),
+        lot_number=lot,
         posted_to_stock=False,
         notes=payload.notes,
     )

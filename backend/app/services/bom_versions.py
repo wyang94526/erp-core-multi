@@ -12,8 +12,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import ItemBOMComponent, ItemBOMHeader
+from app.services.compliance import released_revision_block
 
-WRITABLE_STATUSES = {"draft", "active"}
+WRITABLE_STATUSES = {"draft"}
 
 
 def list_headers(db: Session, parent_item_id: str) -> list[ItemBOMHeader]:
@@ -75,10 +76,11 @@ def ensure_writable_header(
         db.add(header)
         db.flush()
         return header
-    if header.status not in WRITABLE_STATUSES:
+    locked = released_revision_block(header.status)
+    if locked or header.status not in WRITABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot edit an obsolete BOM version. Create a new version first.",
+            detail=locked or "Cannot edit an obsolete BOM version. Create a new version first.",
         )
     return header
 
@@ -142,9 +144,10 @@ def assert_line_writable(line: ItemBOMComponent) -> ItemBOMHeader:
     header = line.header
     if header is None:
         raise HTTPException(status_code=400, detail="BOM line is missing a version header")
-    if header.status not in WRITABLE_STATUSES:
+    locked = released_revision_block(header.status)
+    if locked or header.status not in WRITABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot edit an obsolete BOM version. Create a new version first.",
+            detail=locked or "Cannot edit an obsolete BOM version. Create a new version first.",
         )
     return header

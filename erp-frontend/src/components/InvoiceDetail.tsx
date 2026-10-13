@@ -199,11 +199,17 @@ export function InvoiceDetail() {
 
   const handleVoid = async () => {
     if (!detail?.sales_invoice_id) return
-    if (!confirm(`Void sales invoice ${detail.invoice_id}?`)) return
+    const reason = window.prompt(
+      `Void sales invoice ${detail.invoice_id}?\nEnter the reason. The original journal stays, and an offsetting reversal is posted.`,
+    )
+    if (!reason || reason.trim().length < 5) {
+      if (reason !== null) setError('A void reason of at least 5 characters is required.')
+      return
+    }
     setVoiding(true)
     setError(null)
     try {
-      await salesInvoiceService.void(detail.sales_invoice_id)
+      await salesInvoiceService.void(detail.sales_invoice_id, reason.trim())
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Void failed')

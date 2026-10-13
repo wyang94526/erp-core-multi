@@ -63,6 +63,7 @@ export default function ProductionOrderDetail() {
   const [materialId, setMaterialId] = useState('')
   const [issueQty, setIssueQty] = useState('1')
   const [receiptQty, setReceiptQty] = useState('1')
+  const [receiptLot, setReceiptLot] = useState('')
   const [tab, setTab] = useState<'header' | 'components' | 'routing'>('header')
 
   const { data: order = null, isLoading, error: loadError } = useQuery({
@@ -105,7 +106,16 @@ export default function ProductionOrderDetail() {
 
   const receive = (event: FormEvent) => {
     event.preventDefault()
-    void run(() => productionOrderService.receive(orderId, { quantity_received: Number(receiptQty) }))
+    if (!receiptLot.trim()) {
+      setError('Record the finished-goods lot before this receipt can be posted.')
+      return
+    }
+    void run(() =>
+      productionOrderService.receive(orderId, {
+        quantity_received: Number(receiptQty),
+        lot_number: receiptLot.trim(),
+      }),
+    )
   }
 
   if (isLoading) {
@@ -258,6 +268,15 @@ export default function ProductionOrderDetail() {
                     max={openQty}
                     value={receiptQty}
                     onChange={(e) => setReceiptQty(e.target.value)}
+                    required
+                  />
+                </label>
+                <label style={fieldStyle}>
+                  Finished lot
+                  <input
+                    style={inputStyle}
+                    value={receiptLot}
+                    onChange={(e) => setReceiptLot(e.target.value)}
                     required
                   />
                 </label>

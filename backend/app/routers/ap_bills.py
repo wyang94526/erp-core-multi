@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import APBill
+from app.deps.auth import get_current_user
+from app.models import APBill, User
 from app.schemas import APBillDetailRead, APBillRead, CashTransactionRead, PaymentRequest
 from app.services import finance
 
@@ -34,7 +35,10 @@ def get_ap_bill_detail(bill_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{bill_id}/pay", response_model=CashTransactionRead, status_code=status.HTTP_201_CREATED)
 def pay_ap_bill(
-    bill_id: str, payload: PaymentRequest | None = None, db: Session = Depends(get_db)
+    bill_id: str,
+    payload: PaymentRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """
     Record an outgoing payment against an AP Bill.
@@ -61,6 +65,7 @@ def pay_ap_bill(
         payment_method=payment_method,
         instrument_ref_no=instrument_ref_no,
         payment_date=payment_date,
+        user_id=user.id,
     )
     db.commit()
     db.refresh(transaction)

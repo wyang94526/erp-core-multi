@@ -1274,6 +1274,7 @@ def receive_payment(
     payment_method: str | None = None,
     instrument_ref_no: str | None = None,
     payment_date: date | datetime | None = None,
+    user_id=None,
 ) -> CashTransaction:
     """Process an incoming AR payment.
 
@@ -1337,6 +1338,17 @@ def receive_payment(
 
     invoice.status = "Paid" if remaining_after <= 0 else "Partial"
 
+    from app.services.compliance import write_document_audit
+
+    write_document_audit(
+        db,
+        "cash_transactions",
+        "CREATE",
+        user_id,
+        "Cash receipt posted",
+        document_key=transaction.transaction_id,
+        detail={"reference_id": invoice.invoice_id, "amount": str(pay_amount)},
+    )
     db.flush()
     return transaction
 
@@ -1349,6 +1361,7 @@ def make_payment(
     payment_method: str | None = None,
     instrument_ref_no: str | None = None,
     payment_date: date | datetime | None = None,
+    user_id=None,
 ) -> CashTransaction:
     """Process an outgoing AP payment.
 
@@ -1422,6 +1435,17 @@ def make_payment(
 
     _sync_ap_settlement(bill, supplier_invoice, remaining_after)
 
+    from app.services.compliance import write_document_audit
+
+    write_document_audit(
+        db,
+        "cash_transactions",
+        "CREATE",
+        user_id,
+        "Cash payment posted",
+        document_key=transaction.transaction_id,
+        detail={"reference_id": bill.bill_id, "amount": str(pay_amount)},
+    )
     db.flush()
     return transaction
 

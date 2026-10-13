@@ -799,7 +799,7 @@ def _serialize_receipt_line(
         "quantity_unbilled": unbilled,
         "billing_status": _receipt_billing_status(qty_received, invoiced),
         "uom": None,
-        "lot_number": None,
+        "lot_number": getattr(line, "lot_number", None),
         "serial_number": None,
     }
 
@@ -1142,7 +1142,7 @@ def _enrich_goods_receipt_detail(db: Session, receipt: GoodsReceipt, payload: di
             po_uom = getattr(po_line, "uom", None) if po_line is not None else None
         raw["item_description"] = _line_item_description(line)
         raw["uom"] = po_uom or getattr(catalog, "uom", None) or "Each"
-        raw["lot_number"] = None
+        raw["lot_number"] = line.lot_number
         raw["serial_number"] = None
 
     operational_id = _operational_receipt_id(db, receipt)
@@ -1571,6 +1571,13 @@ def receive_purchase_order(
             raise HTTPException(status_code=400, detail=f"PO line {line_id} not found")
         catalog = catalog_item(db, po_line.sku)
         expense_line = skip_inventory_movement(catalog)
+        lot = (raw.get("lot_number") or "").strip() or None
+        if not expense_line:
+            from app.services.compliance import inventory_lot_block
+
+            blocked = inventory_lot_block(lot)
+            if blocked:
+                raise HTTPException(status_code=400, detail=blocked)
         po_qty = _d(po_line.quantity)
         already_qty = already.get(po_line.sku, Decimal("0"))
         unit_cost = _d(raw.get("unit_cost", po_line.unit_price))
@@ -1626,6 +1633,7 @@ def receive_purchase_order(
                 actual_unit_cost=unit_cost,
                 quantity_invoiced=Decimal("0"),
                 billing_status="UNBILLED",
+                lot_number=lot,
             )
         )
         if expense_line:
@@ -1638,6 +1646,7 @@ def receive_purchase_order(
                 quantity=qty_int,
                 reference=receipt.receipt_number,
                 notes=f"PO receipt {po.po_number}",
+                lot_number=lot,
             )
         else:
             item = db.get(Item, po_line.sku)
@@ -2101,6 +2110,7 @@ def accrue_subcontract_receipt(
     item_id: str | None = None,
     source_line_id: int | None = None,
     received_by_user_id: UUID | None = None,
+    lot_number: str | None = None,
 ) -> dict:
     """Post GRNI accrual when finished goods are received on a subcontract order."""
     fg_item_id = item_id or sco.item_id
@@ -2141,6 +2151,13 @@ def accrue_subcontract_receipt(
     db.flush()
 
     catalog_row = db.get(Item, fg_item_id)
+    lot = (lot_number or "").strip() or None
+    if not skip_inventory_movement(catalog_row):
+        from app.services.compliance import inventory_lot_block
+
+        blocked = inventory_lot_block(lot)
+        if blocked:
+            raise HTTPException(status_code=400, detail=blocked)
     line_description = (
         (getattr(catalog_row, "description", None) or "").strip()
         or f"Subcontract FG {fg_item_id}"
@@ -2159,6 +2176,7 @@ def accrue_subcontract_receipt(
             actual_unit_cost=cost,
             quantity_invoiced=Decimal("0"),
             billing_status="UNBILLED",
+            lot_number=lot,
         )
     )
     db.flush()
@@ -3304,6 +3322,7 @@ def pay_supplier_invoice(
     payment_method: str | None = None,
     instrument_ref_no: str | None = None,
     payment_date: date | datetime | None = None,
+    user_id=None,
 ) -> dict:
     invoice = _load_invoice(db, invoice_id)
     if invoice.status not in {"APPROVED", "PAID"}:
@@ -3328,6 +3347,7 @@ def pay_supplier_invoice(
         payment_method=payment_method,
         instrument_ref_no=instrument_ref_no,
         payment_date=payment_date,
+        user_id=user_id,
     )
     result = serialize_supplier_invoice(_load_invoice(db, invoice_id))
     result["payment_transaction_id"] = txn.transaction_id

@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import BankAccount, ChartOfAccount, LedgerPosting, PostingRule, SupplierInvoiceDistribution
+from app.deps.auth import get_current_user
+from app.models import BankAccount, ChartOfAccount, LedgerPosting, PostingRule, SupplierInvoiceDistribution, User
+from app.services.compliance import write_document_audit
 from app.schemas import ChartOfAccountCreate, ChartOfAccountRead, ChartOfAccountUpdate
 
 router = APIRouter(prefix="/accounts", tags=["chart-of-accounts"])
@@ -21,9 +23,23 @@ def list_accounts(
 
 
 @router.post("", response_model=ChartOfAccountRead, status_code=status.HTTP_201_CREATED)
-def create_account(payload: ChartOfAccountCreate, db: Session = Depends(get_db)) -> ChartOfAccount:
+def create_account(
+    payload: ChartOfAccountCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ChartOfAccount:
     account = ChartOfAccount(**payload.model_dump())
     db.add(account)
+    db.flush()
+    write_document_audit(
+        db,
+        "chart_of_accounts",
+        "CREATE",
+        user.id,
+        "Chart of accounts row created",
+        record_id=account.id,
+        detail={"account_code": account.account_code},
+    )
     db.commit()
     db.refresh(account)
     return account
@@ -39,20 +55,36 @@ def get_account(account_id: UUID, db: Session = Depends(get_db)) -> ChartOfAccou
 
 @router.patch("/{account_id}", response_model=ChartOfAccountRead)
 def update_account(
-    account_id: UUID, payload: ChartOfAccountUpdate, db: Session = Depends(get_db)
+    account_id: UUID,
+    payload: ChartOfAccountUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ChartOfAccount:
     account = db.get(ChartOfAccount, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(account, key, value)
+    write_document_audit(
+        db,
+        "chart_of_accounts",
+        "UPDATE",
+        user.id,
+        "Chart of accounts row edited",
+        record_id=account.id,
+        detail={"account_code": account.account_code},
+    )
     db.commit()
     db.refresh(account)
     return account
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_account(account_id: UUID, db: Session = Depends(get_db)) -> None:
+def delete_account(
+    account_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
     account = db.get(ChartOfAccount, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -87,5 +119,14 @@ def delete_account(account_id: UUID, db: Session = Depends(get_db)) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete an account used on a supplier invoice distribution.",
         )
+    write_document_audit(
+        db,
+        "chart_of_accounts",
+        "DELETE",
+        user.id,
+        "Chart of accounts row deleted",
+        record_id=account.id,
+        detail={"account_code": account.account_code},
+    )
     db.delete(account)
     db.commit()

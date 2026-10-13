@@ -1716,6 +1716,7 @@ class FinishedGoodsReceiptCreate(BaseModel):
     notes: str | None = None
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     sco_line_id: int | None = None
+    lot_number: str | None = Field(default=None, max_length=80)
 
 class FinishedGoodsReceiptRead(ORMModel):
     receipt_id: str
@@ -2703,6 +2704,7 @@ class StockMovementCreate(BaseModel):
     bin_id: str = Field(max_length=50)
     reference: str | None = Field(default=None, max_length=50)
     notes: str | None = None
+    lot_number: str | None = Field(default=None, max_length=80)
     movement_date: date | None = None
 
 class StockMovementRead(ORMModel):
@@ -2716,6 +2718,7 @@ class StockMovementRead(ORMModel):
     bin_code: str | None = None
     reference: str | None
     notes: str | None
+    lot_number: str | None = None
     movement_date: date
     created_at: datetime | None
 
@@ -2724,6 +2727,7 @@ class StockAdjustRequest(BaseModel):
     item_id: str = Field(max_length=50)
     quantity_delta: int
     notes: str | None = None
+    lot_number: str | None = Field(default=None, max_length=80)
     warehouse_id: str | None = Field(default=None, max_length=50)
     bin_id: str | None = Field(default=None, max_length=50)
 
@@ -2735,6 +2739,11 @@ class StockTransferRequest(BaseModel):
     from_warehouse_id: str | None = Field(default=None, max_length=50)
     from_bin_id: str | None = Field(default=None, max_length=50)
     notes: str | None = None
+    lot_number: str | None = Field(default=None, max_length=80)
+
+
+class SalesInvoiceVoidRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=500)
 
 
 
@@ -2871,6 +2880,7 @@ class ComponentIssueLogRead(ORMModel):
 class ItemFulfillmentLineCreate(BaseModel):
     sales_order_line_id: int
     quantity_fulfilled: int = Field(gt=0)
+    lot_number: str | None = Field(default=None, max_length=80)
 
 
 class ItemFulfillmentCreate(BaseModel):
@@ -2899,6 +2909,7 @@ class ItemFulfillmentLineRead(BaseModel):
     sales_order_line_id: int
     item_id: str
     quantity_fulfilled: int
+    lot_number: str | None = None
 
 
 class ItemFulfillmentRead(BaseModel):
@@ -2973,6 +2984,7 @@ class GoodsReceiptLineCreate(BaseModel):
     source_line_id: int
     quantity_received: Decimal = Field(gt=0)
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    lot_number: str | None = Field(default=None, max_length=80)
 
 
 class GoodsReceiptCreate(BaseModel):
@@ -3616,6 +3628,7 @@ class ProductionReceiptCreate(BaseModel):
     quantity_received: int = Field(gt=0)
     receipt_date: date | None = None
     notes: str | None = None
+    lot_number: str | None = Field(default=None, max_length=80)
 
 
 class ProductionReceiptRead(ORMModel):
@@ -3623,6 +3636,7 @@ class ProductionReceiptRead(ORMModel):
     production_order_id: str
     quantity_received: int
     receipt_date: date
+    lot_number: str | None = None
     posted_to_stock: bool
     notes: str | None = None
 

@@ -581,6 +581,7 @@ def serialize_fulfillment(row: ItemFulfillment) -> dict:
                 "sales_order_line_id": line.sales_order_line_id,
                 "item_id": line.item_id,
                 "quantity_fulfilled": line.quantity_fulfilled,
+                "lot_number": line.lot_number,
             }
             for line in (row.lines or [])
         ],
@@ -713,6 +714,7 @@ def create_fulfillment(
                 sales_order_line_id=line_id,
                 item_id=so_line.item_id,
                 quantity_fulfilled=qty,
+                lot_number=(raw.get("lot_number") or "").strip() or None,
             )
         )
 
@@ -769,6 +771,11 @@ def update_fulfillment_status(
                 continue
             if int(line.quantity_fulfilled) <= 0:
                 continue
+            from app.services.compliance import shipment_release_block
+
+            blocked = shipment_release_block(db, line.item_id, line.lot_number)
+            if blocked:
+                raise HTTPException(status_code=400, detail=f"{line.item_id}: {blocked}")
             inventory.issue_stock(
                 db,
                 item_id=line.item_id,
@@ -776,6 +783,7 @@ def update_fulfillment_status(
                 reference=fulfillment.fulfillment_number,
                 notes=f"Fulfillment shipment for SO {fulfillment.sales_order_id}",
                 movement_date=ship_on,
+                lot_number=line.lot_number,
             )
         fulfillment.shipped_date = ship_on
         order = (
@@ -812,10 +820,10 @@ def update_fulfillment_lines(
     lines: list[dict],
 ) -> dict:
     fulfillment = _load_fulfillment(db, fulfillment_id)
-    if (fulfillment.status or "").upper() != "DRAFT":
+    if (fulfillment.status or "").upper() == "SHIPPED":
         raise HTTPException(
             status_code=400,
-            detail="Only draft fulfillments can change shipment quantities.",
+            detail="Shipped fulfillments cannot change lot or quantity.",
         )
     if not lines:
         raise HTTPException(status_code=400, detail="At least one fulfillment line is required")
@@ -829,7 +837,15 @@ def update_fulfillment_lines(
                 status_code=400,
                 detail=f"Fulfillment line for sales order line {line_id} was not found",
             )
-        row.quantity_fulfilled = qty
+        if (fulfillment.status or "").upper() != "DRAFT" and qty != int(row.quantity_fulfilled):
+            raise HTTPException(
+                status_code=400,
+                detail="Only draft fulfillments can change shipment quantities.",
+            )
+        if (fulfillment.status or "").upper() == "DRAFT":
+            row.quantity_fulfilled = qty
+        if "lot_number" in raw:
+            row.lot_number = (raw.get("lot_number") or "").strip() or None
     db.flush()
     _assert_fulfillment_record_within_ordered(db, _load_fulfillment(db, fulfillment_id))
     fulfillment.updated_at = datetime.utcnow()
@@ -1215,13 +1231,73 @@ def approve_sales_invoice(db: Session, invoice_id: int) -> dict:
     return serialize_sales_invoice(_load_sales_invoice(db, invoice_id))
 
 
-def void_sales_invoice(db: Session, invoice_id: int) -> dict:
+def void_sales_invoice(db: Session, invoice_id: int, *, user_id=None, reason: str) -> dict:
+    """Void keeps the original journal and posts an offsetting reversal."""
+    from app.models import ChartOfAccount, JournalEntry
+    from app.services.compliance import accrual_posting_date, write_document_audit
+    from app.services.period_close import period_lock_message
+
+    cleaned = (reason or "").strip()
+    if len(cleaned) < 5:
+        raise HTTPException(status_code=400, detail="A void reason of at least 5 characters is required.")
     invoice = _load_sales_invoice(db, invoice_id)
     if invoice.status == "PAID":
         raise HTTPException(status_code=400, detail="Paid invoices cannot be voided")
+    if invoice.status == "VOID":
+        raise HTTPException(status_code=400, detail="Invoice is already void")
+    ar = db.get(ARInvoice, invoice.ar_invoice_id) if invoice.ar_invoice_id else None
+    if ar is not None and ar.status in {"Paid", "Partial"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invoices with payments cannot be voided. Record a credit memo instead.",
+        )
+    if invoice.status == "APPROVED":
+        entries = (
+            db.query(JournalEntry)
+            .options(joinedload(JournalEntry.postings))
+            .filter(
+                JournalEntry.source_document_type == SOURCE_SALES_INVOICE,
+                JournalEntry.source_record_id == invoice.invoice_number,
+            )
+            .all()
+        )
+        originals = [entry for entry in entries if not (entry.description or "").startswith("Reversal:")]
+        if not originals:
+            raise HTTPException(status_code=400, detail="Approved invoice has no ledger posting to reverse")
+        preferred = accrual_posting_date(invoice.issue_date, date.today()) or date.today()
+        if period_lock_message(db, preferred, document="sales invoice reversal"):
+            preferred = date.today()
+        for entry in originals:
+            debit = next((row for row in entry.postings if Decimal(row.debit or 0) > 0), None)
+            credit = next((row for row in entry.postings if Decimal(row.credit or 0) > 0), None)
+            if debit is None or credit is None:
+                raise HTTPException(status_code=400, detail="Invoice journal is not a balanced pair")
+            finance._post_balanced_journal_entry(
+                db,
+                description=f"Reversal: {entry.description}",
+                debit_account=db.get(ChartOfAccount, credit.account_id),
+                credit_account=db.get(ChartOfAccount, debit.account_id),
+                amount=Decimal(debit.debit),
+                reference=invoice.invoice_number,
+                posted_by_user_id=user_id,
+                posting_date=preferred,
+                source_document_type=SOURCE_SALES_INVOICE,
+                source_record_id=invoice.invoice_number,
+                posting_rule_id=entry.posting_rule_id,
+            )
     invoice.status = "VOID"
     invoice.outstanding_balance = Decimal("0")
     invoice.updated_at = datetime.utcnow()
+    if ar is not None:
+        ar.status = "Void"
     sync_sales_order_invoice_status(db, db.get(SalesOrder, invoice.sales_order_id))
+    write_document_audit(
+        db,
+        "sales_invoices",
+        "VOID",
+        user_id,
+        cleaned,
+        document_key=invoice.invoice_number,
+    )
     db.flush()
     return serialize_sales_invoice(invoice)

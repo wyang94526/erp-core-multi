@@ -29,6 +29,7 @@ from app.services.po_totals import apply_estimated_landed_unit_costs, apply_po_t
 from app.services.payment_terms import apply_payment_term_fields
 from app.services.item_types import catalog_item, validate_line_quantity
 from app.services.po_sco_demand import assert_sco_component_qty_within_demand
+from app.services.compliance import assert_approved_vendor, write_document_audit
 from app.services.period_close import assert_dates_open, assert_transaction_date_open
 
 
@@ -197,9 +198,13 @@ def list_purchase_orders(
 
 
 @router.post("", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
-def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(get_db)) -> PurchaseOrder:
-    if db.get(Supplier, payload.supplier_id) is None:
-        raise HTTPException(status_code=400, detail="Supplier not found")
+def create_purchase_order(
+    payload: PurchaseOrderCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PurchaseOrder:
+    assert_approved_vendor(db, payload.supplier_id)
+    supplier = db.get(Supplier, payload.supplier_id)
 
     _validate_po_links(db, payload.po_type, payload.sco_number, payload.items)
     _validate_po_quantities(db, payload.items)
@@ -237,6 +242,14 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
     apply_po_totals(po)
     db.add(po)
     db.flush()
+    write_document_audit(
+        db,
+        "purchaseorders",
+        "CREATE",
+        user.id,
+        "Purchase order created",
+        document_key=po.po_number,
+    )
 
     # Operational Approved must go through the approval workflow.
 
@@ -258,7 +271,10 @@ def get_purchase_order(po_number: str, db: Session = Depends(get_db)) -> Purchas
 
 @router.patch("/{po_number}", response_model=PurchaseOrderRead)
 def update_purchase_order(
-    po_number: str, payload: PurchaseOrderUpdate, db: Session = Depends(get_db)
+    po_number: str,
+    payload: PurchaseOrderUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> PurchaseOrder:
     po = db.get(PurchaseOrder, po_number)
     if not po:
@@ -274,9 +290,8 @@ def update_purchase_order(
 
     data = payload.model_dump(exclude_unset=True, exclude={"items"})
 
-    if "supplier_id" in data and data["supplier_id"] is not None:
-        if db.get(Supplier, data["supplier_id"]) is None:
-            raise HTTPException(status_code=400, detail="Supplier not found")
+    supplier_id = data.get("supplier_id") or po.supplier_id
+    assert_approved_vendor(db, supplier_id)
 
     if "sco_number" in data:
         data["sco_number"] = _blank_to_none(data.get("sco_number"))
@@ -325,8 +340,14 @@ def update_purchase_order(
             po.items.append(PurchaseOrderItem(po_number=po.po_number, **row))
 
     apply_po_totals(po)
-
-    # AP bill creation happens when approval workflow finalizes APPROVED.
+    write_document_audit(
+        db,
+        "purchaseorders",
+        "UPDATE",
+        user.id,
+        "Purchase order edited",
+        document_key=po.po_number,
+    )
 
     try:
         db.commit()

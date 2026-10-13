@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ARInvoice
+from app.deps.auth import get_current_user
+from app.models import ARInvoice, User
 from app.schemas import ARInvoiceDetailRead, ARInvoiceRead, CashTransactionRead, PaymentRequest
 from app.services import finance
 
@@ -50,7 +51,10 @@ def create_ar_credit_memo(invoice_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{invoice_id}/pay", response_model=CashTransactionRead, status_code=status.HTTP_201_CREATED)
 def pay_ar_invoice(
-    invoice_id: str, payload: PaymentRequest | None = None, db: Session = Depends(get_db)
+    invoice_id: str,
+    payload: PaymentRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """
     Record receipt of payment against an AR Invoice.
@@ -77,6 +81,7 @@ def pay_ar_invoice(
         payment_method=payment_method,
         instrument_ref_no=instrument_ref_no,
         payment_date=payment_date,
+        user_id=user.id,
     )
     db.commit()
     db.refresh(transaction)

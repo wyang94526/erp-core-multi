@@ -77,6 +77,7 @@ export function SubcontractOrderDetail() {
     receipt_date: new Date().toISOString().split('T')[0],
     notes: '',
     unit_cost: '',
+    lot_number: '',
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -164,6 +165,7 @@ export function SubcontractOrderDetail() {
       notes?: string
       unit_cost?: number
       sco_line_id?: number
+      lot_number?: string
     }) => subcontractOrderService.receiveGoods(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subcontractOrders', id] })
@@ -176,6 +178,7 @@ export function SubcontractOrderDetail() {
         receipt_date: new Date().toISOString().split('T')[0],
         notes: '',
         unit_cost: '',
+        lot_number: '',
       })
     },
     onError: (err: any) => {
@@ -581,6 +584,10 @@ export function SubcontractOrderDetail() {
       setFormErrors({ receive: 'Quantity received must be greater than 0' })
       return
     }
+    if (!receiveForm.lot_number.trim()) {
+      setFormErrors({ receive: 'Record the lot before this receipt can be posted.' })
+      return
+    }
 
     const qty = Number(receiveForm.quantity_received)
     if (qty > receiveRemaining) {
@@ -594,6 +601,7 @@ export function SubcontractOrderDetail() {
       notes: receiveForm.notes || undefined,
       unit_cost: receiveForm.unit_cost ? Number(receiveForm.unit_cost) : undefined,
       sco_line_id: receiveForm.sco_line_id ? Number(receiveForm.sco_line_id) : undefined,
+      lot_number: receiveForm.lot_number.trim(),
     })
   }
 
@@ -1466,6 +1474,14 @@ export function SubcontractOrderDetail() {
                   onChange={(e) =>
                     setReceiveForm((prev) => ({ ...prev, quantity_received: e.target.value }))
                   }
+                  style={inputStyle}
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle}>Lot *</label>
+                <input
+                  value={receiveForm.lot_number}
+                  onChange={(e) => setReceiveForm((prev) => ({ ...prev, lot_number: e.target.value }))}
                   style={inputStyle}
                 />
               </div>

@@ -56,6 +56,7 @@ export function ItemFulfillmentList() {
   const [skip, setSkip] = useState(0)
   const [selected, setSelected] = useState<ItemFulfillment | null>(null)
   const [lineQtyDraft, setLineQtyDraft] = useState<Record<number, number>>({})
+  const [lineLotDraft, setLineLotDraft] = useState<Record<number, string>>({})
   const [shippingDateDraft, setShippingDateDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const { values } = useListFilterParams(FILTERS)
@@ -82,8 +83,9 @@ export function ItemFulfillmentList() {
     return selected.lines.map((line) => ({
       ...line,
       quantity_fulfilled: lineQtyDraft[line.sales_order_line_id] ?? line.quantity_fulfilled,
+      lot_number: lineLotDraft[line.sales_order_line_id] ?? line.lot_number ?? '',
     }))
-  }, [selected, lineQtyDraft])
+  }, [selected, lineQtyDraft, lineLotDraft])
   const overFulfillErrors = useMemo(() => {
     if (!selected || !selectedOrder || selected.status === 'SHIPPED') return []
     return validateFulfillmentAgainstOrder(selectedOrder, rows, selectedLines, {
@@ -158,6 +160,7 @@ export function ItemFulfillmentList() {
         selectedLines.map((line) => ({
           sales_order_line_id: line.sales_order_line_id,
           quantity_fulfilled: Number(line.quantity_fulfilled),
+          lot_number: String(line.lot_number || '').trim() || null,
         })),
       )
       setSelected(updated)
@@ -367,6 +370,7 @@ export function ItemFulfillmentList() {
                   <th style={{ ...thStyle, textAlign: 'right' }}>Ordered</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>This shipment</th>
+                  <th style={thStyle}>Lot</th>
                 </tr>
               </thead>
               <tbody>
@@ -414,6 +418,24 @@ export function ItemFulfillmentList() {
                           />
                         ) : (
                           line.quantity_fulfilled
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        {selected.status === 'SHIPPED' ? (
+                          line.lot_number || '—'
+                        ) : (
+                          <input
+                            aria-label={`Lot for ${line.item_id}`}
+                            value={line.lot_number || ''}
+                            disabled={busy}
+                            onChange={(event) =>
+                              setLineLotDraft((prev) => ({
+                                ...prev,
+                                [line.sales_order_line_id]: event.target.value,
+                              }))
+                            }
+                            style={qtyInputStyle}
+                          />
                         )}
                       </td>
                     </tr>

@@ -412,6 +412,10 @@ def submit_document(
     _assert_permission(user, SUBMIT_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
+    if canonical == "PURCHASE_ORDER":
+        from app.services.compliance import assert_approved_vendor
+
+        assert_approved_vendor(db, doc.supplier_id)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current not in {"DRAFT", "REJECTED"}:
         raise HTTPException(
@@ -434,6 +438,17 @@ def submit_document(
         comments=comments,
         step_number=None,
     )
+    if canonical in {"SALES_ORDER", "PURCHASE_ORDER"}:
+        from app.services.compliance import write_document_audit
+
+        write_document_audit(
+            db,
+            "salesorders" if canonical == "SALES_ORDER" else "purchaseorders",
+            "UPDATE",
+            user.id,
+            "Submitted for approval",
+            document_key=document_id,
+        )
 
     if canonical == "PURCHASE_ORDER" and getattr(doc, "status", None) == "Draft":
         doc.status = "Submitted"
@@ -484,6 +499,10 @@ def approve_document(
     _assert_permission(user, APPROVE_PERMISSION[canonical])
 
     doc = _load_document(db, canonical, document_id)
+    if canonical == "PURCHASE_ORDER":
+        from app.services.compliance import assert_approved_vendor
+
+        assert_approved_vendor(db, doc.supplier_id)
     current = getattr(doc, "approval_status", None) or "DRAFT"
     if current != "PENDING_APPROVAL":
         raise HTTPException(
@@ -554,6 +573,17 @@ def approve_document(
     from app.services.document_revisions import record_reapproval_change_logs
 
     record_reapproval_change_logs(db, canonical=canonical, doc=doc, user=user)
+    if canonical in {"SALES_ORDER", "PURCHASE_ORDER"}:
+        from app.services.compliance import write_document_audit
+
+        write_document_audit(
+            db,
+            "salesorders" if canonical == "SALES_ORDER" else "purchaseorders",
+            "UPDATE",
+            user.id,
+            "Approved",
+            document_key=document_id,
+        )
     db.commit()
     db.refresh(doc)
     return _doc_snapshot(

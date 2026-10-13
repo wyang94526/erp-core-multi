@@ -1040,6 +1040,7 @@ export interface ItemFulfillmentLine {
   sales_order_line_id: number;
   item_id: string;
   quantity_fulfilled: number;
+  lot_number?: string | null;
 }
 
 export interface ItemFulfillment {

@@ -341,12 +341,20 @@ class AuditLog(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     table_name = Column(String(50), nullable=False)
-    record_id = Column(UUID(as_uuid=True), nullable=False)
+    record_id = Column(UUID(as_uuid=True), nullable=True)
+    document_key = Column(String(80), nullable=True)
     action = Column(String(10), nullable=False)
     old_data = Column(JSONB)
     new_data = Column(JSONB)
     user_id = Column(UUID(as_uuid=True))
     changed_at = Column(DateTime(timezone=True), server_default=text('NOW()'))
+
+    __table_args__ = (
+        CheckConstraint(
+            "record_id IS NOT NULL OR document_key IS NOT NULL",
+            name="chk_audit_logs_identity",
+        ),
+    )
 
 # ========================================================
 # 2. FINANCIAL & LEDGER TABLES
@@ -1212,7 +1220,7 @@ class ARInvoice(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     __table_args__ = (
-        CheckConstraint("status IN ('Unpaid', 'Partial', 'Paid')", name='chk_ar_invoice_status'),
+        CheckConstraint("status IN ('Unpaid', 'Partial', 'Paid', 'Void')", name='chk_ar_invoice_status'),
     )
 
     # Relationships
@@ -1544,6 +1552,7 @@ class StockMovement(Base):
     bin_id = Column(String(50), ForeignKey('binlocations.bin_id'), nullable=False)
     reference = Column(String(50))
     notes = Column(Text)
+    lot_number = Column(String(80), nullable=True)
     movement_date = Column(Date, nullable=False, server_default=text('CURRENT_DATE'))
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
@@ -1606,6 +1615,7 @@ class ItemFulfillmentLine(Base):
     )
     item_id = Column(String(50), ForeignKey("items.item_id"), nullable=False)
     quantity_fulfilled = Column(Integer, nullable=False)
+    lot_number = Column(String(80), nullable=True)
 
     __table_args__ = (
         CheckConstraint("quantity_fulfilled > 0", name="chk_fulfillment_qty_pos"),
@@ -1736,6 +1746,7 @@ class GoodsReceiptLine(Base):
     actual_unit_cost = Column(Numeric(12, 4), nullable=True)
     quantity_invoiced = Column(Numeric(12, 4), nullable=False, server_default=text("0"))
     billing_status = Column(String(20), nullable=False, server_default=text("'UNBILLED'"))
+    lot_number = Column(String(80), nullable=True)
 
     __table_args__ = (
         CheckConstraint("quantity_received > 0", name="chk_gr_line_qty_pos"),
@@ -2583,6 +2594,7 @@ class ProductionReceipt(Base):
     )
     quantity_received = Column(Integer, nullable=False)
     receipt_date = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
+    lot_number = Column(String(80), nullable=True)
     posted_to_stock = Column(Boolean, nullable=False, server_default=text("false"))
     stock_disposition = Column(String(20), nullable=False, server_default=text("'unposted'"))
     completion_counted = Column(Boolean, nullable=False, server_default=text("false"))

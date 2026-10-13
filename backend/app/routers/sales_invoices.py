@@ -9,8 +9,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import SalesInvoiceCreate, SalesInvoiceRead
+from app.deps.auth import get_current_user
+from app.models import User
+from app.schemas import SalesInvoiceCreate, SalesInvoiceRead, SalesInvoiceVoidRequest
 from app.services import o2c
+from app.services.compliance import write_document_audit
 
 router = APIRouter(prefix="/sales-invoices", tags=["sales-invoices"])
 
@@ -26,7 +29,11 @@ def get_sales_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SalesInvoiceRead, status_code=201)
-def create_sales_invoice(payload: SalesInvoiceCreate, db: Session = Depends(get_db)):
+def create_sales_invoice(
+    payload: SalesInvoiceCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = o2c.create_sales_invoice(
         db,
         sales_order_id=payload.sales_order_id,
@@ -38,19 +45,44 @@ def create_sales_invoice(payload: SalesInvoiceCreate, db: Session = Depends(get_
             [line.model_dump() for line in payload.lines] if payload.lines else None
         ),
     )
+    write_document_audit(
+        db,
+        "sales_invoices",
+        "CREATE",
+        user.id,
+        "Sales invoice created",
+        document_key=result["invoice_number"],
+    )
     db.commit()
     return result
 
 
 @router.post("/{invoice_id}/approve", response_model=SalesInvoiceRead)
-def approve_sales_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def approve_sales_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = o2c.approve_sales_invoice(db, invoice_id)
+    write_document_audit(
+        db,
+        "sales_invoices",
+        "UPDATE",
+        user.id,
+        "Sales invoice approved",
+        document_key=result["invoice_number"],
+    )
     db.commit()
     return result
 
 
 @router.post("/{invoice_id}/void", response_model=SalesInvoiceRead)
-def void_sales_invoice(invoice_id: int, db: Session = Depends(get_db)):
-    result = o2c.void_sales_invoice(db, invoice_id)
+def void_sales_invoice(
+    invoice_id: int,
+    payload: SalesInvoiceVoidRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = o2c.void_sales_invoice(db, invoice_id, user_id=user.id, reason=payload.reason)
     db.commit()
     return result

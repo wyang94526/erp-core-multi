@@ -143,10 +143,15 @@ export function useDrillDownActions() {
       setActionError('Please enter a non-zero quantity delta.')
       return
     }
+    const lot = window.prompt(`Lot for ${itemId}`, '')
+    if (!lot || !lot.trim()) {
+      setActionError('Record the lot before this inventory movement can be posted.')
+      return
+    }
     markBusy(itemId, true)
     setActionError(null)
     try {
-      await inventoryService.adjustStock(itemId, delta, 'Dashboard quick adjust')
+      await inventoryService.adjustStock(itemId, delta, 'Dashboard quick adjust', lot.trim())
       setActionNotice(`Adjusted ${itemId} by ${delta}`)
       await refreshDashboard()
     } catch (err) {

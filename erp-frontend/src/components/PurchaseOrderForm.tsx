@@ -674,7 +674,7 @@ export function PurchaseOrderForm() {
   const handleSubmitReceive = async (payload: {
     receipt_date: string
     notes: string | null
-    lines: Array<{ source_line_id: number; quantity_received: number; unit_cost?: number | null }>
+    lines: Array<{ source_line_id: number; quantity_received: number; unit_cost?: number | null; lot_number?: string | null }>
   }) => {
     if (!state.po_number) return
     setReceivingGoods(true)

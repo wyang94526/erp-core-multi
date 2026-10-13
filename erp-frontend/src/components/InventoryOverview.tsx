@@ -116,9 +116,14 @@ export function InventoryOverview() {
       alert('Please enter a non-zero number.')
       return
     }
+    const lot = window.prompt(`Lot for ${item.item_id}`, '')
+    if (!lot || !lot.trim()) {
+      alert('Record the lot before this inventory movement can be posted.')
+      return
+    }
     setActionItemId(item.item_id)
     try {
-      await inventoryService.adjustStock(item.item_id, delta)
+      await inventoryService.adjustStock(item.item_id, delta, undefined, lot.trim())
       await refresh()
       await queryClient.invalidateQueries({ queryKey: ['inventoryMovements'] })
     } catch (err) {
@@ -146,6 +151,11 @@ export function InventoryOverview() {
       alert('Enter a positive quantity.')
       return
     }
+    const lot = window.prompt(`Lot for ${item.item_id}`, '')
+    if (!lot || !lot.trim()) {
+      alert('Record the lot before this inventory movement can be posted.')
+      return
+    }
     setActionItemId(item.item_id)
     try {
       const [warehouses, bins] = await Promise.all([
@@ -168,6 +178,7 @@ export function InventoryOverview() {
         qty,
         warehouse.warehouse_id,
         bin.bin_id,
+        lot.trim(),
       )
       await refresh()
       await queryClient.invalidateQueries({ queryKey: ['inventoryMovements'] })

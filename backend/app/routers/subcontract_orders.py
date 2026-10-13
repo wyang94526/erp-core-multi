@@ -1099,6 +1099,7 @@ def receive_goods(
         quantity=int(payload.quantity_received),
         reference=receipt_id,
         notes=payload.notes or f"Finished goods from subcontract order {sco_number}",
+        lot_number=payload.lot_number,
     )
 
     from app.services import p2p
@@ -1114,6 +1115,7 @@ def receive_goods(
         item_id=item_id,
         source_line_id=target_line.sco_line_id if target_line else None,
         received_by_user_id=user.id,
+        lot_number=payload.lot_number,
     )
 
     all_receipts = (

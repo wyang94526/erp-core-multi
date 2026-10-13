@@ -29,6 +29,7 @@ type LineDraft = {
   quantity_received: number | null
   sco_numbers: string[]
   quantity_fulfilled: number
+  lot_number: string
 }
 
 export function ItemFulfillmentForm() {
@@ -40,6 +41,7 @@ export function ItemFulfillmentForm() {
   const [shippingDate, setShippingDate] = useState(localIsoDate())
   const [shipNow, setShipNow] = useState(false)
   const [lineQty, setLineQty] = useState<Record<number, number>>({})
+  const [lineLot, setLineLot] = useState<Record<number, string>>({})
 
   const { data: order, isLoading, isError, error } = useQuery({
     queryKey: ['salesOrders', id],
@@ -87,9 +89,10 @@ export function ItemFulfillmentForm() {
         quantity_received: cap != null ? cap.received : null,
         sco_numbers: cap?.scoNumbers || [],
         quantity_fulfilled: lineQty[item.so_item_id] ?? remaining,
+        lot_number: lineLot[item.so_item_id] ?? '',
       }
     })
-  }, [order, fulfillments, lineQty, catalogItems, subcontractOrders])
+  }, [order, fulfillments, lineQty, lineLot, catalogItems, subcontractOrders])
 
   const lineErrors = useMemo(() => {
     const errors: Record<number, string> = {}
@@ -123,6 +126,7 @@ export function ItemFulfillmentForm() {
         .map((d) => ({
           sales_order_line_id: d.sales_order_line_id,
           quantity_fulfilled: d.quantity_fulfilled,
+          lot_number: d.lot_number.trim() || null,
         }))
       return fulfillmentService.create({
         sales_order_id: id!,
@@ -200,6 +204,7 @@ export function ItemFulfillmentForm() {
                 <th style={{ ...thStyle, textAlign: 'right' }}>Received</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Already fulfilled</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>This shipment</th>
+                <th style={thStyle}>Lot</th>
               </tr>
             </thead>
             <tbody>
@@ -236,6 +241,17 @@ export function ItemFulfillmentForm() {
                           ...inputStyle,
                           borderColor: error ? '#c62828' : 'var(--border)',
                         }}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <input
+                        aria-label={`Lot for ${d.item_id}`}
+                        value={d.lot_number}
+                        disabled={max === 0}
+                        onChange={(e) =>
+                          setLineLot((prev) => ({ ...prev, [d.sales_order_line_id]: e.target.value }))
+                        }
+                        style={inputStyle}
                       />
                       {error ? (
                         <div

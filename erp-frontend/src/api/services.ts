@@ -570,14 +570,14 @@ export const fulfillmentService = {
     tracking_number?: string | null;
     status?: string;
     shipped_date?: string | null;
-    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>;
+    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number; lot_number?: string | null }>;
   }): Promise<ItemFulfillment> {
     return apiClient.post<ItemFulfillment>('/api/v1/fulfillments', data);
   },
 
   updateLines(
     id: number,
-    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number }>,
+    lines: Array<{ sales_order_line_id: number; quantity_fulfilled: number; lot_number?: string | null }>,
   ): Promise<ItemFulfillment> {
     return apiClient.patch<ItemFulfillment>(`/api/v1/fulfillments/${id}`, { lines });
   },
@@ -633,8 +633,8 @@ export const salesInvoiceService = {
     return apiClient.post<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}/approve`);
   },
 
-  void(id: number): Promise<SalesInvoiceDoc> {
-    return apiClient.post<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}/void`);
+  void(id: number, reason: string): Promise<SalesInvoiceDoc> {
+    return apiClient.post<SalesInvoiceDoc>(`/api/v1/sales-invoices/${id}/void`, { reason });
   },
 };
 
@@ -1421,6 +1421,7 @@ export const subcontractOrderService = {
       notes?: string;
       unit_cost?: number;
       sco_line_id?: number;
+      lot_number?: string;
     }
   ): Promise<SubcontractOrder> {
     return apiClient.post<SubcontractOrder>(
@@ -2474,11 +2475,13 @@ export const inventoryService = {
     itemId: string,
     quantityDelta: number,
     notes?: string,
+    lotNumber?: string,
   ): Promise<InventoryStockItem> {
     return apiClient.post<InventoryStockItem>('/api/v1/inventory/adjust', {
       item_id: itemId,
       quantity_delta: quantityDelta,
       notes,
+      lot_number: lotNumber,
     });
   },
 
@@ -2487,12 +2490,14 @@ export const inventoryService = {
     quantity: number,
     toWarehouseId: string,
     toBinId: string,
+    lotNumber?: string,
   ): Promise<InventoryStockItem> {
     return apiClient.post<InventoryStockItem>('/api/v1/inventory/transfer', {
       item_id: itemId,
       quantity,
       to_warehouse_id: toWarehouseId,
       to_bin_id: toBinId,
+      lot_number: lotNumber,
     });
   },
 };
@@ -2675,7 +2680,7 @@ export const productionOrderService = {
     apiClient.post<import('../types').ProductionOrder>(`/api/v1/production-orders/${encodeURIComponent(id)}/close`, {}),
   issue: (id: string, body: { issue_date?: string; notes?: string | null; lines: { material_id: number; quantity: number }[] }) =>
     apiClient.post(`/api/v1/production-orders/${encodeURIComponent(id)}/issues`, body),
-  receive: (id: string, body: { quantity_received: number; receipt_date?: string; notes?: string | null }) =>
+  receive: (id: string, body: { quantity_received: number; receipt_date?: string; notes?: string | null; lot_number?: string | null }) =>
     apiClient.post<import('../types').ProductionReceipt>(`/api/v1/production-orders/${encodeURIComponent(id)}/receipts`, body),
 }
 
