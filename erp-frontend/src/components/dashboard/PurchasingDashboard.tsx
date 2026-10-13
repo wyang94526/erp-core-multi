@@ -12,7 +12,8 @@ import {
   Truck,
 } from 'lucide-react'
 import type { DashboardAggregates, MetricDrillKey, QuickAction } from '../../types/dashboard'
-import { formatCurrencyPrecise } from '../../hooks/useDashboardData'
+import { formatCurrencyPrecise as formatAmountPrecise } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
 import MetricCard from './MetricCard'
 import QuickActions from './QuickActions'
 import StatusBadge from './StatusBadge'
@@ -51,6 +52,8 @@ export default function PurchasingDashboard({
   activeMetric,
   onMetricClick,
 }: PurchasingDashboardProps) {
+  const currency = useCompanyCurrency()
+  const formatCurrencyPrecise = (amount: number) => formatAmountPrecise(amount, currency)
   return (
     <>
       <div style={metricsGridStyle}>

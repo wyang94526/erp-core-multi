@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getStoredCompanyId } from '../api/client'
 import { companyProfileService } from '../api/services'
+import { currencySymbol, normalizeCurrency, setActiveCurrency } from '../utils/currency'
 
 export function companyProfileKey(companyId: string | null) {
   return ['companyProfile', companyId] as const
@@ -35,6 +36,14 @@ export function useCompanyLetterhead() {
     staleTime: 60_000,
   })
   const name = query.data?.company_name?.trim() || FALLBACK_COMPANY_NAME
-  const detail = [query.data?.country, query.data?.base_currency].filter(Boolean).join(' · ')
-  return { name, detail }
+  const currency = normalizeCurrency(query.data?.base_currency)
+  if (query.data?.base_currency) setActiveCurrency(currency)
+  const symbol = currencySymbol(currency)
+  const currencyLabel = query.data?.base_currency ? `${currency} ${symbol}` : ''
+  const detail = [query.data?.country, currencyLabel].filter(Boolean).join(' · ')
+  return { name, detail, currency, symbol }
+}
+
+export function useCompanyCurrency(): string {
+  return useCompanyLetterhead().currency
 }

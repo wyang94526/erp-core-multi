@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { DashboardAggregates, MetricDrillKey, QuickAction } from '../../types/dashboard'
 import { formatCurrency } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
 import MetricCard from './MetricCard'
 import QuickActions from './QuickActions'
 import TrendChart from './TrendChart'
@@ -41,12 +42,14 @@ export default function ExecutiveDashboard({
   activeMetric,
   onMetricClick,
 }: ExecutiveDashboardProps) {
+  const currency = useCompanyCurrency()
+  const money = (amount: number) => formatCurrency(amount, currency)
   return (
     <>
       <div style={metricsGridStyle}>
         <MetricCard
           label="Total Revenue"
-          value={formatCurrency(data.totalSalesRevenue)}
+          value={money(data.totalSalesRevenue)}
           subtext="All sales orders"
           accent="blue"
           icon={BadgeDollarSign}
@@ -64,7 +67,7 @@ export default function ExecutiveDashboard({
         />
         <MetricCard
           label="Inventory Value"
-          value={formatCurrency(data.inventoryValue)}
+          value={money(data.inventoryValue)}
           subtext={`${data.totalSkus} SKUs on hand`}
           accent="teal"
           icon={Package}
@@ -73,8 +76,8 @@ export default function ExecutiveDashboard({
         />
         <MetricCard
           label="Cash Flow"
-          value={formatCurrency(data.cashNet)}
-          subtext={`In ${formatCurrency(data.cashIn)} · Out ${formatCurrency(data.cashOut)}`}
+          value={money(data.cashNet)}
+          subtext={`In ${money(data.cashIn)} · Out ${money(data.cashOut)}`}
           accent="green"
           icon={Wallet}
           active={activeMetric === 'cash_flow'}

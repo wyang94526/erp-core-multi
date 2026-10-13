@@ -6,7 +6,13 @@
 import { useEffect, useState } from 'react'
 import { getStoredCompanyId, setStoredCompanyId } from '../api/client'
 import { companyService } from '../api/services'
-import type { CompanyMembership } from '../types'
+import type { Company, CompanyMembership } from '../types'
+import { currencySymbol } from '../utils/currency'
+
+function companyOptionLabel(company: Company) {
+  const symbol = currencySymbol(company.base_currency)
+  return `${company.code} — ${company.name} · ${company.base_currency} ${symbol}`
+}
 
 export function CompanySwitcher() {
   const [rows, setRows] = useState<CompanyMembership[]>([])
@@ -62,25 +68,25 @@ export function CompanySwitcher() {
           setStoredCompanyId(next)
           window.location.reload()
         }}
-        style={{ maxWidth: 280 }}
+        style={{ maxWidth: 420 }}
       >
         {parents.map((parent) => {
           const children = childrenOf(parent.company.id)
           if (children.length === 0) {
             return (
               <option key={parent.company.id} value={parent.company.id}>
-                {parent.company.code} — {parent.company.name}
+                {companyOptionLabel(parent.company)}
               </option>
             )
           }
           return (
-            <optgroup key={parent.company.id} label={`${parent.company.code} — ${parent.company.name}`}>
+            <optgroup key={parent.company.id} label={companyOptionLabel(parent.company)}>
               <option value={parent.company.id}>
-                {parent.company.code} — {parent.company.name}
+                {companyOptionLabel(parent.company)}
               </option>
               {children.map((row) => (
                 <option key={row.company.id} value={row.company.id}>
-                  {row.company.code} — {row.company.name}
+                  {companyOptionLabel(row.company)}
                 </option>
               ))}
             </optgroup>
@@ -88,7 +94,7 @@ export function CompanySwitcher() {
         })}
         {loose.map((row) => (
           <option key={row.company.id} value={row.company.id}>
-            {row.company.code} — {row.company.name}
+            {companyOptionLabel(row.company)}
           </option>
         ))}
       </select>

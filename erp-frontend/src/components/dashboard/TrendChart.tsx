@@ -15,6 +15,8 @@ import {
 } from 'recharts'
 import type { MonthlyTrendPoint } from '../../types/dashboard'
 import { formatCurrency } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
+import { formatMoney } from '../../utils/currency'
 import { sectionStyle, sectionTitleStyle } from './dashboardStyles'
 
 type TrendChartProps = {
@@ -26,6 +28,7 @@ export default function TrendChart({
   data,
   title = 'Monthly Sales vs Purchasing',
 }: TrendChartProps) {
+  const currency = useCompanyCurrency()
   return (
     <div style={sectionStyle}>
       <h3 style={sectionTitleStyle}>{title}</h3>
@@ -36,17 +39,10 @@ export default function TrendChart({
             <XAxis dataKey="label" tick={{ fill: 'var(--text)', fontSize: 12 }} />
             <YAxis
               tick={{ fill: 'var(--text)', fontSize: 12 }}
-              tickFormatter={(v) =>
-                new Intl.NumberFormat('en-US', {
-                  notation: 'compact',
-                  style: 'currency',
-                  currency: 'USD',
-                  maximumFractionDigits: 1,
-                }).format(Number(v) || 0)
-              }
+              tickFormatter={(v) => formatMoney(Number(v) || 0, currency, { compact: true })}
             />
             <Tooltip
-              formatter={(value) => formatCurrency(Number(value) || 0)}
+              formatter={(value) => formatCurrency(Number(value) || 0, currency)}
               contentStyle={{
                 borderRadius: 8,
                 border: '1px solid var(--border)',

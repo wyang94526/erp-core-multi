@@ -21,6 +21,7 @@ import {
 import { cashReferenceHref, cashReferenceLabel } from '../../utils/cashReference'
 import { useAuth } from '../../context/AuthContext'
 import { formatCurrency, formatCurrencyPrecise } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
 import { useDrillDownActions } from '../../hooks/useDrillDownActions'
 import { RecordCashPaymentDialog } from '../RecordCashPaymentDialog'
 import {
@@ -95,6 +96,7 @@ export default function MetricDetailSlideOver({
   const navigate = useNavigate()
   const { hasPermission } = useAuth()
   const actions = useDrillDownActions()
+  const currency = useCompanyCurrency()
 
   const [wide, setWide] = useState(false)
   const [tab, setTab] = useState<DrawerTab>('summary')
@@ -148,7 +150,7 @@ export default function MetricDetailSlideOver({
 
   const meta = useMemo(
     () => (metricKey ? getMetricMeta(metricKey, data, formatCurrency) : null),
-    [metricKey, data],
+    [metricKey, data, currency],
   )
 
   const ensureSoDetail = async (id: string) => {

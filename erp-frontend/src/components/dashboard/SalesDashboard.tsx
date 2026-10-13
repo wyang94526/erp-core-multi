@@ -12,7 +12,8 @@ import {
   Users,
 } from 'lucide-react'
 import type { DashboardAggregates, MetricDrillKey, QuickAction } from '../../types/dashboard'
-import { formatCurrencyPrecise } from '../../hooks/useDashboardData'
+import { formatCurrencyPrecise as formatAmountPrecise } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
 import MetricCard from './MetricCard'
 import QuickActions from './QuickActions'
 import StatusBadge from './StatusBadge'
@@ -44,6 +45,8 @@ export default function SalesDashboard({
   onMetricClick,
 }: SalesDashboardProps) {
   const navigate = useNavigate()
+  const currency = useCompanyCurrency()
+  const formatCurrencyPrecise = (amount: number) => formatAmountPrecise(amount, currency)
   const uniqueCustomers = new Set(data.salesOrders.map((o) => o.customer_id)).size
 
   return (

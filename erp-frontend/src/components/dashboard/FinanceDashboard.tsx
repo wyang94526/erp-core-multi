@@ -11,7 +11,8 @@ import {
   Receipt,
 } from 'lucide-react'
 import type { DashboardAggregates, MetricDrillKey, QuickAction } from '../../types/dashboard'
-import { formatCurrency, formatCurrencyPrecise } from '../../hooks/useDashboardData'
+import { formatCurrency as formatAmount, formatCurrencyPrecise as formatAmountPrecise } from '../../hooks/useDashboardData'
+import { useCompanyCurrency } from '../../hooks/useCompanyProfile'
 import MetricCard from './MetricCard'
 import QuickActions from './QuickActions'
 import StatusBadge from './StatusBadge'
@@ -43,6 +44,9 @@ export default function FinanceDashboard({
   activeMetric,
   onMetricClick,
 }: FinanceDashboardProps) {
+  const currency = useCompanyCurrency()
+  const formatCurrency = (amount: number) => formatAmount(amount, currency)
+  const formatCurrencyPrecise = (amount: number) => formatAmountPrecise(amount, currency)
   const pendingDocs = [
     ...data.pendingArApprovals.map((inv) => ({
       id: inv.invoice_id,

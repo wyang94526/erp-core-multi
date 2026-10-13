@@ -16,6 +16,7 @@ import {
   salesOrderService,
   subcontractOrderService,
 } from '../api/services'
+import { formatMoney } from '../utils/currency'
 import type {
   APBill,
   ARInvoice,
@@ -387,17 +388,10 @@ export function useDashboardData(options?: { enabled?: boolean }) {
   return { data, isLoading, isError, error }
 }
 
-export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount || 0)
+export function formatCurrency(amount: number, currencyCode?: string | null): string {
+  return formatMoney(amount, currencyCode)
 }
 
-export function formatCurrencyPrecise(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(amount || 0)
+export function formatCurrencyPrecise(amount: number, currencyCode?: string | null): string {
+  return formatMoney(amount, currencyCode, { precise: true })
 }
